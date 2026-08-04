@@ -38,13 +38,28 @@ export const DEFAULT_LOCALE = 'en-US';
 // rendering a table of dates).
 const formatterCache = new Map<string, Intl.DateTimeFormat>();
 
+// In practice the key space is small — a handful of option shapes (month,
+// weekday, dayPeriod) crossed with however many distinct locales a caller
+// uses — so this is defensive rather than fixing an observed leak. Caps
+// memory for the pathological case of an app looping over many distinct
+// locale strings.
+const MAX_CACHE_SIZE = 500;
+
 function getFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
   const key = locale + JSON.stringify(options);
   let formatter = formatterCache.get(key);
-  if (!formatter) {
-    formatter = new Intl.DateTimeFormat(locale, options);
-    formatterCache.set(key, formatter);
+  if (formatter) {
+    return formatter;
   }
+  if (formatterCache.size >= MAX_CACHE_SIZE) {
+    // Map preserves insertion order, so this evicts the oldest entry —
+    // not true LRU, but good enough to bound growth without extra
+    // bookkeeping on every cache hit.
+    const oldestKey = formatterCache.keys().next().value;
+    if (oldestKey !== undefined) formatterCache.delete(oldestKey);
+  }
+  formatter = new Intl.DateTimeFormat(locale, options);
+  formatterCache.set(key, formatter);
   return formatter;
 }
 
@@ -54,11 +69,8 @@ function getFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl
 // slicing is what breaks under RTL scripts and locales with different
 // field ordering (e.g. year-month-day vs day-month-year).
 //
-// `temporal: any` — deliberately untyped. Real Temporal.PlainDate /
-// PlainDateTime / ZonedDateTime instances (not the TemporalLike interface)
-// are what get passed through to Intl at runtime.
 function intlPart(
-  temporal: any,
+  temporal: TemporalLike,
   locale: string,
   options: Intl.DateTimeFormatOptions,
   partType: Intl.DateTimeFormatPartTypes
@@ -69,8 +81,9 @@ function intlPart(
   // Fix: convert to an Instant and pass the zone through the formatter's own
   // `timeZone` option. Converting to PlainDateTime instead would silently
   // drop the timezone info, which breaks combining e.g. 'MMMM' with 'zzz'.
-  const isZoned = typeof temporal?.toInstant === 'function' && typeof temporal?.timeZoneId === 'string';
-  const intlSafeTemporal = isZoned ? temporal.toInstant() : temporal;
+  const { toInstant, timeZoneId } = temporal;
+  const isZoned = typeof toInstant === 'function' && typeof timeZoneId === 'string';
+  const intlSafeTemporal = isZoned ? toInstant() : temporal;
 
   // Intl.DateTimeFormat hard-errors ("Mismatching Calendars") if the
   // formatter's resolved calendar doesn't match the Temporal object's own
@@ -92,11 +105,13 @@ function intlPart(
   const formatterOptions: Intl.DateTimeFormatOptions = {
     ...options,
     ...(calendar && calendar !== 'iso8601' ? { calendar } : {}),
-    ...(isZoned ? { timeZone: temporal.timeZoneId } : {}),
+    ...(isZoned ? { timeZone: timeZoneId } : {}),
   };
 
+  // Real Temporal instances (and the Instant from toInstant() above)
+  // satisfy Intl at runtime; TS's lib types just don't model that.
   const formatter = getFormatter(locale, formatterOptions);
-  const parts = formatter.formatToParts(intlSafeTemporal);
+  const parts = formatter.formatToParts(intlSafeTemporal as Date | number);
   const part = parts.find((p) => p.type === partType);
   if (!part) {
     throw new Error(
@@ -126,7 +141,19 @@ type TokenHandler = (t: TemporalLike, locale: string) => string;
 // README rather than silently guessed at here.
 export const TOKENS: Array<[string, TokenHandler, keyof TemporalLike]> = [
   ['yyyy', (t) => pad(t.year!, 4), 'year'],
-  ['yy', (t) => pad(t.year! % 100, 2), 'year'],
+  // Negative years break the fixed 2-digit width (-45 % 100 === -45), and
+  // truncating with Math.abs() would make 45 CE and 45 BCE render the same
+  // string. Throw instead — use yyyy if you need the sign to survive.
+  ['yy', (t) => {
+    if (t.year! < 0) {
+      throw new Error(
+        `temporal-fmt: token "yy" doesn't support negative years (got ${t.year}), ` +
+        `since truncating to 2 digits would make it indistinguishable from a ` +
+        `positive year. Use "yyyy" instead.`
+      );
+    }
+    return pad(t.year! % 100, 2);
+  }, 'year'],
   ['MMMM', (t, locale) => intlPart(t, locale, { month: 'long' }, 'month'), 'month'],
   ['MMM', (t, locale) => intlPart(t, locale, { month: 'short' }, 'month'), 'month'],
   ['MM', (t) => pad(t.month!, 2), 'month'],

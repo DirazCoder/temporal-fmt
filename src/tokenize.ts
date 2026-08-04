@@ -30,7 +30,7 @@ export function tokenize(format: string): Piece[] {
       // "open quote, then bare text, then open quote" instead of two
       // separate escaped-apostrophe literals around plain text.
       if (format[i + 1] === "'") {
-        pieces.push({ kind: 'literal', value: "'" });
+        appendLiteral(pieces, "'");
         i += 2;
         continue;
       }
@@ -60,7 +60,7 @@ export function tokenize(format: string): Piece[] {
         throw new Error(`temporal-fmt: unterminated quote in format string "${format}"`);
       }
 
-      pieces.push({ kind: 'literal', value: literal });
+      appendLiteral(pieces, literal);
       i = j;
       continue;
     }
@@ -74,9 +74,21 @@ export function tokenize(format: string): Piece[] {
 
     // Not a token, not a quote — pass the character through as-is. This is
     // what lets you write "yyyy-MM-dd" with bare hyphens instead of quoting them.
-    pieces.push({ kind: 'literal', value: ch });
+    appendLiteral(pieces, ch);
     i += 1;
   }
 
   return pieces;
+}
+
+// Merges onto the previous piece when it's also a literal, so a run of
+// bare characters (e.g. "---" between tokens) becomes one piece instead
+// of one allocation per character.
+function appendLiteral(pieces: Piece[], value: string): void {
+  const last = pieces[pieces.length - 1];
+  if (last && last.kind === 'literal') {
+    last.value += value;
+  } else {
+    pieces.push({ kind: 'literal', value });
+  }
 }

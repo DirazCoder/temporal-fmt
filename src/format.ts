@@ -3,6 +3,13 @@ import { tokenize } from './tokenize.js';
 
 const HANDLER_BY_TOKEN = new Map(TOKENS.map(([tok, fn, field]) => [tok, { fn, field }]));
 
+// Format strings are supposed to be short, hand-written literals like
+// "yyyy-MM-dd" — there's no legitimate reason for one to be thousands of
+// characters. Guards against an attacker (or a bug) feeding an enormous
+// string through to tokenize()/format(), which would otherwise scale
+// linearly with input length with no upper bound.
+const MAX_FORMAT_LENGTH = 1000;
+
 /**
  * Format a Temporal.PlainDate, PlainTime, PlainDateTime, or ZonedDateTime
  * using a date-fns-style token string.
@@ -25,6 +32,13 @@ const HANDLER_BY_TOKEN = new Map(TOKENS.map(([tok, fn, field]) => [tok, { fn, fi
  * deliberate: silently printing "undefined" would be worse than failing loudly.
  */
 export function format(temporal: TemporalLike, formatStr: string, options: FormatOptions = {}): string {
+  if (formatStr.length > MAX_FORMAT_LENGTH) {
+    throw new Error(
+      `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
+      `(got ${formatStr.length}).`
+    );
+  }
+
   const locale = options.locale ?? DEFAULT_LOCALE;
   const pieces = tokenize(formatStr);
   let result = '';
