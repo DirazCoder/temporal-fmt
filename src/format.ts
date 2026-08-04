@@ -3,11 +3,8 @@ import { tokenize } from './tokenize.js';
 
 const HANDLER_BY_TOKEN = new Map(TOKENS.map(([tok, fn, field]) => [tok, { fn, field }]));
 
-// Format strings are supposed to be short, hand-written literals like
-// "yyyy-MM-dd" — there's no legitimate reason for one to be thousands of
-// characters. Guards against an attacker (or a bug) feeding an enormous
-// string through to tokenize()/format(), which would otherwise scale
-// linearly with input length with no upper bound.
+// format strings are short hand-written literals ("yyyy-MM-dd") — cap the
+// length so a bug or bad input can't make tokenize() do unbounded work
 const MAX_FORMAT_LENGTH = 1000;
 
 /**
@@ -20,16 +17,12 @@ const MAX_FORMAT_LENGTH = 1000;
  * format(zdt, 'MMMM d, yyyy', { locale: 'fr-FR' })                  // "août 4, 2026"
  * format(zdt, 'EEEE d MMMM', { locale: 'ar-EG' })                   // Arabic weekday/month names
  *
- * Numeric fields (yyyy, MM, dd, HH, mm, ss, SSS) always render in Western
- * (0-9) digits regardless of locale — this keeps output predictable for
- * anything parsing the result back out (logs, APIs, filenames). Named
- * fields (MMMM, EEEE, a) are fully localized via Intl.DateTimeFormat,
- * including non-Gregorian calendars if the Temporal object itself carries
- * one (e.g. a PlainDate constructed with a Hebrew or Islamic calendar).
+ * Numeric fields always render in ASCII digits regardless of locale.
+ * Named fields (MMMM, EEEE, a) are fully localized via Intl, including
+ * non-Gregorian calendars if the Temporal object carries one.
  *
  * Throws if the format string uses a token the input type doesn't support
- * (e.g. 'HH' on a PlainDate, which has no time component) — this is
- * deliberate: silently printing "undefined" would be worse than failing loudly.
+ * (e.g. 'HH' on a PlainDate) rather than silently printing "undefined".
  */
 export function format(temporal: TemporalLike, formatStr: string, options: FormatOptions = {}): string {
   if (formatStr.length > MAX_FORMAT_LENGTH) {
@@ -50,9 +43,8 @@ export function format(temporal: TemporalLike, formatStr: string, options: Forma
     }
 
     const handler = HANDLER_BY_TOKEN.get(piece.value);
-    // Shouldn't happen — tokenize() only emits tokens from TOKENS — but keep
-    // TypeScript honest and fail loudly instead of silently.
     if (!handler) {
+      // shouldn't happen — tokenize() only emits tokens from TOKENS
       throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
     }
 
