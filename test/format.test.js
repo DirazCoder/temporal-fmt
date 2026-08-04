@@ -153,11 +153,9 @@ test('non-Gregorian calendar: Hebrew calendar date formats correctly, calendar r
 });
 
 test('non-Gregorian calendar: month-only query does not silently drop the token (iso8601-vs-explicit-calendar regression)', () => {
-  // Regression test: passing calendar: 'iso8601' explicitly to Intl with a
-  // single-field options object like { month: 'long' } used to make
-  // formatToParts() return an empty parts array instead of the month,
-  // causing this to throw "produced no month part". Plain (default
-  // calendar) objects must never hit that path.
+  // Regression test — see tokens.ts's intlPart() for the full explanation
+  // of the iso8601-vs-explicit-calendar Intl quirk this guards against.
+  // Plain (default calendar) objects must never hit that path.
   const date = Temporal.PlainDate.from('2026-08-04');
   assert.equal(format(date, 'MMMM'), 'August');
   assert.equal(format(date, 'EEEE'), 'Tuesday');
