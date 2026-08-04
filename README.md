@@ -3,13 +3,14 @@
 Format `Temporal.PlainDate` / `PlainTime` / `PlainDateTime` / `ZonedDateTime` objects
 using date-fns-style token strings.
 
-Node 26 shipped native `Temporal`, and it's deliberately missing a custom-string
-formatter — TC39 left that to userland in favor of `Intl.DateTimeFormat`. This
-fills that gap if you want `'yyyy-MM-dd'` syntax like you're used to from
-date-fns, moment, or dayjs.
+Node 26 shipped native `Temporal` — and then pointedly left out a custom-string
+formatter. TC39's take: use `Intl.DateTimeFormat` and leave string-token syntax
+to userland. Fair enough, but if you've spent years typing `'yyyy-MM-dd'` out of
+muscle memory from date-fns, moment, or dayjs, that's a rough adjustment. This
+library exists so you don't have to make it.
 
-Zero dependencies. You'll need a global `Temporal` (native in Node 26+, or bring
-your own polyfill — `temporal-polyfill` works fine).
+Zero dependencies. You'll need a global `Temporal` — native on Node 26+, or
+bring your own polyfill (`temporal-polyfill` works fine).
 
 ## Install
 
@@ -33,8 +34,45 @@ const zdt = Temporal.ZonedDateTime.from('2026-08-04T15:45:30-04:00[America/New_Y
 format(zdt, 'yyyy-MM-dd HH:mm zzz');   // "2026-08-04 15:45 America/New_York"
 ```
 
-Quote literal text with single quotes, like `'at'` above. Use `''` if you need a
-literal single quote.
+Wrap literal text in single quotes, like `'at'` above. Need an actual single
+quote in your output? Use `''`.
+
+## Locale support
+
+Pass a BCP 47 locale tag as a third argument and month names, weekday names,
+and AM/PM markers all localize accordingly. Defaults to `'en-US'` if you don't.
+
+```js
+format(date, 'MMMM d, yyyy', { locale: 'fr-FR' });   // "août 4, 2026"
+format(date, 'EEEE d MMMM', { locale: 'ar-EG' });    // Arabic weekday/month names
+format(dt, 'h:mm a', { locale: 'ja-JP' });            // "3:45 午後"
+```
+
+The named fields (`MMMM`, `MMM`, `EEEE`, `EEE`, `a`) go through
+`Intl.DateTimeFormat` under the hood, which means non-Gregorian calendars
+work too, as long as the `Temporal` object is already carrying one:
+
+```js
+const hebrewDate = date.withCalendar('hebrew');
+format(hebrewDate, 'MMMM d, yyyy');   // "Av 21, 5786"
+```
+
+**Numeric fields (`yyyy`, `MM`, `dd`, `HH`, `mm`, `ss`, `SSS`) always come out
+in Western (0-9) digits, no matter what locale you pass.** That's on purpose,
+not an oversight. Most things reading this output back in — logs, APIs,
+filenames — want boring, predictable ASCII digits. And honestly, locale-native
+numeral systems like Arabic-Indic or Devanagari don't play nicely with this
+library's own zero-padding logic anyway. If you actually need localized
+digits, run the numeric pieces through `Intl.NumberFormat` yourself.
+
+**One more catch: this needs native `Intl`/`Temporal` interop to work.** On
+Node 26+ with native `Temporal`, you're fine. On older Node with a userland
+polyfill, locale-aware tokens will throw — unless you swap in the polyfill's
+own `Intl` export in place of the global one. Why? Because `Intl.DateTimeFormat`
+can't read fields off a non-native `Temporal` object; you'll get a
+`Cannot use valueOf` error for your trouble. That's a limitation baked into how
+`Intl` and `Temporal` currently talk to each other, not something this library
+can paper over.
 
 ## Tokens
 
@@ -62,15 +100,28 @@ literal single quote.
 | a     | AM/PM              | PM      |
 | zzz   | IANA time zone id  | America/New_York |
 
-Pass a token the input type doesn't support — `HH` on a `PlainDate`, say — and
-you get a clear error instead of a silent `undefined`.
+Try to use a token your input type doesn't support — `HH` on a `PlainDate`,
+say — and you'll get a real error telling you so, not a silent `undefined`
+sitting in your output waiting to confuse someone in three weeks.
+
+## Known limitations
+
+- Numeral systems are always Western digits — see [Locale support](#locale-support).
+- Requires native `Temporal`/`Intl` interop (Node 26+) for locale-aware tokens.
 
 ## Dev notes
 
 `tsconfig.json` sets `ignoreDeprecations: "6.0"` to work around a tsup bug
-(tsup#1388/#1389): tsup's dts build step injects a deprecated `baseUrl`
-internally, and TypeScript 6+ hard-errors on it. Drop this once tsup ships a fix
-upstream.
+(tsup#1388/#1389) — tsup's dts build step quietly injects a deprecated
+`baseUrl`, and TypeScript 6+ hard-errors on it. This is a workaround, not a
+fix; drop it the moment tsup ships a real one upstream.
+
+Tests pull from `temporal-polyfill/full`, not the slim `temporal-polyfill`,
+because the Hebrew-calendar test needs the full build's calendar data — the
+slim one won't cut it. If you're on Node < 26 without native `Temporal`,
+expect the locale-aware tests to fail with `Cannot use valueOf`. That's the
+same polyfill/`Intl` interop gap mentioned above, not a bug in the tests
+themselves. Everything passes clean on Node 26+.
 
 ## License
 

@@ -49,5 +49,8 @@
   },
   "engines": {
     "node": ">=24"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
   }
 }

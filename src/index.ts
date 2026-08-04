@@ -1,2 +1,2 @@
 export { format } from './format.js';
-export type { TemporalLike } from './tokens.js';
+export type { TemporalLike, FormatOptions } from './tokens.js';
