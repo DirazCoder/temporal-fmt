@@ -1,7 +1,8 @@
 name: Release
 
-# Trigger on version tags, e.g. v0.3.0
+# Trigger manually via the UI or automatically on version tags, e.g. v0.3.0
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*.*.*'
@@ -35,6 +36,12 @@ jobs:
       # instead of shipping a mismatched release
       - name: Verify tag matches package.json version
         run: |
+          # Skip check if manually triggered on a branch instead of a tag
+          if [[ "${GITHUB_REF}" != refs/tags/* ]]; then
+            echo "Manual trigger detected on branch: ${GITHUB_REF}. Skipping tag matching verification."
+            exit 0
+          fi
+
           PKG_VERSION="v$(node -p "require('./package.json').version")"
           TAG_VERSION="${GITHUB_REF#refs/tags/}"
           if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
