@@ -18,6 +18,8 @@ bring your own polyfill (`temporal-polyfill` works fine).
 npm install temporal-fmt
 ```
 
+[View on npm](https://www.npmjs.com/package/temporal-fmt)
+
 ## Usage
 
 ```js
