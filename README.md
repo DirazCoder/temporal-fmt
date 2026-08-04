@@ -60,12 +60,12 @@ format(hebrewDate, 'MMMM d, yyyy');   // "Av 21, 5786"
 ```
 
 **Numeric fields (`yyyy`, `MM`, `dd`, `HH`, `mm`, `ss`, `SSS`) always come out
-in Western (0-9) digits, no matter what locale you pass.** That's on purpose,
-not an oversight. Most things reading this output back in — logs, APIs,
-filenames — want boring, predictable ASCII digits. And honestly, locale-native
-numeral systems like Arabic-Indic or Devanagari don't play nicely with this
-library's own zero-padding logic anyway. If you actually need localized
-digits, run the numeric pieces through `Intl.NumberFormat` yourself.
+in Western (0-9) digits, no matter what locale you pass.** On purpose. Most
+things reading this output back in — logs, APIs, filenames — want boring,
+predictable ASCII digits, and locale-native numeral systems like Arabic-Indic
+or Devanagari don't play nicely with this library's zero-padding logic anyway.
+Need localized digits? Run the numeric pieces through `Intl.NumberFormat`
+yourself.
 
 **One more catch: this needs native `Intl`/`Temporal` interop to work.** On
 Node 26+ with native `Temporal`, you're fine. On older Node with a userland
@@ -114,16 +114,15 @@ sitting in your output waiting to confuse someone in three weeks.
 ## Dev notes
 
 `tsconfig.json` sets `ignoreDeprecations: "6.0"` to work around a tsup bug
-(tsup#1388/#1389) — tsup's dts build step quietly injects a deprecated
-`baseUrl`, and TypeScript 6+ hard-errors on it. This is a workaround, not a
-fix; drop it the moment tsup ships a real one upstream.
+(tsup#1388/#1389). tsup's dts build step quietly injects a deprecated
+`baseUrl`, and TypeScript 6+ hard-errors on it. Workaround, not a fix — drop
+it the moment tsup ships a real one upstream.
 
-Tests pull from `temporal-polyfill/full`, not the slim `temporal-polyfill`,
-because the Hebrew-calendar test needs the full build's calendar data — the
-slim one won't cut it. If you're on Node < 26 without native `Temporal`,
-expect the locale-aware tests to fail with `Cannot use valueOf`. That's the
-same polyfill/`Intl` interop gap mentioned above, not a bug in the tests
-themselves. Everything passes clean on Node 26+.
+Tests pull from `temporal-polyfill/full`, not the slim `temporal-polyfill` —
+the Hebrew-calendar test needs the full build's calendar data, and the slim
+one won't cut it. On Node < 26 without native `Temporal`, expect the
+locale-aware tests to fail with `Cannot use valueOf`. Same polyfill/`Intl`
+interop gap mentioned above, not a bug in the tests. Clean pass on Node 26+.
 
 ## License
 
