@@ -31,6 +31,10 @@
     "tc39"
   ],
   "license": "MIT",
+  "author": {
+    "name": "NovaByte Official",
+    "url": "https://github.com/NovaByteOfficial"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/NovaByteOfficial/temporal-fmt.git"
