@@ -83,7 +83,10 @@ function intlPart(
   // drop the timezone info, which breaks combining e.g. 'MMMM' with 'zzz'.
   const { toInstant, timeZoneId } = temporal;
   const isZoned = typeof toInstant === 'function' && typeof timeZoneId === 'string';
-  const intlSafeTemporal = isZoned ? toInstant() : temporal;
+  // Must call as temporal.toInstant(), not the destructured toInstant() —
+  // it's a prototype method that reads internal slots off `this`, so
+  // calling the bare reference throws "incompatible receiver undefined".
+  const intlSafeTemporal = isZoned ? temporal.toInstant!() : temporal;
 
   // Intl.DateTimeFormat hard-errors ("Mismatching Calendars") if the
   // formatter's resolved calendar doesn't match the Temporal object's own
