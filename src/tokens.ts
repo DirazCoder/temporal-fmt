@@ -68,7 +68,6 @@ function getFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl
 // time rather than building a full localized string and slicing it apart —
 // slicing is what breaks under RTL scripts and locales with different
 // field ordering (e.g. year-month-day vs day-month-year).
-//
 function intlPart(
   temporal: TemporalLike,
   locale: string,
