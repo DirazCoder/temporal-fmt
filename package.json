@@ -44,9 +44,9 @@
   },
   "homepage": "https://github.com/NovaByteOfficial/temporal-fmt#readme",
   "devDependencies": {
-    "temporal-polyfill": "^1.0.3",
-    "tsup": "^8.5.1",
-    "typescript": "^6.0.3"
+    "temporal-polyfill": "1.0.3",
+    "tsup": "8.5.1",
+    "typescript": "6.0.3"
   },
   "overrides": {
     "esbuild": "0.28.1"
