@@ -1,0 +1,48 @@
+name: Release
+
+# Trigger on version tags, e.g. v0.3.0
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required to mint the OIDC token npm's registry checks
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      # npm 11.5.1+ has native trusted-publishing support (no NPM_TOKEN needed).
+      # setup-node's bundled npm can lag behind, so pin explicitly.
+      - run: npm install -g npm@latest
+      - run: npm --version
+
+      - run: npm ci
+
+      # sanity check: tag version must match package.json, or publish fails loudly
+      # instead of shipping a mismatched release
+      - name: Verify tag matches package.json version
+        run: |
+          PKG_VERSION="v$(node -p "require('./package.json').version")"
+          TAG_VERSION="${GITHUB_REF#refs/tags/}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "Tag $TAG_VERSION does not match package.json version $PKG_VERSION"
+            exit 1
+          fi
+
+      - run: npm run build
+      - run: npm test
+
+      - run: npm publish --provenance --access public
