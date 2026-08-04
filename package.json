@@ -31,9 +31,21 @@
     "tc39"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NovaByteOfficial/temporal-fmt.git"
+  },
+  "bugs": {
+    "url": "https://github.com/NovaByteOfficial/temporal-fmt/issues"
+  },
+  "homepage": "https://github.com/NovaByteOfficial/temporal-fmt#readme",
   "devDependencies": {
-    "tsup": "^8.3.5",
-    "typescript": "^5.7.2"
+    "temporal-polyfill": "^1.0.3",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3"
+  },
+  "overrides": {
+    "esbuild": "0.28.1"
   },
   "engines": {
     "node": ">=24"

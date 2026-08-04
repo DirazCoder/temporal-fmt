@@ -13,7 +13,9 @@ const SORTED_TOKEN_STRINGS = TOKENS.map(([tok]) => tok).sort((a, b) => b.length 
  * token and literal pieces. Text inside single quotes is always literal —
  * that's how you escape a token that would otherwise be parsed (e.g. a
  * literal "d" in "3rd" — write 'rd' in quotes so it isn't read as the day token).
- * Two single quotes in a row ('') represent one literal quote character.
+ * A doubled quote ('') anywhere means a literal single quote character —
+ * this works both inside an open quoted span (e.g. 'it''s' -> it's) and
+ * as a standalone escape outside one (e.g. yyyy'' -> "2026'").
  */
 export function tokenize(format: string): Piece[] {
   const pieces: Piece[] = [];
@@ -23,19 +25,43 @@ export function tokenize(format: string): Piece[] {
     const ch = format[i];
 
     if (ch === "'") {
-      // Escaped quote: '' -> literal '
+      // Doubled quote is always a literal ' — check this before treating
+      // the quote as an open-delimiter, or "''best''" gets misread as
+      // "open quote, then bare text, then open quote" instead of two
+      // separate escaped-apostrophe literals around plain text.
       if (format[i + 1] === "'") {
         pieces.push({ kind: 'literal', value: "'" });
         i += 2;
         continue;
       }
-      // Scan to the closing quote, everything inside is literal text
-      const end = format.indexOf("'", i + 1);
-      if (end === -1) {
+
+      // Otherwise this opens a quoted literal span. Scan forward, treating
+      // any '' we find *inside* the span as an escaped literal quote rather
+      // than the closing delimiter.
+      let j = i + 1;
+      let literal = '';
+      let closed = false;
+      while (j < format.length) {
+        if (format[j] === "'") {
+          if (format[j + 1] === "'") {
+            literal += "'";
+            j += 2;
+            continue;
+          }
+          closed = true;
+          j += 1;
+          break;
+        }
+        literal += format[j];
+        j += 1;
+      }
+
+      if (!closed) {
         throw new Error(`temporal-fmt: unterminated quote in format string "${format}"`);
       }
-      pieces.push({ kind: 'literal', value: format.slice(i + 1, end) });
-      i = end + 1;
+
+      pieces.push({ kind: 'literal', value: literal });
+      i = j;
       continue;
     }
 
