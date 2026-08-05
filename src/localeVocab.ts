@@ -1,6 +1,6 @@
 // Closed-vocabulary lookups for locale-aware tokens (MMMM, MMM, EEEE, EEE, a).
-// Each set is small and fixed-size (12 months, 7 weekdays, 2 day periods),
-// so we generate the exact strings Intl would produce for a locale once and cache them
+// Each set is small and fixed (12 months, 7 weekdays, 2 day periods), so we
+// generate the real Intl strings for a locale once and cache them.
 
 export interface LocaleVocab {
   monthLong: string[]; // index 0 = January
@@ -40,8 +40,7 @@ export function getLocaleVocab(locale: string): LocaleVocab {
   const weekdayShortFmt = new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone: 'UTC' });
   const weekdayLong: string[] = [];
   const weekdayShort: string[] = [];
-  // 2024-01-01 is a Monday (UTC)
-  // walk 7 consecutive days from there to get weekdays in locale
+  // 2024-01-01 is a Monday (UTC) — walk 7 days from there for weekday names
   for (let d = 0; d < 7; d++) {
     const date = new Date(Date.UTC(2024, 0, 1 + d));
     weekdayLong.push(partValue(weekdayLongFmt, date, 'weekday'));
