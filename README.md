@@ -130,6 +130,11 @@ sitting in your output waiting to confuse someone in three weeks.
 - Numeral systems are always Western digits — see [Locale support](#locale-support).
 - Requires native `Temporal`/`Intl` interop (Node 26+) for locale-aware tokens.
 
+## Thanks
+
+`matchesFormat` came from [FoxxMD](https://github.com/FoxxMD), who built it to
+drop a `date-fns` dependency in [pino-roll](https://github.com/mcollina/pino-roll).
+
 ## Dev notes
 
 `tsconfig.json` sets `ignoreDeprecations: "6.0"` to work around a tsup bug
