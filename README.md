@@ -39,6 +39,30 @@ format(zdt, 'yyyy-MM-dd HH:mm zzz');   // "2026-08-04 15:45 America/New_York"
 Wrap literal text in single quotes, like `'at'` above. Need an actual single
 quote in your output? Use `''`.
 
+## Checking a formatted string
+
+`matchesFormat` checks whether a string could *plausibly* be the output of
+`format()` for the same token string:
+
+```js
+import { matchesFormat } from 'temporal-fmt';
+
+matchesFormat('yyyy-MM-dd HH:mm', '2026-08-04 15:45');   // true
+matchesFormat('yyyy-MM', '2026-08-04T15:45:30');          // false
+```
+
+This function matches the shape and vocabulary of some `token` string
+but *it is not a real parser.*
+
+It *will* determine if the token types are valid (`MM` can't be `13`, `dd` can't be `32`, ...)
+including locale-aware tokens (`MMMM`, `MMM`, `EEEE`, `EEE`, `a`) but it
+*will not* check if a full given date/time is valid IE
+
+* a "day" and "month" combination could really occur in the same calendar year
+* a certain day/month/year is a specific weekday, etc...
+
+If your scenario is mission critical you should not rely on this function to determine if a formatted string is a valid date.
+
 ## Locale support
 
 Pass a BCP 47 locale tag as a third argument and month names, weekday names,

@@ -1,11 +1,8 @@
 import { TOKENS, DEFAULT_LOCALE, type TemporalLike, type FormatOptions } from './tokens.js';
 import { tokenize } from './tokenize.js';
+import { MAX_FORMAT_LENGTH } from './constants.js';
 
 const HANDLER_BY_TOKEN = new Map(TOKENS.map(([tok, fn, field]) => [tok, { fn, field }]));
-
-// format strings are short hand-written literals ("yyyy-MM-dd") — cap the
-// length so a bug or bad input can't make tokenize() do unbounded work
-const MAX_FORMAT_LENGTH = 1000;
 
 /**
  * Format a Temporal.PlainDate, PlainTime, PlainDateTime, or ZonedDateTime
