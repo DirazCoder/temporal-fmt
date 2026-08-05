@@ -57,19 +57,6 @@ and it doesn't validate the date itself. `2026-02-30` matches `yyyy-MM-dd`
 even though February never has 30 days. Don't use this to decide whether a
 date is real; use it to decide whether a string looks like something
 `format()` could have written.
-```
-
-This function matches the shape and vocabulary of some `token` string
-but *it is not a real parser.*
-
-It *will* determine if the token types are valid (`MM` can't be `13`, `dd` can't be `32`, ...)
-including locale-aware tokens (`MMMM`, `MMM`, `EEEE`, `EEE`, `a`) but it
-*will not* check if a full given date/time is valid IE
-
-* a "day" and "month" combination could really occur in the same calendar year
-* a certain day/month/year is a specific weekday, etc...
-
-If your scenario is mission critical you should not rely on this function to determine if a formatted string is a valid date.
 
 ## Locale support
 
