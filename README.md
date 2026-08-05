@@ -41,14 +41,22 @@ quote in your output? Use `''`.
 
 ## Checking a formatted string
 
-`matchesFormat` checks whether a string could *plausibly* be the output of
-`format()` for the same token string:
+`matchesFormat` checks whether a string could plausibly be `format()`'s
+output for a given token string:
 
 ```js
 import { matchesFormat } from 'temporal-fmt';
 
 matchesFormat('yyyy-MM-dd HH:mm', '2026-08-04 15:45');   // true
 matchesFormat('yyyy-MM', '2026-08-04T15:45:30');          // false
+```
+
+It checks shape and vocabulary — `MM` has to be `01`-`12`, `MMMM` has to be
+a real month name in the given locale, and so on — but it's not a parser
+and it doesn't validate the date itself. `2026-02-30` matches `yyyy-MM-dd`
+even though February never has 30 days. Don't use this to decide whether a
+date is real; use it to decide whether a string looks like something
+`format()` could have written.
 ```
 
 This function matches the shape and vocabulary of some `token` string
