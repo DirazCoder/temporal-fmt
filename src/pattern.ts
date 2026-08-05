@@ -17,16 +17,19 @@ function getTimeZoneFragment(): string {
   }
   const supportedValuesOf = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf;
   if (typeof supportedValuesOf === 'function') {
-    timeZoneFragment = alternation(supportedValuesOf('timeZone'));
+    // supportedValuesOf('timeZone') leaves out 'UTC', but format() can
+    // produce it from a real ZonedDateTime — without this, matchesFormat
+    // rejected our own library's own output.
+    timeZoneFragment = alternation([...supportedValuesOf('timeZone'), 'UTC']);
   } else {
-    // older engines without Intl.supportedValuesOf — fall back to shape only
-    timeZoneFragment = '[A-Za-z_]+(?:\\/[A-Za-z_+\\-0-9]+)+';
+    // no Intl.supportedValuesOf — match on shape only
+    timeZoneFragment = '[A-Za-z_]+(?:\\/[A-Za-z_+\\-0-9]+)+|UTC';
   }
   return timeZoneFragment;
 }
 
-// Fixed-shape numeric fragments that mirror the ranges TOKENS actually
-// produces (see pad()/modulo logic there)
+// mirrors the ranges pad() in tokens.ts actually produces — keep in sync
+// if those ever change
 const NUMERIC_FRAGMENTS: Record<string, string> = {
   yyyy: '\\d{4}',
   yy: '\\d{2}',
@@ -60,16 +63,12 @@ function tokenFragment(token: string, locale: string): string {
     case 'a': return alternation(vocab.dayPeriod);
     case 'zzz': return getTimeZoneFragment();
     default:
-      // shouldn't happen — tokenize() only emits tokens from TOKENS
       throw new Error(`temporal-fmt: unknown token "${token}"`);
   }
 }
 
-/**
- * Compiles tokenize() output into a single anchored regex source string
- * that matches exactly the strings format() could plausibly have produced
- * for some Temporal value in the given locale.
- */
+// Builds one anchored regex from tokenize() output — matches exactly what
+// format() could have produced for this format string, in this locale.
 export function buildPatternSource(pieces: Piece[], locale: string): string {
   let source = '';
   for (const piece of pieces) {
