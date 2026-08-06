@@ -32,21 +32,21 @@
   ],
   "license": "MIT",
   "author": {
-    "name": "NovaByte Official",
-    "url": "https://github.com/NovaByteOfficial"
+    "name": "DirazCoder",
+    "url": "https://github.com/DirazCoder"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/NovaByteOfficial/temporal-fmt.git"
+    "url": "git+https://github.com/DirazCoder/temporal-fmt.git"
   },
   "bugs": {
-    "url": "https://github.com/NovaByteOfficial/temporal-fmt/issues"
+    "url": "https://github.com/DirazCoder/temporal-fmt/issues"
   },
-  "homepage": "https://github.com/NovaByteOfficial/temporal-fmt#readme",
+  "homepage": "https://github.com/DirazCoder/temporal-fmt#readme",
   "devDependencies": {
-    "temporal-polyfill": "1.0.3",
-    "tsup": "8.5.1",
-    "typescript": "6.0.3"
+    "temporal-polyfill": "^1.0.3",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3"
   },
   "overrides": {
     "esbuild": "0.28.1"
