@@ -1,3 +1,3 @@
 export { format } from './format.js';
-export { matchesFormat } from './matchesFormat.js';
+export { parse } from './parse.js';
 export type { TemporalLike, FormatOptions } from './tokens.js';
