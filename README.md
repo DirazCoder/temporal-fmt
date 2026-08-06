@@ -164,7 +164,7 @@ sitting in your output waiting to confuse someone in three weeks.
 ## Dev notes
 
 `tsconfig.json` sets `ignoreDeprecations: "6.0"` to work around a tsup bug
-(tsup#1388/#1389). tsup's dts build step quietly injects a deprecated
+([tsup#1388](https://github.com/egoist/tsup/issues/1388)/[#1389](https://github.com/egoist/tsup/issues/1389)). tsup's dts build step quietly injects a deprecated
 `baseUrl`, and TypeScript 6+ hard-errors on it. Workaround, not a fix — drop
 it the moment tsup ships a real one upstream.
 
