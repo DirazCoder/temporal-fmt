@@ -1,4 +1,3 @@
-import type { Piece } from './tokenize.js';
 import { getLocaleVocab } from './localeVocab.js';
 
 function escapeRegExp(literal: string): string {
@@ -18,8 +17,8 @@ function getTimeZoneFragment(): string {
   const supportedValuesOf = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf;
   if (typeof supportedValuesOf === 'function') {
     // supportedValuesOf('timeZone') leaves out 'UTC', but format() can
-    // produce it from a real ZonedDateTime — without this, matchesFormat
-    // rejected our own library's own output.
+    // produce it from a real ZonedDateTime — without this, parse() couldn't
+    // parse our own library's own output back.
     timeZoneFragment = alternation([...supportedValuesOf('timeZone'), 'UTC']);
   } else {
     // no Intl.supportedValuesOf — match on shape only
@@ -48,7 +47,7 @@ const NUMERIC_FRAGMENTS: Record<string, string> = {
   SSS: '\\d{3}',
 };
 
-function tokenFragment(token: string, locale: string): string {
+export function tokenFragment(token: string, locale: string): string {
   const numeric = NUMERIC_FRAGMENTS[token];
   if (numeric) {
     return numeric;
@@ -65,14 +64,4 @@ function tokenFragment(token: string, locale: string): string {
     default:
       throw new Error(`temporal-fmt: unknown token "${token}"`);
   }
-}
-
-// Builds one anchored regex from tokenize() output — matches exactly what
-// format() could have produced for this format string, in this locale.
-export function buildPatternSource(pieces: Piece[], locale: string): string {
-  let source = '';
-  for (const piece of pieces) {
-    source += piece.kind === 'literal' ? escapeRegExp(piece.value) : tokenFragment(piece.value, locale);
-  }
-  return `^(?:${source})$`;
 }

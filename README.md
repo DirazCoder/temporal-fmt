@@ -39,24 +39,46 @@ format(zdt, 'yyyy-MM-dd HH:mm zzz');   // "2026-08-04 15:45 America/New_York"
 Wrap literal text in single quotes, like `'at'` above. Need an actual single
 quote in your output? Use `''`.
 
-## Checking a formatted string
+## Parsing a string
 
-`matchesFormat` checks whether a string could plausibly be `format()`'s
-output for a given token string:
+`parse` builds a `Temporal.PlainDate` / `PlainTime` / `PlainDateTime` /
+`ZonedDateTime` out of a string, picking whichever type fits the tokens
+present:
 
 ```js
-import { matchesFormat } from 'temporal-fmt';
+import { parse } from 'temporal-fmt';
 
-matchesFormat('yyyy-MM-dd HH:mm', '2026-08-04 15:45');   // true
-matchesFormat('yyyy-MM', '2026-08-04T15:45:30');          // false
+parse('yyyy-MM-dd HH:mm', '2026-08-04 15:45');    // Temporal.PlainDateTime
+parse('yyyy-MM', '2026-08-04T15:45:30');          // throws — shape doesn't match
+parse('yyyy-MM-dd', '2026-02-30');                // throws — not a real date
 ```
 
-It checks shape and vocabulary — `MM` has to be `01`-`12`, `MMMM` has to be
-a real month name in the given locale, and so on — but it's not a parser
-and it doesn't validate the date itself. `2026-02-30` matches `yyyy-MM-dd`
-even though February never has 30 days. Don't use this to decide whether a
-date is real; use it to decide whether a string looks like something
-`format()` could have written.
+Because the format is unknown at runtime you will need to check the result
+with `instanceof`, or manually assert/type guard it in Typescript, to narrow the type.
+
+Since `parse` constructs a real value rather than just matching shape, it
+catches an impossible date like February 30th, or a weekday name that
+doesn't match the date it's paired with:
+
+```js
+parse('EEEE, yyyy-MM-dd', 'Tuesday, 2026-08-04');  // fine — that really is a Tuesday
+parse('EEEE, yyyy-MM-dd', 'Monday, 2026-08-04');   // throws — it isn't
+```
+
+`parse` throws when `input` doesn't match `formatStr`'s shape at all
+or throws a descriptive error if the computed date is not valid.
+
+A few things worth knowing:
+
+- **`yy` (2-digit year)** emulates POSIX-style [strptime](https://www.man7.org/linux//man-pages/man3/strptime.3p.html): `00–68`
+  becomes `2000–2068`, `69–99` becomes `1900–1999`.
+  - this is an opinionated tradeoff but ensures `yy` is deterministic without an external date reference
+- **`hh`/`h` (12-hour) without an `a` token throws** — If both `HH`/`H` and `a` are present, the 24-hour value
+  wins and `a` isn't cross-checked against it.
+- **`MMMM`/`MMM` name matching assumes a 12-month calendar** — the vocabulary
+  it matches against is generated from 12 Gregorian reference dates, so a
+  calendar with a leap month (e.g. Hebrew's 13-month leap years) isn't fully
+  covered by month *names*. Numeric `yyyy-MM-dd` round-trips aren't affected.
 
 ## Locale support
 
@@ -76,6 +98,15 @@ work too, as long as the `Temporal` object is already carrying one:
 ```js
 const hebrewDate = date.withCalendar('hebrew');
 format(hebrewDate, 'MMMM d, yyyy');   // "Av 21, 5786"
+```
+
+The above holds true for `parse` as well:
+
+```js
+parse('MMMM d, yyyy','août 4, 2026', { locale: 'fr-FR' });
+parse('h:mm a', '3:45 午後', { locale: 'ja-JP' });
+// `-u-ca-` calendar extension parses into that calendar
+parse('yyyy-MM-dd', '5786-11-21', { locale: 'en-u-ca-hebrew' });
 ```
 
 **Numeric fields (`yyyy`, `MM`, `dd`, `HH`, `mm`, `ss`, `SSS`) always come out
@@ -129,11 +160,6 @@ sitting in your output waiting to confuse someone in three weeks.
 
 - Numeral systems are always Western digits — see [Locale support](#locale-support).
 - Requires native `Temporal`/`Intl` interop (Node 26+) for locale-aware tokens.
-
-## Thanks
-
-`matchesFormat` came from [FoxxMD](https://github.com/FoxxMD), who built it to
-drop a `date-fns` dependency in [pino-roll](https://github.com/mcollina/pino-roll).
 
 ## Dev notes
 
