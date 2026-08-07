@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { format } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
-// Intl only recognizes the engine's native Temporal, not polyfilled
-// lookalikes — use native when available (Node 26+), polyfill otherwise.
-// Locale-aware tests below will fail on the polyfill path.
+// Use native Temporal when available (Node 26+), polyfill otherwise —
+// format() goes through Temporal.prototype.toLocaleString(), which works
+// the same either way.
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 
 test('PlainDate: basic yyyy-MM-dd', () => {

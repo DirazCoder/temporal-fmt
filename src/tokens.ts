@@ -16,6 +16,7 @@ export interface TemporalLike {
   dayOfWeek?: number; // 1 (Mon) - 7 (Sun), per Temporal spec
   calendarId?: string;
   toInstant?: () => unknown;
+  toLocaleString?: (locale: string, options: Intl.DateTimeFormatOptions) => string;
 }
 
 export interface FormatOptions {
@@ -46,39 +47,72 @@ function getFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl
   return formatter;
 }
 
-// Pulls a single field out of formatToParts() rather than building a full
-// string and slicing it — slicing breaks under RTL and locales with
-// different field ordering.
+// Passing a Temporal object straight into `new Intl.DateTimeFormat().formatToParts()`
+// only works when the engine's Intl implementation has special-cased support for
+// *native* Temporal instances (checked via internal slots and/or gated behind a V8 flag,
+// not tied to a specific Node version).
+// 
+// A Temporal polyfill's instances don't have those slots, so the engine falls back to ToNumber() -> .valueOf(),
+// which the polyfill deliberately throws on ("Cannot use valueOf"). 
+// Probed once and memoized and only from intlPart(), so it never
+// runs unless a format string actually uses a locale-aware token.
+let nativeSupport: boolean | undefined;
+function intlSupportsNativeTemporal(): boolean {
+  if (nativeSupport === undefined) {
+    nativeSupport = false;
+    const Temporal = (globalThis as { Temporal?: { PlainDate?: { from: (s: string) => unknown } } }).Temporal;
+    if (Temporal?.PlainDate) {
+      try {
+        new Intl.DateTimeFormat('en-US', { day: 'numeric' }).formatToParts(Temporal.PlainDate.from('1970-01-01') as Date);
+        nativeSupport = true;
+      } catch {
+        // native Temporal absent, or present but not recognized by Intl — fall back
+      }
+    }
+  }
+  return nativeSupport;
+}
+
 function intlPart(
   temporal: TemporalLike,
   locale: string,
   options: Intl.DateTimeFormatOptions,
   partType: Intl.DateTimeFormatPartTypes
 ): string {
-  // formatToParts() throws on ZonedDateTime directly (per spec), so convert
-  // to Instant and pass the zone via `timeZone` instead. Don't convert to
-  // PlainDateTime — that drops the zone, which breaks 'MMMM' + 'zzz' combos.
-  const { toInstant, timeZoneId } = temporal;
-  const isZoned = typeof toInstant === 'function' && typeof timeZoneId === 'string';
-  // has to be called as temporal.toInstant() — destructuring it off breaks
-  // the receiver and throws
-  const intlSafeTemporal = isZoned ? temporal.toInstant!() : temporal;
-
   // Intl throws "Mismatching Calendars" if the formatter's calendar doesn't
   // match the object's own (e.g. en-US formatter defaults to gregory, but
   // a hebrew/islamic PlainDate needs its own calendar passed through).
   //
   // skip this for iso8601 specifically — passing `calendar: 'iso8601'`
   // explicitly alongside a single-field options object makes formatToParts()
-  // come back empty. no idea why, cost me an hour.
+  // come back empty for some reason.
   const calendar = temporal?.calendarId;
   const formatterOptions: Intl.DateTimeFormatOptions = {
     ...options,
     ...(calendar && calendar !== 'iso8601' ? { calendar } : {}),
+  };
+
+  // Temporal.prototype.toLocaleString() is part of the Temporal spec itself:
+  // polyfills implement the ICU formatting internally without needing the
+  // engine to recognize the object, so it works without native Intl support.
+  if (!intlSupportsNativeTemporal()) {
+    return temporal.toLocaleString!(locale, formatterOptions);
+  }
+
+  // formatToParts() throws on ZonedDateTime directly (per spec), so convert
+  // to Instant and pass the zone via `timeZone` instead. Don't convert to
+  // PlainDateTime — that drops the zone, which breaks 'MMMM' + 'zzz' combos.
+  const { toInstant, timeZoneId } = temporal;
+  const isZoned = typeof toInstant === 'function' && typeof timeZoneId === 'string';
+  // has to be called as temporal.toInstant() because destructuring it off breaks
+  // the receiver and throws
+  const intlSafeTemporal = isZoned ? temporal.toInstant!() : temporal;
+  const nativeOptions: Intl.DateTimeFormatOptions = {
+    ...formatterOptions,
     ...(isZoned ? { timeZone: timeZoneId } : {}),
   };
 
-  const formatter = getFormatter(locale, formatterOptions);
+  const formatter = getFormatter(locale, nativeOptions);
   const parts = formatter.formatToParts(intlSafeTemporal as Date | number);
   const part = parts.find((p) => p.type === partType);
   if (!part) {
@@ -86,6 +120,29 @@ function intlPart(
       `temporal-fmt: locale "${locale}" produced no "${partType}" part for this token. ` +
       `This usually means the Temporal object is missing the field the token needs.`
     );
+  }
+  return part.value;
+}
+
+
+// Temporal.prototype.toLocaleString() can't isolate a single field the way formatToParts() can
+// — asking for `hour` + `dayPeriod` together returns one joined string (e.g.
+// "3 in the afternoon"), and asking for `dayPeriod` alone silently resolves
+// against a different, non-hour-anchored set of periods (produces "in the
+// afternoon"/"昼" instead of the "PM"/"午後" that pairing it with hour12
+// actually renders).
+// 
+// On using this instead of temporal:
+// Day period only depends on the hour, not on the calendar or the date, 
+// so always route it through a plain UTC Date instead
+// Intl.DateTimeFormat has always accepted Date objects, on every engine,
+// independent of whether Temporal itself is native or polyfilled.
+function dayPeriodPart(hour: number, locale: string): string {
+  const date = new Date(Date.UTC(1970, 0, 1, hour));
+  const formatter = getFormatter(locale, { hour: 'numeric', hour12: true, timeZone: 'UTC' });
+  const part = formatter.formatToParts(date).find((p) => p.type === 'dayPeriod');
+  if (!part) {
+    throw new Error(`temporal-fmt: locale "${locale}" produced no "dayPeriod" part for token "a".`);
   }
   return part.value;
 }
@@ -131,6 +188,6 @@ export const TOKENS: Array<[string, TokenHandler, keyof TemporalLike]> = [
   ['SSS', (t) => pad(t.millisecond!, 3), 'millisecond'],
   // dayPeriod text is locale-specific (AM/PM in en-US, م/ص in ar-EG) but
   // still needs .hour on the input to compute which period it is
-  ['a', (t, locale) => intlPart(t, locale, { hour: 'numeric', hour12: true }, 'dayPeriod'), 'hour'],
+  ['a', (t, locale) => dayPeriodPart(t.hour!, locale), 'hour'],
   ['zzz', (t) => t.timeZoneId!, 'timeZoneId'],
 ];
