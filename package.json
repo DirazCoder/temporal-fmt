@@ -52,7 +52,7 @@
     "esbuild": "0.28.1"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=20"
   },
   "allowScripts": {
     "esbuild@0.28.1": true
