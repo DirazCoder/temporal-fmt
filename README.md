@@ -117,15 +117,6 @@ or Devanagari don't play nicely with this library's zero-padding logic anyway.
 Need localized digits? Run the numeric pieces through `Intl.NumberFormat`
 yourself.
 
-**One more catch: this needs native `Intl`/`Temporal` interop to work.** On
-Node 26+ with native `Temporal`, you're fine. On older Node with a userland
-polyfill, locale-aware tokens will throw — unless you swap in the polyfill's
-own `Intl` export in place of the global one. Why? Because `Intl.DateTimeFormat`
-can't read fields off a non-native `Temporal` object; you'll get a
-`Cannot use valueOf` error for your trouble. That's a limitation baked into how
-`Intl` and `Temporal` currently talk to each other, not something this library
-can paper over.
-
 ## Tokens
 
 | Token | Meaning            | Example |
