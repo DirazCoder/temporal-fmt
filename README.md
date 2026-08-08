@@ -12,7 +12,7 @@ library exists so you don't have to make it.
 Zero dependencies. Node 26+ has native Temporal, use a polyfill,
 or bring your own Temporal implementation via `setTemporal()`.
 
-Locale-aware tokens are supported for < Node 26: formatting falls back to the Temporal implementations's
+Locale-aware tokens are supported for < Node 26: formatting falls back to the Temporal implementation's
 own `toLocaleString()` automatically.
 
 ## Install
