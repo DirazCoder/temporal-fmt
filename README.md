@@ -75,8 +75,8 @@ A few things worth knowing:
 - **`yy` (2-digit year)** emulates POSIX-style [strptime](https://www.man7.org/linux//man-pages/man3/strptime.3p.html): `00–68`
   becomes `2000–2068`, `69–99` becomes `1900–1999`.
   - this is an opinionated tradeoff but ensures `yy` is deterministic without an external date reference
-- **`hh`/`h` (12-hour) without an `a` token throws** — If both `HH`/`H` and `a` are present, the 24-hour value
-  wins and `a` isn't cross-checked against it.
+- **`hh`/`h` (12-hour) without an `a` token throws** — same if a format string mixes `HH`/`H` with `hh`/`h`,
+  even when both agree on the same hour. `parse` won't guess which one is authoritative; pick one.
 - **`MMMM`/`MMM` name matching assumes a 12-month calendar** — the vocabulary
   it matches against is generated from 12 Gregorian reference dates, so a
   calendar with a leap month (e.g. Hebrew's 13-month leap years) isn't fully
