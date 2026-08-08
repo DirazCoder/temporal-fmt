@@ -17,7 +17,7 @@ export interface TemporalNamespace {
 }
 
 export function getTemporal(): TemporalNamespace {
-  const temporal = (globalThis as { Temporal?: TemporalNamespace }).Temporal;
+  const temporal = (globalThis as unknown as { Temporal?: TemporalNamespace }).Temporal;
   if (!temporal) {
     throw new Error(
       'temporal-fmt: parse() needs a global `Temporal` to construct its result. ' +
