@@ -52,4 +52,34 @@ jobs:
       - run: npm run build
       - run: npm test
 
-      - run: npm publish --provenance --access public
+      # A tag pushed on main (the current line) publishes as "latest", same as
+      # always. A tag pushed on an old-line branch (e.g. 0.6.x) must NOT get
+      # "latest" — npm compares version numbers and would refuse anyway once a
+      # newer version already exists, but we want a real, usable dist-tag for
+      # people pinned to that old line, not a failed publish. Fetch main so we
+      # can check "does main contain this commit" — checkout@v4 is shallow and
+      # only fetches the ref being built, so main isn't available otherwise.
+      - name: Determine npm dist-tag
+        id: dist-tag
+        shell: bash
+        run: |
+          git fetch origin main --depth=1000
+          if git merge-base --is-ancestor HEAD origin/main; then
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          else
+            # On a tag push, GITHUB_REF is refs/tags/vX.Y.Z, not a branch —
+            # so find which branch(es) actually contain this commit instead.
+            git fetch origin --depth=1000 '+refs/heads/*:refs/remotes/origin/*'
+            BRANCH="$(git branch -r --contains HEAD --format='%(refname:short)' \
+              | grep -v 'origin/main$' | head -1 | sed 's#^origin/##')"
+            # e.g. 0.6.x -> 0.6-lts. Falls back to "legacy" if we can't find a
+            # branch with the expected X.Y.x shape (e.g. workflow_dispatch off
+            # an unusually named branch).
+            if [[ "$BRANCH" =~ ^([0-9]+\.[0-9]+)\.x$ ]]; then
+              echo "tag=${BASH_REMATCH[1]}-lts" >> "$GITHUB_OUTPUT"
+            else
+              echo "tag=legacy" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - run: npm publish --provenance --access public --tag ${{ steps.dist-tag.outputs.tag }}
