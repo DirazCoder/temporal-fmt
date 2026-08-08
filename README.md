@@ -10,7 +10,9 @@ muscle memory from date-fns, moment, or dayjs, that's a rough adjustment. This
 library exists so you don't have to make it.
 
 Zero dependencies. You'll need a global `Temporal` — native on Node 26+, or
-bring your own polyfill (`temporal-polyfill` works fine).
+bring your own polyfill (`temporal-polyfill` works fine). Locale-aware tokens
+work either way: on Node 20+ without native `Temporal`, formatting falls back
+to the polyfill's own `toLocaleString()` automatically.
 
 ## Install
 
@@ -150,7 +152,8 @@ sitting in your output waiting to confuse someone in three weeks.
 ## Known limitations
 
 - Numeral systems are always Western digits — see [Locale support](#locale-support).
-- Requires native `Temporal`/`Intl` interop (Node 26+) for locale-aware tokens.
+- `format()` needs Node 20+ (native `Temporal` on 26+, polyfilled otherwise)
+  for locale-aware tokens. Untested below Node 20.
 
 ## Dev notes
 
@@ -161,9 +164,10 @@ it the moment tsup ships a real one upstream.
 
 Tests pull from `temporal-polyfill/full`, not the slim `temporal-polyfill` —
 the Hebrew-calendar test needs the full build's calendar data, and the slim
-one won't cut it. On Node < 26 without native `Temporal`, expect the
-locale-aware tests to fail with `Cannot use valueOf`. Same polyfill/`Intl`
-interop gap mentioned above, not a bug in the tests. Clean pass on Node 26+.
+one won't cut it. Locale-aware tests pass on Node 20+ regardless of whether
+`Temporal` is native or polyfilled — on native (Node 26+), formatting goes
+through `Intl.DateTimeFormat` directly; on the polyfill, it falls back to
+`Temporal.prototype.toLocaleString()`, which the polyfill implements itself.
 
 ## License
 
