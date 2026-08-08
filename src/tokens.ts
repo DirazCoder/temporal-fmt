@@ -1,3 +1,5 @@
+import { getTemporal } from './temporalProvider.js';
+
 export function pad(n: number, len: number): string {
   return String(n).padStart(len, '0');
 }
@@ -60,15 +62,14 @@ let nativeSupport: boolean | undefined;
 function intlSupportsNativeTemporal(): boolean {
   if (nativeSupport === undefined) {
     nativeSupport = false;
-    const Temporal = (globalThis as { Temporal?: { PlainDate?: { from: (s: string) => unknown } } }).Temporal;
-    if (Temporal?.PlainDate) {
       try {
-        new Intl.DateTimeFormat('en-US', { day: 'numeric' }).formatToParts(Temporal.PlainDate.from('1970-01-01') as Date);
+        const temporal = getTemporal();
+        new Intl.DateTimeFormat('en-US', { day: 'numeric' })
+          .formatToParts(temporal.PlainDate.from({ year: 1970, month: 1, day: 1 }) as Date);
         nativeSupport = true;
       } catch {
         // native Temporal absent, or present but not recognized by Intl — fall back
       }
-    }
   }
   return nativeSupport;
 }

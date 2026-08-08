@@ -2,7 +2,7 @@ import { DEFAULT_LOCALE, type FormatOptions } from './tokens.js';
 import { tokenize } from './tokenize.js';
 import { buildCapturingPattern, type CapturingPattern } from './parsePattern.js';
 import { getLocaleVocab } from './localeVocab.js';
-import { getTemporal } from './temporalGlobal.js';
+import { getTemporal } from './temporalProvider.js';
 import { MAX_FORMAT_LENGTH } from './constants.js';
 
 // format strings are short hand-written literals reused across many calls —

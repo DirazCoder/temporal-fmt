@@ -1,13 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parse } from '../dist/index.js';
+import { parse, setTemporal } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
-// parse() reads the *global* Temporal to construct its result (unlike
+// parse() needs a Temporal implementation to construct its result (unlike
 // format(), which only reads fields off an object the caller already
-// built) — it must be set before any parse() call runs.
+// built) — inject it via setTemporal() before any parse() call runs.
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
-globalThis.Temporal = Temporal;
+setTemporal(Temporal);
 
 test('builds a PlainDate', () => {
   const result = parse('yyyy-MM-dd', '2026-08-04');
@@ -112,4 +112,17 @@ test('locale option selects a non-Gregorian calendar for construction', () => {
 test('no locale option still builds a plain ISO 8601 result', () => {
   const result = parse('yyyy-MM-dd', '2026-08-04');
   assert.equal(result.calendarId, 'iso8601');
+});
+
+test('setTemporal injection works even without a global Temporal', () => {
+  const savedGlobal = globalThis.Temporal;
+  delete globalThis.Temporal;
+  setTemporal(PolyfillTemporal);
+  try {
+    const result = parse('yyyy-MM-dd', '2026-08-04');
+    assert.equal(result.toString(), '2026-08-04');
+  } finally {
+    if (savedGlobal !== undefined) globalThis.Temporal = savedGlobal;
+    setTemporal(Temporal); // restore for the rest of this file's tests
+  }
 });
