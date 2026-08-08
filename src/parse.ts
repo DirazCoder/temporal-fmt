@@ -59,7 +59,7 @@ interface Fields {
   second?: number;
   millisecond?: number;
   timeZoneId?: string;
-  weekdayExpected?: number; // ISO dayOfWeek, 1 (Mon) - 7 (Sun)
+  weekdayExpected?: number; // ISO dayOfWeek, 1=Mon, 7=Sun
   weekdayRaw?: string;
 }
 
@@ -89,17 +89,9 @@ function applyGroup(fields: Fields, token: string, raw: string, locale: string):
   }
 }
 
-/**
- * Resolves year value into 4-digit year
- * 
- * For 2-digit values it emulates strptime (POSIX)
- * so that resolving value is not clock-dependent
- * 
- * * 00-68 -> 2000-2068
- * * 69-99 -> 1900-1999
- * 
- * @see https://www.man7.org/linux//man-pages/man3/strptime.3p.html
- */
+// emulates strptime (POSIX) for 2-digit years so the result doesn't depend
+// on the current clock: 00-68 -> 2000-2068, 69-99 -> 1900-1999
+// https://www.man7.org/linux//man-pages/man3/strptime.3p.html
 function resolveYear(fields: Fields): number | undefined {
   if (fields.year !== undefined) return fields.year;
   if (fields.twoDigitYear !== undefined) {
@@ -132,21 +124,23 @@ function resolveHour(fields: Fields, formatStr: string): number | undefined {
  * Parses `input` against `formatStr` and builds the real Temporal value it
  * describes: a `Temporal.PlainDate`, `PlainTime`, `PlainDateTime`, or
  * `ZonedDateTime` depending on which tokens are present.
- * 
- * Value is returned as `unknown` since this package assumes no ambient `Temporal` types.
  *
- * Optionally, `options.locale` picks the calendar the result is built in. Pass a
- * locale tag with a `-u-ca-` extension (e.g. `'en-u-ca-hebrew'`) to parse
- * into a non-Gregorian calendar.
- * 
+ * Returns `unknown` — this package has no ambient `Temporal` types to return
+ * a real one against.
+ *
+ * `options.locale` picks the calendar the result is built in. Pass a locale
+ * tag with a `-u-ca-` extension (e.g. `'en-u-ca-hebrew'`) to parse into a
+ * non-Gregorian calendar.
+ *
  * @throws if `input` doesn't match `formatStr`'s shape at all
- * @throws if it matches the shape but escribes an impossible date (e.g. Feb 30)
- * or self-contradictory data (e.g. a weekday name that doesn't match the actual date)
+ * @throws if it matches the shape but describes an impossible date (e.g. Feb
+ * 30) or self-contradictory data (e.g. a weekday name that doesn't match the
+ * actual date)
  *
  * @example
- * parse('yyyy-MM-dd HH:mm', '2026-08-04 15:45')   // Temporal.PlainDateTime
- * parse('yyyy-MM', '2026-08-04T15:45:30')          // throws — not a valid pattern and input shape
- * parse('yyyy-MM-dd', '2026-02-30')                // throws — not a real date
+ * parse('yyyy-MM-dd HH:mm', '2026-08-04 15:45') // Temporal.PlainDateTime
+ * parse('yyyy-MM', '2026-08-04T15:45:30') // throws — shape doesn't match
+ * parse('yyyy-MM-dd', '2026-02-30') // throws — not a real date
  */
 export function parse(formatStr: string, input: string, options: FormatOptions = {}): unknown | undefined {
   if (formatStr.length > MAX_FORMAT_LENGTH) {

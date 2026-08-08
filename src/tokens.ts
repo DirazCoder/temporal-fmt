@@ -13,7 +13,7 @@ export interface TemporalLike {
   second?: number;
   millisecond?: number;
   timeZoneId?: string;
-  dayOfWeek?: number; // 1 (Mon) - 7 (Sun), per Temporal spec
+  dayOfWeek?: number; // 1=Mon, 7=Sun, per Temporal spec
   calendarId?: string;
   toInstant?: () => unknown;
   toLocaleString?: (locale: string, options: Intl.DateTimeFormatOptions) => string;
@@ -51,9 +51,9 @@ function getFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl
 // only works when the engine's Intl implementation has special-cased support for
 // *native* Temporal instances (checked via internal slots and/or gated behind a V8 flag,
 // not tied to a specific Node version).
-// 
+//
 // A Temporal polyfill's instances don't have those slots, so the engine falls back to ToNumber() -> .valueOf(),
-// which the polyfill deliberately throws on ("Cannot use valueOf"). 
+// which the polyfill deliberately throws on ("Cannot use valueOf").
 // Probed once and memoized and only from intlPart(), so it never
 // runs unless a format string actually uses a locale-aware token.
 let nativeSupport: boolean | undefined;
@@ -124,19 +124,14 @@ function intlPart(
   return part.value;
 }
 
-
-// Temporal.prototype.toLocaleString() can't isolate a single field the way formatToParts() can
-// — asking for `hour` + `dayPeriod` together returns one joined string (e.g.
-// "3 in the afternoon"), and asking for `dayPeriod` alone silently resolves
-// against a different, non-hour-anchored set of periods (produces "in the
-// afternoon"/"昼" instead of the "PM"/"午後" that pairing it with hour12
-// actually renders).
-// 
-// On using this instead of temporal:
-// Day period only depends on the hour, not on the calendar or the date, 
-// so always route it through a plain UTC Date instead
-// Intl.DateTimeFormat has always accepted Date objects, on every engine,
-// independent of whether Temporal itself is native or polyfilled.
+// Temporal.prototype.toLocaleString() can't isolate a single field the way
+// formatToParts() can — asking for `hour` + `dayPeriod` together returns one
+// joined string (e.g. "3 in the afternoon"), and `dayPeriod` alone resolves
+// against a different, non-hour-anchored set of periods ("in the
+// afternoon"/"昼" instead of "PM"/"午後"). Day period only depends on the
+// hour anyway, so route it through a plain UTC Date and Intl.DateTimeFormat
+// instead — that's worked the same on every engine regardless of whether
+// Temporal itself is native or polyfilled.
 function dayPeriodPart(hour: number, locale: string): string {
   const date = new Date(Date.UTC(1970, 0, 1, hour));
   const formatter = getFormatter(locale, { hour: 'numeric', hour12: true, timeZone: 'UTC' });
@@ -152,9 +147,9 @@ type TokenHandler = (t: TemporalLike, locale: string) => string;
 // Longest-first — tokenizer is greedy, "yyyy" has to be tried before "yy".
 //
 // Numeric tokens always render in ASCII digits, never locale-native
-// (Arabic-Indic, Devanagari, etc). Padding non-ASCII digit strings to a
-// fixed width isn't the same operation as padding "3", and most consumers
-// parsing these back out want plain digits anyway.
+// (Arabic-Indic, Devanagari, etc). Padding non-ASCII digits isn't as simple
+// as padding "3", and most consumers parsing these back out want plain
+// digits anyway.
 export const TOKENS: Array<[string, TokenHandler, keyof TemporalLike]> = [
   ['yyyy', (t) => pad(t.year!, 4), 'year'],
   ['yy', (t) => {

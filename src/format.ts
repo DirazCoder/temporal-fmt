@@ -9,17 +9,11 @@ const HANDLER_BY_TOKEN = new Map(TOKENS.map(([tok, fn, field]) => [tok, { fn, fi
  * using a date-fns-style token string.
  *
  * @example
- * format(Temporal.Now.plainDateISO(), 'yyyy-MM-dd')                // "2026-08-04"
- * format(zdt, "MMM d, yyyy 'at' h:mm a")                            // "Aug 4, 2026 at 3:45 PM"
- * format(zdt, 'MMMM d, yyyy', { locale: 'fr-FR' })                  // "août 4, 2026"
- * format(zdt, 'EEEE d MMMM', { locale: 'ar-EG' })                   // Arabic weekday/month names
+ * format(Temporal.Now.plainDateISO(), 'yyyy-MM-dd') // "2026-08-04"
+ * format(zdt, "MMM d, yyyy 'at' h:mm a") // "Aug 4, 2026 at 3:45 PM"
+ * format(zdt, 'MMMM d, yyyy', { locale: 'fr-FR' }) // "août 4, 2026"
  *
- * Numeric fields always render in ASCII digits regardless of locale.
- * Named fields (MMMM, EEEE, a) are fully localized via Intl, including
- * non-Gregorian calendars if the Temporal object carries one.
- *
- * Throws if the format string uses a token the input type doesn't support
- * (e.g. 'HH' on a PlainDate) rather than silently printing "undefined".
+ * Throws on a token the input type doesn't support (e.g. 'HH' on a PlainDate).
  */
 export function format(temporal: TemporalLike, formatStr: string, options: FormatOptions = {}): string {
   if (formatStr.length > MAX_FORMAT_LENGTH) {

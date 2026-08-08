@@ -1,5 +1,5 @@
-// Closed-vocabulary lookups for locale-aware tokens (MMMM, MMM, EEEE, EEE, a).
-// Each set is small and fixed (12 months, 7 weekdays, 2 day periods), so we
+// Name lists for the locale-aware tokens (MMMM, MMM, EEEE, EEE, a). Each
+// list is small and fixed (12 months, 7 weekdays, 2 day periods), so we
 // generate the real Intl strings for a locale once and cache them.
 
 export interface LocaleVocab {

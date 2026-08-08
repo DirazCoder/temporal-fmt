@@ -94,8 +94,6 @@ test('PlainTime: works without date fields', () => {
   assert.equal(format(time, 'HH:mm:ss'), '15:45:30');
 });
 
-// --- Locale support ---
-
 test('locale defaults to en-US', () => {
   const date = Temporal.PlainDate.from('2026-08-04');
   assert.equal(format(date, 'MMMM d, yyyy'), 'August 4, 2026');

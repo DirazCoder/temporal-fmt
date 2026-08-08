@@ -62,7 +62,7 @@ export function tokenize(format: string): Piece[] {
       continue;
     }
 
-    // not a token or quote — pass through as-is 
+    // not a token or quote — pass through as-is
     appendLiteral(pieces, ch);
     i += 1;
   }
