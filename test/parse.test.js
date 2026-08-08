@@ -56,6 +56,16 @@ test('12-hour token without an "a" token throws', () => {
   assert.throws(() => parse('yyyy-MM-dd h:mm', '2026-08-04 3:45'));
 });
 
+test('mixing a 24-hour token with a 12-hour token throws, even when the values agree', () => {
+  // HH says 15, h/a says 3 PM — same instant, still rejected: parse() doesn't
+  // pick a winner between two hour tokens that shouldn't both be there.
+  assert.throws(() => parse('HH h a', '15 3 PM'));
+});
+
+test('mixing a 24-hour token with a 12-hour token throws when the values disagree', () => {
+  assert.throws(() => parse('HH h a', '15 9 AM'));
+});
+
 test('locale month name reverse lookup, default en-US', () => {
   const result = parse('MMMM d, yyyy', 'August 4, 2026');
   assert.equal(result.toString(), Temporal.PlainDate.from('2026-08-04').toString());
