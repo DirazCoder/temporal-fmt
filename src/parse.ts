@@ -109,6 +109,12 @@ function resolveYear(fields: Fields): number | undefined {
 }
 
 function resolveHour(fields: Fields, formatStr: string): number | undefined {
+  if (fields.hour !== undefined && fields.hour12 !== undefined) {
+    throw new Error(
+      `temporal-fmt: format string "${formatStr}" mixes a 24-hour token ("HH"/"H") with a ` +
+      `12-hour token ("hh"/"h"). Pick one or the other — parse() won't guess which is authoritative.`
+    );
+  }
   if (fields.hour !== undefined) return fields.hour;
   if (fields.hour12 !== undefined) {
     if (fields.isPM === undefined) {
