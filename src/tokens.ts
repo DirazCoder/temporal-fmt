@@ -1,5 +1,7 @@
 export function pad(n: number, len: number): string {
-  return String(n).padStart(len, '0');
+  const negative = n < 0;
+  const digits = String(Math.abs(n)).padStart(len, '0');
+  return negative ? '-' + digits : digits;
 }
 
 // Not every field exists on every Temporal type (PlainDate has no .hour,
