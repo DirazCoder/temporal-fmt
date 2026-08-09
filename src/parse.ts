@@ -26,10 +26,15 @@ function getPattern(formatStr: string, locale: string): CapturingPattern {
   return pattern;
 }
 
-// Intl.DateTimeFormat(locale).resolvedOptions().calendar reports the
-// locale's default calendar so passing locale with a `-u-ca-` extension in the tag
-// allows setting non-gregorian calendars. 'gregory' is treated as "no calendar" so
-// the default locale ('en-US') keeps constructing plain ISO 8601
+// Requires an explicit `-u-ca-` extension (e.g. 'en-u-ca-hebrew') to apply
+// a non-Gregorian calendar, per parse()'s own docstring. 'gregory' counts
+// as "no calendar" so the default locale keeps constructing plain ISO 8601.
+//
+// Used to key off resolvedOptions().calendar instead — a locale's
+// *default* calendar, whether the caller asked for one or not. That broke
+// th-TH silently: its default is 'buddhist', so plain Gregorian-looking
+// digits parsed 543 years off, while format() has no matching calendar
+// step and just prints the object's own ISO fields either way.
 const calendarCache = new Map<string, string | undefined>();
 const MAX_CALENDAR_CACHE_SIZE = 500;
 
@@ -41,8 +46,11 @@ function resolveCalendar(locale: string): string | undefined {
     const oldestKey = calendarCache.keys().next().value;
     if (oldestKey !== undefined) calendarCache.delete(oldestKey);
   }
-  const resolved = new Intl.DateTimeFormat(locale).resolvedOptions().calendar;
-  const calendar = resolved === 'gregory' ? undefined : resolved;
+  let calendar: string | undefined;
+  if (locale.includes('-u-ca-')) {
+    const resolved = new Intl.DateTimeFormat(locale).resolvedOptions().calendar;
+    calendar = resolved === 'gregory' ? undefined : resolved;
+  }
   calendarCache.set(locale, calendar);
   return calendar;
 }

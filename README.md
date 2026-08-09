@@ -191,6 +191,15 @@ sitting in your output waiting to confuse someone in three weeks.
 - Locale-aware tokens need Node 20+, native or polyfilled. Untested below Node 20.
 - As mentioned above, you must [provide a Temporal implementation](#providing-temporal)
   if it is not natively provided (Node 26+)
+- On engines with native `Temporal` support (Node 26+), locale-aware tokens
+  (`MMMM`/`MMM`/`EEEE`/`EEE`) can render the wrong month or weekday for dates
+  before around 1582 CE. This is a known ICU limitation, not a bug in this
+  library: ICU's default Gregorian calendar cutover is October 15, 1582, so
+  `Intl.DateTimeFormat.formatToParts()` silently reinterprets earlier dates
+  under the Julian calendar, even though `Temporal` itself uses a proleptic
+  Gregorian calendar throughout — see
+  [tc39/ecma402#1003](https://github.com/tc39/ecma402/issues/1003). Numeric
+  tokens (`yyyy`/`MM`/`dd`) never go through `Intl` and aren't affected.
 
 ## Dev notes
 

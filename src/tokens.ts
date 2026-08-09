@@ -119,14 +119,25 @@ function intlPart(
 
   const formatter = getFormatter(locale, nativeOptions);
   const parts = formatter.formatToParts(intlSafeTemporal as Date | number);
-  const part = parts.find((p) => p.type === partType);
-  if (!part) {
+  const index = parts.findIndex((p) => p.type === partType);
+  if (index === -1) {
     throw new Error(
       `temporal-fmt: locale "${locale}" produced no "${partType}" part for this token. ` +
       `This usually means the Temporal object is missing the field the token needs.`
     );
   }
-  return part.value;
+  // some locales (ja-JP) split a field across two parts — e.g. month "8"
+  // plus a counter suffix "月" as a separate sibling literal part. Merge in
+  // an adjacent literal only if it has no whitespace, so a genuine suffix
+  // gets folded in but an ordinary separator (the space before "AM") stays
+  // a separator. Mirrors partValue() in localeVocab.ts, which builds the
+  // vocab this token's output needs to match for parse() to round-trip.
+  let value = parts[index]!.value;
+  const prev = parts[index - 1];
+  const next = parts[index + 1];
+  if (prev?.type === 'literal' && !/\s/.test(prev.value)) value = prev.value + value;
+  if (next?.type === 'literal' && !/\s/.test(next.value)) value = value + next.value;
+  return value;
 }
 
 // Temporal.prototype.toLocaleString() can't isolate a single field the way
