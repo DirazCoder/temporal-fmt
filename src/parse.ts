@@ -1,6 +1,7 @@
 import { DEFAULT_LOCALE, type FormatOptions } from './tokens.js';
 import { tokenize } from './tokenize.js';
 import { buildCapturingPattern, type CapturingPattern } from './parsePattern.js';
+import { enumerateValidSplits } from './pattern.js';
 import { getLocaleVocab } from './localeVocab.js';
 import { getTemporal } from './temporalProvider.js';
 import { MAX_FORMAT_LENGTH } from './constants.js';
@@ -168,6 +169,32 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
 
   if (pattern.groups.length === 0) {
     throw new Error(`temporal-fmt: format string "${formatStr}" has no tokens — nothing to parse into a value.`);
+  }
+
+  // A run of 2+ adjacent unpadded-numeric tokens with no literal separator
+  // (e.g. "Md", "dM", "Hms") can have more than one way to split the
+  // digits it matched that's independently valid for every token in the
+  // run — see the comment on NUMERIC_FRAGMENTS in pattern.ts for the
+  // mechanism. The regex above only ever finds one such split (whichever
+  // its alternation ordering happens to prefer); silently trusting that
+  // one would mean parse() sometimes returns a value indistinguishable
+  // from a different, equally valid value the same input could describe.
+  // Rather than guess, check every ambiguous run explicitly and throw if
+  // more than one split is actually valid for the substring this call
+  // matched — the input itself is what's ambiguous, not a fixable
+  // property of the pattern.
+  for (const run of pattern.ambiguousRuns) {
+    const runDigits = run.groupNames.map((name) => match.groups![name]!).join('');
+    const splits = enumerateValidSplits(runDigits, run.tokens);
+    if (splits.length > 1) {
+      throw new Error(
+        `temporal-fmt: "${runDigits}" in format string "${formatStr}" is ambiguous — ` +
+        `${splits.length} different ways to read tokens "${run.tokens.join('')}" (with no separator ` +
+        `between them) are all individually valid (e.g. ${JSON.stringify(splits[0])} vs ${JSON.stringify(splits[1])}). ` +
+        `parse() won't guess; add a separator between these tokens, or use their padded form ` +
+        `(e.g. "MM" instead of "M") so each one has a fixed width.`
+      );
+    }
   }
 
   const fields: Fields = {};
