@@ -299,7 +299,7 @@ test('every unpadded-numeric-token pair glued with no separator either resolves 
   // enumerateValidSplits() in pattern.ts — this needs to check the
   // library's behavior against a ground truth computed separately, not
   // just re-run the same code and agree with itself by construction)
-  function countValidSplits(digits, aRange, bRange) {
+  function countValidSplits(digits, aRange, bRange, aToken, bToken) {
     const results = [];
     for (let w = 1; w <= 2 && w < digits.length; w++) {
       const aPiece = digits.slice(0, w);
@@ -311,6 +311,13 @@ test('every unpadded-numeric-token pair glued with no separator either resolves 
       const bV = parseInt(bPiece, 10);
       if (aV < aRange.min || aV > aRange.max) continue;
       if (bV < bRange.min || bV > bRange.max) continue;
+      // month/day splits also have to be real calendar dates — a split
+      // that's in-range for both tokens individually (e.g. month=9, day=31)
+      // can still be invalid because September has no 31st. That's a
+      // separate, already-tested mechanism (calendar overflow), not glue
+      // ambiguity, so it shouldn't count as a "valid split" here.
+      if (aToken === 'M' && bToken === 'd' && !isCalendarValid(aV, bV)) continue;
+      if (aToken === 'd' && bToken === 'M' && !isCalendarValid(bV, aV)) continue;
       results.push([aV, bV]);
     }
     return results;
@@ -322,7 +329,6 @@ test('every unpadded-numeric-token pair glued with no separator either resolves 
       const pairKey = `${a},${b}`;
       if (!VIABLE_PAIRS.has(pairKey)) continue;
 
-      const formatStr = `yyyy-${a}${b}`;
       const { min: aMin, max: aMax, field: aField } = UNPADDED_NUMERIC[a];
       const { min: bMin, max: bMax, field: bField } = UNPADDED_NUMERIC[b];
 
@@ -343,10 +349,17 @@ test('every unpadded-numeric-token pair glued with no separator either resolves 
 
       for (const aVal of sample(aMin, aMax)) {
         for (const bVal of sample(bMin, bMax)) {
+          // skip sampled combos that aren't real calendar dates to begin
+          // with (e.g. month=9, day=31) — calendar-overflow rejection is
+          // a separate, already-tested mechanism, and testing it here
+          // would just mean asserting on our own oracle's blind spot
+          if (a === 'M' && b === 'd' && !isCalendarValid(aVal, bVal)) continue;
+          if (a === 'd' && b === 'M' && !isCalendarValid(bVal, aVal)) continue;
+
           checked++;
-          const digits = buildGlueTestValue(formatStr, aVal, bVal);
-          const input = `2026-${digits}`;
-          const validSplits = countValidSplits(digits, { min: aMin, max: aMax }, { min: bMin, max: bMax });
+          const { formatStr, input } = buildGlueFormatAndInput(a, b, aVal, bVal);
+          const digits = `${aVal}${bVal}`;
+          const validSplits = countValidSplits(digits, { min: aMin, max: aMax }, { min: bMin, max: bMax }, a, b);
 
           let result, threw;
           try {
