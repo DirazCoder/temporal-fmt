@@ -11,6 +11,7 @@ export interface LocaleVocab {
 }
 
 const vocabCache = new Map<string, LocaleVocab>();
+const MAX_VOCAB_CACHE_SIZE = 500;
 
 function partValue(formatter: Intl.DateTimeFormat, date: Date, type: Intl.DateTimeFormatPartTypes): string {
   const part = formatter.formatToParts(date).find((p) => p.type === type);
@@ -53,6 +54,10 @@ export function getLocaleVocab(locale: string): LocaleVocab {
   const dayPeriod = [...new Set([am, pm])];
 
   const vocab: LocaleVocab = { monthLong, monthShort, weekdayLong, weekdayShort, dayPeriod };
+  if (vocabCache.size >= MAX_VOCAB_CACHE_SIZE) {
+    const oldestKey = vocabCache.keys().next().value;
+    if (oldestKey !== undefined) vocabCache.delete(oldestKey);
+  }
   vocabCache.set(locale, vocab);
   return vocab;
 }
