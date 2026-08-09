@@ -3,16 +3,17 @@
 Format `Temporal.PlainDate` / `PlainTime` / `PlainDateTime` / `ZonedDateTime` objects
 using date-fns-style token strings.
 
-Node 26 shipped native `Temporal` — and then pointedly left out a custom-string
+Node 26 shipped native `Temporal` and then pointedly left out a custom-string
 formatter. TC39's take: use `Intl.DateTimeFormat` and leave string-token syntax
 to userland. Fair enough, but if you've spent years typing `'yyyy-MM-dd'` out of
 muscle memory from date-fns, moment, or dayjs, that's a rough adjustment. This
 library exists so you don't have to make it.
 
-Zero dependencies. You'll need a global `Temporal` — native on Node 26+, or
-bring your own polyfill (`temporal-polyfill` works fine). Locale-aware tokens
-work either way: on Node 20+ without native `Temporal`, formatting falls back
-to the polyfill's own `toLocaleString()` automatically.
+Zero dependencies. Node 26+ has native Temporal, use a polyfill,
+or bring your own Temporal implementation via `setTemporal()`.
+
+Locale-aware tokens are supported for < Node 26: formatting falls back to the Temporal implementation's
+own `toLocaleString()` automatically.
 
 ## Install
 
@@ -21,6 +22,38 @@ npm install temporal-fmt
 ```
 
 [View on npm](https://www.npmjs.com/package/temporal-fmt)
+
+## Providing `Temporal`
+
+### Node 26+
+
+Temporal is native and used automatically.
+
+### Polyfill
+
+Use a polyfill like [`temporal-polyfill`](https://github.com/fullcalendar/temporal-polyfill) to implement Temporal
+in the global namespace.
+
+```js
+import 'temporal-polyfill/global'
+import { format, parse } from 'temporal-fmt';
+
+parse(...);
+```
+
+### Bring Your Own
+
+ Set a Temporal implementation explicitly, once, before your app's first
+`format()`/`parse()` call:
+
+```js
+import { Temporal } from 'temporal-polyfill/full';
+import { setTemporal, format, parse } from 'temporal-fmt';
+
+setTemporal(Temporal); // once, before using `format` or `parse`.
+```
+
+Useful when you do not want to pollute the global namespace, like for libraries.
 
 ## Usage
 
@@ -154,6 +187,8 @@ sitting in your output waiting to confuse someone in three weeks.
 - Numeral systems are always Western digits — see [Locale support](#locale-support).
 - `format()` needs Node 20+ (native `Temporal` on 26+, polyfilled otherwise)
   for locale-aware tokens. Untested below Node 20.
+- As mentioned above, you must [provide a Temporal implementation](#providing-temporal)
+  if it is not natively provided (Node 26+)
 
 ## Dev notes
 
@@ -168,6 +203,8 @@ one won't cut it. Locale-aware tests pass on Node 20+ regardless of whether
 `Temporal` is native or polyfilled — on native (Node 26+), formatting goes
 through `Intl.DateTimeFormat` directly; on the polyfill, it falls back to
 `Temporal.prototype.toLocaleString()`, which the polyfill implements itself.
+`parse.test.js` configures Temporal via `setTemporal()` rather than mutating
+`globalThis.Temporal` directly.
 
 ## License
 
