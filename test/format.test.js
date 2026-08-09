@@ -149,3 +149,240 @@ test('month-only query on iso8601 does not drop the token', () => {
   assert.equal(format(date, 'MMMM'), 'August');
   assert.equal(format(date, 'EEEE'), 'Tuesday');
 });
+
+test('empty format string returns empty string', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(format(date, ''), '');
+});
+
+test('single-letter tokens (h, d, a, m, s, M, y) inside an unquoted literal word get read as fields, not text', () => {
+  // "hello world" contains a bare "h" — read as the 12-hour token, which
+  // throws on a PlainDate since it has no .hour field. Quote literal text
+  // that might contain these letters.
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.throws(() => format(date, 'hello world'), /requires "hour"/);
+});
+
+test('literal text free of token letters passes through unquoted', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(format(date, 'yyyy () [] # / -- !!'), '2026 () [] # / -- !!');
+});
+
+test('format string that is only a quoted literal', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(format(date, "'just text'"), 'just text');
+});
+
+test('format string at exactly the max length succeeds', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  const formatStr = 'd'.repeat(1000);
+  assert.doesNotThrow(() => format(date, formatStr));
+});
+
+test('format string exceeding max length throws', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  const formatStr = 'x'.repeat(1001);
+  assert.throws(() => format(date, formatStr), /exceeds maximum length/);
+});
+
+test('PlainDate: zzz throws (no timeZoneId field)', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.throws(() => format(date, 'zzz'), /requires "timeZoneId"/);
+});
+
+test('PlainDate: SSS throws (no millisecond field)', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.throws(() => format(date, 'SSS'), /requires "millisecond"/);
+});
+
+test('PlainDate: "a" throws (no hour field)', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.throws(() => format(date, 'a'), /requires "hour"/);
+});
+
+test('PlainTime: yyyy throws (no year field)', () => {
+  const time = Temporal.PlainTime.from('15:45:30');
+  assert.throws(() => format(time, 'yyyy'), /requires "year"/);
+});
+
+test('PlainTime: MMMM throws (no month field)', () => {
+  const time = Temporal.PlainTime.from('15:45:30');
+  assert.throws(() => format(time, 'MMMM'), /requires "month"/);
+});
+
+test('PlainDateTime: zzz throws (no timeZoneId field)', () => {
+  const dt = Temporal.PlainDateTime.from('2026-08-04T15:45:30');
+  assert.throws(() => format(dt, 'zzz'), /requires "timeZoneId"/);
+});
+
+test('ZonedDateTime: all field categories succeed together', () => {
+  const zdt = Temporal.ZonedDateTime.from('2026-08-04T15:45:30.007-04:00[America/New_York]');
+  assert.equal(
+    format(zdt, 'yyyy-MM-dd HH:mm:ss.SSS zzz'),
+    '2026-08-04 15:45:30.007 America/New_York'
+  );
+});
+
+test('hour 0 (midnight) as h/hh is 12, not 0', () => {
+  const dt = Temporal.PlainDateTime.from('2026-08-04T00:00:00');
+  assert.equal(format(dt, 'h'), '12');
+  assert.equal(format(dt, 'hh'), '12');
+  assert.equal(format(dt, 'a'), 'AM');
+});
+
+test('hour 12 (noon) as h/hh is 12, and is PM', () => {
+  const dt = Temporal.PlainDateTime.from('2026-08-04T12:00:00');
+  assert.equal(format(dt, 'h'), '12');
+  assert.equal(format(dt, 'hh'), '12');
+  assert.equal(format(dt, 'a'), 'PM');
+});
+
+test('hour 23 as h/hh is 11 PM', () => {
+  const dt = Temporal.PlainDateTime.from('2026-08-04T23:00:00');
+  assert.equal(format(dt, 'h'), '11');
+  assert.equal(format(dt, 'a'), 'PM');
+});
+
+test('hour 1 as H/HH is unpadded/padded 1', () => {
+  const dt = Temporal.PlainDateTime.from('2026-08-04T01:00:00');
+  assert.equal(format(dt, 'H'), '1');
+  assert.equal(format(dt, 'HH'), '01');
+});
+
+test('single-digit values pad correctly across all 2-digit tokens', () => {
+  const dt = Temporal.PlainDateTime.from('2026-01-02T03:04:05');
+  assert.equal(format(dt, 'yyyy-MM-dd HH:mm:ss'), '2026-01-02 03:04:05');
+});
+
+test('SSS pads milliseconds to 3 digits including zero', () => {
+  const dt = Temporal.PlainDateTime.from('2026-08-04T15:45:30');
+  assert.equal(format(dt, 'SSS'), '000');
+});
+
+test('SSS pads single-digit milliseconds', () => {
+  const dt = Temporal.PlainDateTime.from('2026-08-04T15:45:30.005');
+  assert.equal(format(dt, 'SSS'), '005');
+});
+
+test('yy pads single digit year-mod-100', () => {
+  const date = Temporal.PlainDate.from('2005-01-01');
+  assert.equal(format(date, 'yy'), '05');
+});
+
+test('yy on year 2000 is "00"', () => {
+  const date = Temporal.PlainDate.from('2000-06-15');
+  assert.equal(format(date, 'yy'), '00');
+});
+
+test('yyyy on a large year still pads at minimum 4 digits, no truncation', () => {
+  const date = Temporal.PlainDate.from({ year: 9999, month: 1, day: 1 });
+  assert.equal(format(date, 'yyyy'), '9999');
+});
+
+test('yy throws on negative (BCE-ish) year', () => {
+  const date = Temporal.PlainDate.from({ year: -45, month: 1, day: 1 });
+  assert.throws(() => format(date, 'yy'), /doesn't support negative years/);
+});
+
+test('yyyy on a negative year puts the sign before the padded digits', () => {
+  const date = Temporal.PlainDate.from({ year: -45, month: 1, day: 1 });
+  assert.equal(format(date, 'yyyy'), '-0045');
+});
+
+test('two single quotes mid-string is the doubled-quote escape, not an empty span', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(format(date, "yyyy''MM"), "2026'08");
+});
+
+test('a genuine empty span (quote, immediate close, quote) contributes nothing extra', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(format(date, "yyyy'''x'MM"), "2026'x08");
+});
+
+test('adjacent literal runs merge into one piece (no observable difference, but check content)', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(format(date, 'yyyy---MM'), '2026---08');
+});
+
+test('quote containing a token-like substring is not tokenized', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(format(date, "yyyy 'yyyy'"), '2026 yyyy');
+});
+
+test('triple-doubled quote resolves as two literal-quote escapes back to back', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(format(date, "yyyy''''"), "2026''");
+});
+
+test('unterminated quote at very start of string throws', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.throws(() => format(date, "'unterminated"), /unterminated quote/);
+});
+
+test('lone single quote followed by nothing throws (unterminated)', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.throws(() => format(date, "yyyy'"), /unterminated quote/);
+});
+
+test('non-token letters pass through literally (e.g. "Y", "T")', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(format(date, 'Y-T-yyyy'), 'Y-T-2026');
+});
+
+test('emoji and unicode literal text passes through', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(format(date, 'yyyy 📅 MM'), '2026 📅 08');
+});
+
+test('MMMM is greedily preferred over MMM/MM/M when 4 Ms appear', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(format(date, 'MMMM'), 'August');
+});
+
+test('exactly MMM (3 Ms) resolves to short month, not M+MM or MM+M', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(format(date, 'MMM'), 'Aug');
+});
+
+test('five Ms in a row: greedy MMMM then leftover M', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(format(date, 'MMMMM'), 'August8');
+});
+
+test('adjacent same-field tokens with no separator: yyyyMMdd', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(format(date, 'yyyyMMdd'), '20260804');
+});
+
+test('back-to-back distinct tokens with no literal separator: HHmmss', () => {
+  const dt = Temporal.PlainDateTime.from('2026-08-04T05:06:07');
+  assert.equal(format(dt, 'HHmmss'), '050607');
+});
+
+test('unrecognized BCP47 locale falls back without throwing', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.doesNotThrow(() => format(date, 'MMMM', { locale: 'xx-XX' }));
+});
+
+test('malformed locale tag throws instead of being silently ignored', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.throws(() => format(date, 'MMMM', { locale: 'not_a_locale!!' }));
+});
+
+test('locale option is ignored entirely for pure-numeric format strings', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(
+    format(date, 'yyyy-MM-dd', { locale: 'ja-JP' }),
+    format(date, 'yyyy-MM-dd', { locale: 'en-US' })
+  );
+});
+
+test('repeated calls with different locales do not cross-contaminate cache', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  const en = format(date, 'MMMM', { locale: 'en-US' });
+  const fr = format(date, 'MMMM', { locale: 'fr-FR' });
+  const enAgain = format(date, 'MMMM', { locale: 'en-US' });
+  assert.equal(en, 'August');
+  assert.equal(fr, 'août');
+  assert.equal(enAgain, 'August');
+});

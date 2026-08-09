@@ -1,7 +1,11 @@
 import { getTemporal } from './temporalProvider.js';
 
 export function pad(n: number, len: number): string {
-  return String(n).padStart(len, '0');
+  // padStart pads the whole string, sign included, so pad(-45, 4) used to
+  // come out "0-45" instead of "-045" — split the sign off first.
+  const negative = n < 0;
+  const digits = String(Math.abs(n)).padStart(len, '0');
+  return negative ? '-' + digits : digits;
 }
 
 // Not every field exists on every Temporal type (PlainDate has no .hour,
