@@ -9,11 +9,12 @@ to userland. Fair enough, but if you've spent years typing `'yyyy-MM-dd'` out of
 muscle memory from date-fns, moment, or dayjs, that's a rough adjustment. This
 library exists so you don't have to make it.
 
-Zero dependencies. Node 26+ has native Temporal, use a polyfill,
-or bring your own Temporal implementation via `setTemporal()`.
+Zero dependencies. Native on Node 26+, or bring your own via a polyfill or
+`setTemporal()`.
 
-Locale-aware tokens are supported for < Node 26: formatting falls back to the Temporal implementation's
-own `toLocaleString()` automatically.
+Locale-aware tokens need Node 20+ regardless of which path you use — native
+on 26+, or falling back to the Temporal implementation's own
+`toLocaleString()` otherwise. Untested below Node 20.
 
 ## Install
 
@@ -43,7 +44,7 @@ parse(...);
 
 ### Bring Your Own
 
- Set a Temporal implementation explicitly, once, before your app's first
+Set a Temporal implementation explicitly, once, before your app's first
 `format()`/`parse()` call:
 
 ```js
@@ -53,7 +54,9 @@ import { setTemporal, format, parse } from 'temporal-fmt';
 setTemporal(Temporal); // once, before using `format` or `parse`.
 ```
 
-Useful when you do not want to pollute the global namespace, like for libraries.
+`setTemporal()` takes precedence over native or global Temporal, and calling
+it again overrides whatever was set before. Useful when you don't want to
+pollute the global namespace, like for libraries.
 
 ## Usage
 
@@ -185,8 +188,7 @@ sitting in your output waiting to confuse someone in three weeks.
 ## Known limitations
 
 - Numeral systems are always Western digits — see [Locale support](#locale-support).
-- `format()` needs Node 20+ (native `Temporal` on 26+, polyfilled otherwise)
-  for locale-aware tokens. Untested below Node 20.
+- Locale-aware tokens need Node 20+, native or polyfilled. Untested below Node 20.
 - As mentioned above, you must [provide a Temporal implementation](#providing-temporal)
   if it is not natively provided (Node 26+)
 
