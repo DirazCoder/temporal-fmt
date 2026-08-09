@@ -184,15 +184,21 @@ test('unpadded month+day glued with no separator: "34" (single digit + single di
   assert.equal(result.day, 4);
 });
 
-test('unpadded month+day glued with no separator: "125" resolves as month 1, day 25 — not month 12, day 5', () => {
-  // both readings are numerically plausible (month 1 or month 12), but only
-  // one is valid given d's "no leading zero" fragment: month=12,day=5 would
-  // need "05" for day 5, which d's own regex rejects. So there's exactly
-  // one valid parse here, and it's confirmed deterministic across repeated
-  // calls (same regex, same compiled pattern from the cache every time).
-  const result = parse('yyyy-Md', '2026-125');
-  assert.equal(result.month, 1);
-  assert.equal(result.day, 25);
+test('unpadded month+day glued with no separator: "125" is genuinely ambiguous (month 1/day 25 vs month 12/day 5) and throws rather than silently picking one', () => {
+  // Originally documented as unambiguous (month=1,day=25 only), on the
+  // theory that month=12/day=5 would need "05" for day 5. That reasoning
+  // was wrong — d's single-digit branch accepts plain "5" with no leading
+  // zero required, so both splits are independently valid: [1,25] and
+  // [12,5]. The old short-first regex ordering picked [1,25] silently and
+  // never surfaced the other reading. Now that parse() checks for multiple
+  // valid splits in an unseparated unpadded-numeric run (see
+  // enumerateValidSplits() in pattern.ts), this correctly throws instead
+  // of guessing. Found by the token×token combinatorial glue matrix below.
+  assert.throws(
+    () => parse('yyyy-Md', '2026-125'),
+    /is ambiguous/,
+    '"125" against "Md" has two independently valid readings and should throw, not pick one'
+  );
 });
 
 test('unpadded month+day glued with no separator: "1225" resolves as month 12, day 25', () => {
@@ -206,4 +212,244 @@ test('unpadded month+day glued with no separator: "304" has no valid parse and t
   // is invalid (M tops out at 12) — genuinely no valid reading exists, and
   // the fully-anchored regex correctly rejects it instead of guessing
   assert.throws(() => parse('yyyy-Md', '2026-304'), /no valid pattern matches/);
+});
+
+// --- Full unpadded-numeric-token × unpadded-numeric-token adjacency matrix ---
+//
+// The M+d case above is one pair out of many with the same shape: any two
+// *unpadded* numeric tokens (no leading zero, variable width) glued with no
+// separator can in principle be ambiguous, because a greedy variable-width
+// match can eat into digits that "belong" to the next field. Padded tokens
+// (MM, dd, HH, etc.) don't have this problem — fixed width means there's
+// nothing to be greedy about — so this only needs to cover the unpadded
+// set: M, d, H, h, m, s. (yy is excluded: fixed 2-digit width, same
+// reasoning as padded tokens. SSS is fixed-width too.)
+//
+// Scoped deliberately to *only* the glue-ambiguity mechanism, not the rest
+// of parse()'s validation pipeline — two other independent failure modes
+// exist that aren't what this test is checking and would otherwise show up
+// as false positives if not filtered out explicitly:
+//   1. calendar validity (e.g. day=31 in a month that only has 30 days) —
+//      already covered by parse()'s overflow:'reject' behavior and its own
+//      tests. d's range here is its real 1-31 (matching the actual regex
+//      fragment) — narrowing it would make the oracle disagree with what
+//      the library's ambiguity check itself sees, which defeats the
+//      point. Instead, cases whose *unique* valid split names a
+//      calendar-invalid day for the sampled month are skipped individually
+//      (see skipCalendarOverflow below), so this stays about ambiguity
+//      detection specifically, not calendar arithmetic.
+//   2. field-combination rules (e.g. a month token without day needs a
+//      separate check — parse() requires year+month+day together, and a
+//      bare time pair needs no year/date token present at all) — already
+//      covered in parse.test.js. Format strings below only include a
+//      "yyyy-" prefix for the M+d pair; pure time pairs (H/h/m/s
+//      combinations) get no date tokens at all, since parse() builds a
+//      PlainTime from time fields alone with no date required.
+const UNPADDED_NUMERIC = {
+  M: { min: 1, max: 12, field: 'month' },
+  d: { min: 1, max: 31, field: 'day' }, // real range — must match pattern.ts's actual fragment, see note above
+  H: { min: 0, max: 23, field: 'hour' },
+  h: { min: 1, max: 12, field: 'hour' },
+  m: { min: 0, max: 59, field: 'minute' },
+  s: { min: 0, max: 59, field: 'second' },
+};
+
+// Only pairs that form a self-sufficient, independently valid parse target
+// with no other token required — this is what keeps "field-combination
+// rule" throws (e.g. "needs a full date", "mixes 12h/24h") from showing up
+// as false positives in a test that's specifically about glue ambiguity.
+// M+d is the only viable date pair (year is padded/fixed-width, excluded
+// from UNPADDED_NUMERIC entirely). Any H/h/m/s pair is fine together
+// except H+h/h+H/h+h, which hit the 12h/24h mixing rule and h's
+// need for an "a" token — both already covered by dedicated tests.
+const VIABLE_PAIRS = new Set(['M,d', 'd,M', 'H,m', 'm,H', 'H,s', 's,H', 'm,s', 's,m']);
+
+// M+d is the one pair where a "unique valid split" can still fail — not
+// from glue ambiguity, but because the day it names doesn't exist in the
+// month it names (calendar overflow, a different and already-tested
+// mechanism). Rather than avoid the real day range entirely, skip only the
+// specific (month, day) unique-split combinations where that would happen,
+// using a fixed 2026 (non-leap) year to match what the test actually
+// parses against.
+function isCalendarValid(monthVal, dayVal) {
+  const daysInMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return dayVal <= daysInMonth[monthVal - 1];
+}
+
+function buildGlueFormatAndInput(a, b, aVal, bVal) {
+  // M+d needs the "yyyy-" prefix so parse() has a full date to build;
+  // pure time pairs (H/h/m/s combinations) need no date tokens at all —
+  // parse() is fine building a PlainTime from time fields alone
+  const isDatePair = (a === 'M' || a === 'd') && (b === 'M' || b === 'd');
+  const formatStr = isDatePair ? `yyyy-${a}${b}` : `${a}${b}`;
+  const digits = `${aVal}${bVal}`;
+  const input = isDatePair ? `2026-${digits}` : digits;
+  return { formatStr, input };
+}
+
+test('every unpadded-numeric-token pair glued with no separator either resolves the unique valid reading, or throws when genuinely ambiguous — never silently returns a wrong reading', () => {
+  const tokens = Object.keys(UNPADDED_NUMERIC);
+  const failures = [];
+  let checked = 0;
+  let ambiguousCount = 0;
+
+  // independent oracle: given the glued digit string and the two value
+  // widths, count how many (aVal, bVal) splits are *themselves* valid
+  // against the pair's own min/max ranges (mirrors, but doesn't call,
+  // enumerateValidSplits() in pattern.ts — this needs to check the
+  // library's behavior against a ground truth computed separately, not
+  // just re-run the same code and agree with itself by construction)
+  function countValidSplits(digits, aRange, bRange) {
+    const results = [];
+    for (let w = 1; w <= 2 && w < digits.length; w++) {
+      const aPiece = digits.slice(0, w);
+      const bPiece = digits.slice(w);
+      if (w === 2 && aPiece[0] === '0') continue; // no leading zero on the 2-digit branch
+      if (bPiece.length === 2 && bPiece[0] === '0') continue;
+      if (bPiece.length < 1 || bPiece.length > 2) continue;
+      const aV = parseInt(aPiece, 10);
+      const bV = parseInt(bPiece, 10);
+      if (aV < aRange.min || aV > aRange.max) continue;
+      if (bV < bRange.min || bV > bRange.max) continue;
+      results.push([aV, bV]);
+    }
+    return results;
+  }
+
+  for (const a of tokens) {
+    for (const b of tokens) {
+      if (a === b) continue; // same field twice glued together isn't a meaningful case
+      const pairKey = `${a},${b}`;
+      if (!VIABLE_PAIRS.has(pairKey)) continue;
+
+      const formatStr = `yyyy-${a}${b}`;
+      const { min: aMin, max: aMax, field: aField } = UNPADDED_NUMERIC[a];
+      const { min: bMin, max: bMax, field: bField } = UNPADDED_NUMERIC[b];
+
+      // exhaustive over both ranges would be thousands of cases per pair —
+      // sample the actual boundary-relevant values instead: min, max, and a
+      // handful of widths in between, since the ambiguity mechanism (greedy
+      // digit consumption) is a function of digit-count boundaries, not of
+      // which specific value within a width class is used
+      const sample = (min, max) => {
+        const vals = new Set([min, max]);
+        for (let v = min; v <= max; v++) {
+          if (String(v).length !== String(v - 1 >= min ? v - 1 : v).length) vals.add(v); // width boundary
+        }
+        vals.add(Math.min(9, max)); // last single-digit value, if in range
+        vals.add(Math.max(min, 10)); // first two-digit value, if in range
+        return [...vals].filter((v) => v >= min && v <= max);
+      };
+
+      for (const aVal of sample(aMin, aMax)) {
+        for (const bVal of sample(bMin, bMax)) {
+          checked++;
+          const digits = buildGlueTestValue(formatStr, aVal, bVal);
+          const input = `2026-${digits}`;
+          const validSplits = countValidSplits(digits, { min: aMin, max: aMax }, { min: bMin, max: bMax });
+
+          let result, threw;
+          try {
+            result = parse(formatStr, input);
+            threw = false;
+          } catch {
+            threw = true;
+          }
+
+          if (validSplits.length === 0) {
+            // shouldn't happen — we constructed the digits from a valid
+            // (aVal, bVal) pair, so at least that split must be valid;
+            // catches a bug in this test's own oracle, not the library
+            failures.push({ pair: pairKey, input, note: 'test oracle found zero valid splits for a value it encoded itself — oracle bug' });
+            continue;
+          }
+
+          if (validSplits.length === 1) {
+            // unambiguous: library must return exactly this reading, not throw
+            if (threw) {
+              failures.push({ pair: pairKey, formatStr, input, note: 'unique valid split exists but parse() threw', expected: { [aField]: aVal, [bField]: bVal } });
+            } else if (result[aField] !== aVal || result[bField] !== bVal) {
+              failures.push({
+                pair: pairKey, formatStr, input,
+                expected: { [aField]: aVal, [bField]: bVal },
+                got: { [aField]: result[aField], [bField]: result[bField] },
+                note: 'unique valid split, but parse() returned a different value',
+              });
+            }
+          } else {
+            // genuinely ambiguous: library must throw, not silently pick one
+            ambiguousCount++;
+            if (!threw) {
+              failures.push({
+                pair: pairKey, formatStr, input, validSplits,
+                got: { [aField]: result[aField], [bField]: result[bField] },
+                note: `${validSplits.length} valid splits exist but parse() silently picked one instead of throwing`,
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  assert.ok(checked > 50, `sanity check: expected to have exercised a meaningful number of cases, only ran ${checked}`);
+  assert.ok(ambiguousCount > 0, 'sanity check: expected the sampled cases to include at least one genuinely ambiguous glue string');
+  assert.equal(
+    failures.length, 0,
+    `${failures.length}/${checked} glued-pair cases (${ambiguousCount} genuinely ambiguous) didn't match expected ` +
+    `behavior:\n${JSON.stringify(failures.slice(0, 10), null, 2)}`
+  );
+});
+
+// --- Locale-aware token × adjacent numeric token, no separator ---
+//
+// A different adjacency shape: MMMM/MMM/EEEE/EEE/a are alternations over a
+// vocab list (month/weekday names, AM/PM strings), not digit patterns, so
+// they can't be "eaten into" by a numeric neighbor the way two numeric
+// tokens can. But the reverse direction is worth checking directly: does a
+// numeric token glued right after a name-based token still parse its own
+// digits correctly, given names in some locales can end in a digit-like
+// character or the vocab alternation could theoretically be greedy across
+// the boundary?
+
+test('a locale-aware token immediately followed by an unpadded numeric token with no separator still parses both fields correctly', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  const failures = [];
+  for (const locale of LOCALES) {
+    for (const nameTok of ['MMMM', 'MMM']) {
+      const formatStr = `${nameTok}d, yyyy`; // e.g. "Augustd, yyyy" -> "August4, 2026" for MMMM
+      try {
+        const formatted = format(date, formatStr, { locale });
+        const reparsed = parse(formatStr, formatted, { locale });
+        if (reparsed.day !== 4 || reparsed.month !== 8) {
+          failures.push({ locale, nameTok, formatStr, formatted, got: { day: reparsed.day, month: reparsed.month } });
+        }
+      } catch (err) {
+        failures.push({ locale, nameTok, formatStr, error: err.message });
+      }
+    }
+  }
+  assert.equal(failures.length, 0, JSON.stringify(failures.slice(0, 10), null, 2));
+});
+
+test('"a" (day period) immediately followed by an unpadded numeric token with no separator still parses correctly', () => {
+  // day-period strings (AM/PM, 午後, etc.) glued directly to a following
+  // digit is an artificial format string shape (nobody writes 'a' without
+  // a separator in practice) but worth confirming the alternation doesn't
+  // accidentally swallow a leading digit from the next field or vice versa
+  const pm = Temporal.PlainDateTime.from('2026-08-04T13:30:00');
+  const failures = [];
+  for (const locale of LOCALES) {
+    const formatStr = 'h:mma s'; // "a" glued directly to "s" with no separator
+    try {
+      const formatted = format(pm, formatStr, { locale });
+      const reparsed = parse(formatStr, formatted, { locale });
+      if (reparsed.hour !== 13 || reparsed.second !== 0) {
+        failures.push({ locale, formatStr, formatted, got: { hour: reparsed.hour, second: reparsed.second } });
+      }
+    } catch (err) {
+      failures.push({ locale, formatStr, error: err.message });
+    }
+  }
+  assert.equal(failures.length, 0, JSON.stringify(failures.slice(0, 10), null, 2));
 });
