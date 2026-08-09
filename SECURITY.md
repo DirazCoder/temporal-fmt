@@ -1,9 +1,9 @@
 # Security Policy
 
-For which versions get fixes (including which ones are critical-fixes-only
-or fully end-of-life) and behavior changes across versions that affect
-whether upgrading actually resolves something you're hitting, see
-[VERSIONS.md](VERSIONS.md).
+For which versions get fixes (including which ones are fixes-only, only
+when backportable, or fully end-of-life) and behavior changes across
+versions that affect whether upgrading actually resolves something you're
+hitting, see [VERSIONS.md](VERSIONS.md).
 
 ## Reporting a vulnerability
 
