@@ -40,6 +40,50 @@ function pick(rng, arr) {
   return arr[randInt(rng, 0, arr.length - 1)];
 }
 
+// Minimal integer shrinker. When a property fails on some random `n`, walks
+// `n` toward `low` one bisection step at a time, keeping the move only if
+// the property still fails at the smaller value. Not exhaustive shrinking
+// (no shrinking of format-string shape, only the numeric seed driving date
+// construction) — but for this generator, the date/time fields are what
+// vary per-iteration, and a smaller year/month/day/hour is almost always
+// the more legible repro. Bounded iteration count so a pathological case
+// can't hang the suite; falls back to the original failing value if it
+// can't make progress.
+function shrinkInt(low, high, isStillFailing) {
+  let lo = low;
+  let hi = high;
+  let guard = 0;
+  while (lo < hi && guard++ < 64) {
+    const mid = lo + Math.floor((hi - lo) / 2);
+    if (isStillFailing(mid)) {
+      hi = mid;
+    } else {
+      lo = mid + 1;
+    }
+  }
+  return hi;
+}
+
+// Shrinks a full { year, month, day, hour, minute, second, millisecond }
+// input toward the earliest failing value on each field independently,
+// holding the others fixed at the already-shrunk value. Cheap (a handful of
+// property re-checks per field, not a search over the whole product space)
+// and good enough — the goal is a smaller repro to read, not a provably
+// minimal one.
+function shrinkDateFields(fields, checkFails) {
+  const order = ['year', 'month', 'day', 'hour', 'minute', 'second', 'millisecond'];
+  const floor = { year: 1, month: 1, day: 1, hour: 0, minute: 0, second: 0, millisecond: 0 };
+  const shrunk = { ...fields };
+  for (const field of order) {
+    if (shrunk[field] === undefined) continue;
+    shrunk[field] = shrinkInt(floor[field], shrunk[field], (candidate) => {
+      const trial = { ...shrunk, [field]: candidate };
+      return checkFails(trial);
+    });
+  }
+  return shrunk;
+}
+
 // Known ICU limitation, not a bug here: ICU's default Gregorian cutover is
 // October 15, 1582, so dates before that get silently reinterpreted under
 // the Julian calendar when formatted through Intl, even though Temporal
@@ -121,12 +165,27 @@ function randomDateFormatString(rng) {
   return `${order[0]}${sep1}${order[1]}${sep2}${order[2]}`;
 }
 
-const ROUND_TRIP_ITERATIONS = 300;
+// Bumped two orders of magnitude from the original 300. At 300 iterations
+// this test exists but barely exercises the input space; at this scale it's
+// actually likely to hit a boundary nobody typed by hand. Runs in well
+// under a second per test even at this size (pure regex + Temporal
+// construction, no I/O), so the cost is negligible.
+const ROUND_TRIP_ITERATIONS = 20000;
 
 test(`round-trip fuzz: format(date) then parse() recovers the same date, across ${ROUND_TRIP_ITERATIONS} random dates and format-string shapes`, () => {
   const rng = makeRng(20260809); // fixed seed — same failures every run, no flakiness
   const failures = [];
   const knownIcuCutoverFailures = [];
+
+  const checkDateFormat = (date, formatStr) => {
+    try {
+      const formatted = format(date, formatStr);
+      const reparsed = parse(formatStr, formatted);
+      return reparsed.toString() !== date.toString();
+    } catch {
+      return true; // any throw counts as "still failing" for shrink purposes
+    }
+  };
 
   for (let i = 0; i < ROUND_TRIP_ITERATIONS; i++) {
     const date = randomPlainDate(rng);
@@ -136,12 +195,26 @@ test(`round-trip fuzz: format(date) then parse() recovers the same date, across 
       formatted = format(date, formatStr);
       reparsed = parse(formatStr, formatted);
     } catch (err) {
-      const entry = { date: date.toString(), formatStr, error: err.message };
+      const shrunkFields = shrinkDateFields(
+        { year: date.year, month: date.month, day: date.day },
+        (f) => checkDateFormat(Temporal.PlainDate.from(f), formatStr)
+      );
+      const entry = {
+        date: date.toString(), formatStr, error: err.message,
+        shrunk: Temporal.PlainDate.from(shrunkFields).toString(),
+      };
       (isKnownIcuCutoverFailure(date.year, formatStr) ? knownIcuCutoverFailures : failures).push(entry);
       continue;
     }
     if (reparsed.toString() !== date.toString()) {
-      const entry = { date: date.toString(), formatStr, formatted, reparsedAs: reparsed.toString() };
+      const shrunkFields = shrinkDateFields(
+        { year: date.year, month: date.month, day: date.day },
+        (f) => checkDateFormat(Temporal.PlainDate.from(f), formatStr)
+      );
+      const entry = {
+        date: date.toString(), formatStr, formatted, reparsedAs: reparsed.toString(),
+        shrunk: Temporal.PlainDate.from(shrunkFields).toString(),
+      };
       (isKnownIcuCutoverFailure(date.year, formatStr) ? knownIcuCutoverFailures : failures).push(entry);
     }
   }
@@ -158,7 +231,8 @@ test(`round-trip fuzz: format(date) then parse() recovers the same date, across 
   assert.equal(
     failures.length, 0,
     `${failures.length}/${ROUND_TRIP_ITERATIONS} round-trip failures (excluding ${knownIcuCutoverFailures.length} ` +
-    `known ICU-cutover cases, see above):\n${JSON.stringify(failures.slice(0, 5), null, 2)}`
+    `known ICU-cutover cases, see above). Each entry's "shrunk" field is the smallest date that still ` +
+    `reproduces the failure against the same format string:\n${JSON.stringify(failures.slice(0, 5), null, 2)}`
   );
 });
 
@@ -175,7 +249,21 @@ test(`round-trip fuzz: PlainDateTime with random time-of-day fields, across ${RO
       formatted = format(dt, formatStr);
       reparsed = parse(formatStr, formatted);
     } catch (err) {
-      failures.push({ dt: dt.toString(), formatStr, error: err.message });
+      const shrunk = shrinkDateFields(
+        { year: dt.year, month: dt.month, day: dt.day, hour: dt.hour, minute: dt.minute, second: dt.second, millisecond: dt.millisecond },
+        (f) => {
+          try {
+            const trial = Temporal.PlainDateTime.from(f);
+            const fmt = format(trial, formatStr);
+            const rep = parse(formatStr, fmt);
+            const exp = timeTok.includes('SSS') ? trial.toString() : trial.toString().replace(/\.\d+/, '');
+            return rep.toString() !== exp;
+          } catch {
+            return true;
+          }
+        }
+      );
+      failures.push({ dt: dt.toString(), formatStr, error: err.message, shrunk: Temporal.PlainDateTime.from(shrunk).toString() });
       continue;
     }
     // millisecond only round-trips when SSS is in the format string —
@@ -184,7 +272,21 @@ test(`round-trip fuzz: PlainDateTime with random time-of-day fields, across ${RO
       ? dt.toString()
       : dt.toString().replace(/\.\d+/, '');
     if (reparsed.toString() !== expected) {
-      failures.push({ dt: dt.toString(), formatStr, formatted, reparsedAs: reparsed.toString(), expected });
+      const shrunk = shrinkDateFields(
+        { year: dt.year, month: dt.month, day: dt.day, hour: dt.hour, minute: dt.minute, second: dt.second, millisecond: dt.millisecond },
+        (f) => {
+          try {
+            const trial = Temporal.PlainDateTime.from(f);
+            const fmt = format(trial, formatStr);
+            const rep = parse(formatStr, fmt);
+            const exp = timeTok.includes('SSS') ? trial.toString() : trial.toString().replace(/\.\d+/, '');
+            return rep.toString() !== exp;
+          } catch {
+            return true;
+          }
+        }
+      );
+      failures.push({ dt: dt.toString(), formatStr, formatted, reparsedAs: reparsed.toString(), expected, shrunk: Temporal.PlainDateTime.from(shrunk).toString() });
     }
   }
 
@@ -212,7 +314,21 @@ test(`round-trip fuzz: 12-hour clock with "a" token, across ${ROUND_TRIP_ITERATI
     }
     const expected = dt.toString().replace(/:\d{2}(\.\d+)?$/, ':00');
     if (reparsed.toString() !== expected) {
-      failures.push({ dt: dt.toString(), formatStr, formatted, reparsedAs: reparsed.toString(), expected });
+      const shrunk = shrinkDateFields(
+        { year: dt.year, month: dt.month, day: dt.day, hour: dt.hour, minute: dt.minute },
+        (f) => {
+          try {
+            const trial = Temporal.PlainDateTime.from({ ...f, second: 0, millisecond: 0 });
+            const fmt = format(trial, formatStr);
+            const rep = parse(formatStr, fmt);
+            const exp = trial.toString().replace(/:\d{2}(\.\d+)?$/, ':00');
+            return rep.toString() !== exp;
+          } catch {
+            return true;
+          }
+        }
+      );
+      failures.push({ dt: dt.toString(), formatStr, formatted, reparsedAs: reparsed.toString(), expected, shrunk: Temporal.PlainDateTime.from({ ...shrunk, second: 0, millisecond: 0 }).toString() });
     }
   }
 
@@ -222,7 +338,7 @@ test(`round-trip fuzz: 12-hour clock with "a" token, across ${ROUND_TRIP_ITERATI
   );
 });
 
-const GARBAGE_ITERATIONS = 500;
+const GARBAGE_ITERATIONS = 10000;
 
 function randomGarbageString(rng, maxLen) {
   // biased toward characters that actually appear in format strings, so
