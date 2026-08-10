@@ -202,12 +202,17 @@ sitting in your output waiting to confuse someone in three weeks.
   tokens (`yyyy`/`MM`/`dd`) never go through `Intl` and aren't affected.
 - Gluing two unpadded numeric tokens with no separator between them (e.g.
   `Md`, `dM`, `Hm`) is ambiguous for some inputs, and `parse()` throws rather
-  than guessing. `"121"` against `Md` could mean month 1/day 21 or month
+  than guessing. `"121"` against `yyyy-Md` could mean month 1/day 21 or month
   12/day 1 — both are valid, so there's no single correct reading to fall
   back to. Unambiguous inputs against the same format string still parse
-  normally (`"85"` against `Md` only has one valid split). If you need glued
-  numeric fields, either zero-pad them (`MM`/`dd`) or put a separator between
-  them; that removes the ambiguity entirely.
+  normally (`"85"` against `yyyy-Md` only has one valid split). If you need
+  glued numeric fields, either zero-pad them (`MM`/`dd`) or put a separator
+  between them; that removes the ambiguity entirely.
+
+  Note: `Md` (or `dM`/`Hm`) alone, with no `yyyy`, always throws —
+  `parse()` requires year, month, and day together to build a date, so a
+  bare `Md` format string is incomplete regardless of ambiguity. The
+  examples above use `yyyy-Md` for exactly this reason.
 
 ## Dev notes
 
