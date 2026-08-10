@@ -3,17 +3,11 @@ import assert from 'node:assert/strict';
 import { format, parse, setTemporal } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
-// fuzz.test.js's garbage-string tests already confirm random ASCII noise
-// never produces a raw (non-Error) crash. This file targets specific,
-// hand-chosen categories of hostile input that a uniform-random generator
-// is unlikely to ever construct on its own: pathological Unicode
-// (combining characters, bidi overrides, zero-width joiners, unpaired
-// surrogates), malformed BCP47 tags beyond the couple already covered in
-// parse.test.js, and quote-nesting shapes designed to probe the tokenizer's
-// state machine rather than its regex-matching cost (that's perf.test.js's
-// job). The bar for every case here is the same as fuzz.test.js's: a clean
-// thrown Error, or a correct result — never a raw crash, an infinite loop,
-// or (for anything claiming success) a silently wrong value.
+// fuzz.test.js covers random ASCII noise. This file targets specific
+// hostile input a random generator wouldn't stumble on: pathological
+// Unicode, malformed BCP47 tags, and quote-nesting edge cases in the
+// tokenizer's state machine. Same bar as fuzz.test.js: clean thrown Error
+// or a correct result, never a raw crash or a silently wrong value.
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 setTemporal(Temporal);
 
@@ -29,8 +23,6 @@ function expectCleanErrorOrResult(fn, label) {
     return { threw: true, error: err };
   }
 }
-
-// --- Combining characters ---
 
 test('combining diacritical marks in a format string literal do not crash tokenize() or corrupt adjacent tokens', () => {
   // "é" as e + combining acute (U+0301), not the precomposed U+00E9 —
@@ -57,8 +49,6 @@ test('combining characters stacked on a single base character in a literal do no
   assert.ok(ms < 200, `took ${ms}ms on 200 stacked combining marks, expected fast plain-string handling`);
   assert.ok(result.endsWith(manyMarks), 'combining marks should pass through the literal unchanged');
 });
-
-// --- Bidi control characters ---
 
 test('RTL/LTR override and embedding characters in a format string literal round-trip as opaque literal content', () => {
   // U+202E (RTL override), U+202D (LTR override), U+2066/2069 (isolates) —
@@ -89,8 +79,6 @@ test('bidi override characters injected into parse() input are treated as litera
   assert.throws(() => parse('yyyy-MM-dd', spoofed), /no valid pattern matches/);
 });
 
-// --- Zero-width characters ---
-
 test('zero-width joiner/non-joiner/space in a format string literal do not corrupt tokenization', () => {
   const zwChars = ['\u200D', '\u200C', '\u200B']; // ZWJ, ZWNJ, zero-width space
   const date = Temporal.PlainDate.from('2026-08-04');
@@ -117,8 +105,6 @@ test('zero-width joiner between two adjacent tokens does not cause them to be mi
   assert.equal(formatted, `26\u200D26-08-04`);
 });
 
-// --- Unpaired surrogates ---
-
 test('an unpaired (lone) surrogate code unit in a format string literal does not crash tokenize()', () => {
   // \uD800 alone (no matching low surrogate) is not valid UTF-16 text but
   // is a legal JS string value — a real hazard for naive iteration that
@@ -139,12 +125,9 @@ test('an unpaired surrogate in parse() input does not crash matching, just fails
   expectCleanErrorOrResult(() => parse(formatStr, '2026-08-\uD800'), 'parse with lone surrogate in input');
 });
 
-// --- Malformed BCP47 locale tags ---
-// parse.test.js already covers a couple of hand-picked malformed tags. This
-// broadens that to the categories BCP47 parsers commonly mishandle:
-// empty string, wrong-case variants, private-use-only tags, tags with
-// stray whitespace, and tags that are syntactically well-formed but
-// reference no real locale.
+// parse.test.js covers a couple hand-picked malformed tags already — this
+// broadens it to empty strings, whitespace-only tags, private-use-only
+// tags, and well-formed-but-unrecognized tags.
 
 test('empty-string locale falls through to a thrown Error or a sane default, never a crash', () => {
   const date = Temporal.PlainDate.from('2026-08-04');
@@ -193,9 +176,8 @@ test('a -u-ca- calendar extension naming a real-looking but nonexistent calendar
   );
 });
 
-// --- Deeply nested / malformed quotes ---
-// combinatorial.test.js and tokenize.test.js already cover basic
-// doubled-quote escaping. These push the quote state machine specifically.
+// combinatorial.test.js and tokenize.test.js cover basic doubled-quote
+// escaping already — these push the quote state machine harder.
 
 test('many consecutive doubled quotes in a row produce that many literal quote characters, not a parse error', () => {
   const date = Temporal.PlainDate.from('2026-08-04');
@@ -237,10 +219,8 @@ test('immediately adjacent empty quoted spans do not merge incorrectly or drop c
   assert.equal(formatted, "2026''08");
 });
 
-// --- Combined hostile shapes ---
-// Real-world hostile input rarely arrives as one clean category — combine
-// a few together the way a fuzzer targeting this library specifically
-// might, rather than a general-purpose one.
+// real hostile input rarely arrives as one clean category, so combine a
+// few shapes together instead
 
 test('a format string combining bidi override, zero-width joiner, and deeply nested quotes in one literal still round-trips cleanly', () => {
   const date = Temporal.PlainDate.from('2026-08-04');
