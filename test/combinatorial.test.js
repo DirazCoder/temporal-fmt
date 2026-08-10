@@ -3,13 +3,10 @@ import assert from 'node:assert/strict';
 import { format, parse, setTemporal } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
-// Every locale-aware test elsewhere in the suite checks a small handful of
-// locales (en-US mainly, plus one or two others per test). That's fine for
-// checking a mechanism works, but it means most of the ICU locale surface
-// has never actually been exercised. These run the locale-aware tokens
-// (MMMM, MMM, EEEE, EEE, a) across a broad locale set in one pass, plus
-// document a specific numeric-token ambiguity that's real and deterministic
-// but easy to trip over silently.
+// Most locale-aware tests elsewhere check en-US plus one or two others.
+// This runs the locale-aware tokens (MMMM, MMM, EEEE, EEE, a) across a
+// broad locale set in one pass, plus documents a numeric-token ambiguity
+// that's deterministic but easy to trip over silently.
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 setTemporal(Temporal);
 
@@ -167,16 +164,11 @@ test('all 7 EEEE names are pairwise distinct within each locale', () => {
   assert.equal(failures.length, 0, JSON.stringify(failures, null, 2));
 });
 
-// --- Adjacent unpadded numeric token ambiguity ---
-//
-// M (1-2 digits, no leading zero) directly followed by d (1-2 digits, no
-// leading zero) with no separator is genuinely ambiguous for some inputs —
-// e.g. "125" could theoretically be month 1/day 25 or month 12/day 5 if d
-// allowed a leading zero, which it doesn't, so only one parse is actually
-// valid per input shape. Still worth pinning down explicitly: this is
-// deterministic (regex engines resolve alternation left-to-right, greedy),
-// but a caller reasoning about "M" + "d" with no separator should be able
-// to see the actual resolved rule, not just infer it.
+// M (1-2 digits, no leading zero) directly followed by d with no separator
+// is genuinely ambiguous for some inputs — e.g. "125" could in theory be
+// month 1/day 25 or month 12/day 5. Worth pinning down explicitly: it's
+// deterministic, but a caller should be able to see the resolved rule
+// rather than infer it.
 
 test('unpadded month+day glued with no separator: "34" (single digit + single digit) resolves as month 3, day 4', () => {
   const result = parse('yyyy-Md', '2026-34');
@@ -214,37 +206,26 @@ test('unpadded month+day glued with no separator: "304" has no valid parse and t
   assert.throws(() => parse('yyyy-Md', '2026-304'), /no valid pattern matches/);
 });
 
-// --- Full unpadded-numeric-token × unpadded-numeric-token adjacency matrix ---
-//
 // The M+d case above is one pair out of many with the same shape: any two
-// *unpadded* numeric tokens (no leading zero, variable width) glued with no
-// separator can in principle be ambiguous, because a greedy variable-width
-// match can eat into digits that "belong" to the next field. Padded tokens
-// (MM, dd, HH, etc.) don't have this problem — fixed width means there's
-// nothing to be greedy about — so this only needs to cover the unpadded
-// set: M, d, H, h, m, s. (yy is excluded: fixed 2-digit width, same
-// reasoning as padded tokens. SSS is fixed-width too.)
+// unpadded numeric tokens (no leading zero, variable width) glued with no
+// separator can in principle be ambiguous, since a greedy variable-width
+// match can eat into digits meant for the next field. Padded tokens (MM,
+// dd, HH...) don't have this problem — fixed width means nothing to be
+// greedy about — so this only needs to cover M, d, H, h, m, s. (yy and SSS
+// are both fixed-width too, same reasoning as padded tokens.)
 //
-// Scoped deliberately to *only* the glue-ambiguity mechanism, not the rest
-// of parse()'s validation pipeline — two other independent failure modes
-// exist that aren't what this test is checking and would otherwise show up
-// as false positives if not filtered out explicitly:
-//   1. calendar validity (e.g. day=31 in a month that only has 30 days) —
-//      already covered by parse()'s overflow:'reject' behavior and its own
-//      tests. d's range here is its real 1-31 (matching the actual regex
-//      fragment) — narrowing it would make the oracle disagree with what
-//      the library's ambiguity check itself sees, which defeats the
-//      point. Instead, cases whose *unique* valid split names a
-//      calendar-invalid day for the sampled month are skipped individually
-//      (see skipCalendarOverflow below), so this stays about ambiguity
-//      detection specifically, not calendar arithmetic.
-//   2. field-combination rules (e.g. a month token without day needs a
-//      separate check — parse() requires year+month+day together, and a
-//      bare time pair needs no year/date token present at all) — already
-//      covered in parse.test.js. Format strings below only include a
-//      "yyyy-" prefix for the M+d pair; pure time pairs (H/h/m/s
-//      combinations) get no date tokens at all, since parse() builds a
-//      PlainTime from time fields alone with no date required.
+// Scoped to just the glue-ambiguity mechanism. Two other failure modes are
+// filtered out so they don't show up as false positives here:
+//   1. calendar validity (day=31 in a 30-day month) — already covered by
+//      parse()'s overflow:'reject' tests. Unique-split cases naming an
+//      invalid day for the sampled month get skipped individually instead
+//      of narrowing d's range, so the oracle stays in sync with what the
+//      library's own ambiguity check sees.
+//   2. field-combination rules (parse() needs year+month+day together;
+//      time-only pairs need no date token) — already covered in
+//      parse.test.js. Format strings below add a "yyyy-" prefix only for
+//      the M+d pair; time pairs get none, since parse() builds a
+//      PlainTime from time fields alone.
 const UNPADDED_NUMERIC = {
   M: { min: 1, max: 12, field: 'month' },
   d: { min: 1, max: 31, field: 'day' }, // real range — must match pattern.ts's actual fragment, see note above
@@ -414,16 +395,12 @@ test('every unpadded-numeric-token pair glued with no separator either resolves 
   );
 });
 
-// --- Locale-aware token × adjacent numeric token, no separator ---
-//
-// A different adjacency shape: MMMM/MMM/EEEE/EEE/a are alternations over a
-// vocab list (month/weekday names, AM/PM strings), not digit patterns, so
-// they can't be "eaten into" by a numeric neighbor the way two numeric
-// tokens can. But the reverse direction is worth checking directly: does a
-// numeric token glued right after a name-based token still parse its own
-// digits correctly, given names in some locales can end in a digit-like
-// character or the vocab alternation could theoretically be greedy across
-// the boundary?
+// Different adjacency shape: MMMM/MMM/EEEE/EEE/a are alternations over a
+// vocab list, not digit patterns, so a numeric neighbor can't eat into
+// them the way two numeric tokens can. Worth checking the reverse though —
+// does a numeric token glued right after a name-based one still parse its
+// own digits correctly, given some locale names can end in a digit-like
+// character.
 
 test('a locale-aware token immediately followed by an unpadded numeric token with no separator still parses both fields correctly', () => {
   const date = Temporal.PlainDate.from('2026-08-04');
