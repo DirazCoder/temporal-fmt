@@ -236,6 +236,19 @@ through `Intl.DateTimeFormat` directly; on the polyfill, it falls back to
 `parse.test.js` configures Temporal via `setTemporal()` rather than mutating
 `globalThis.Temporal` directly.
 
+Run `npm run test:all`, not just `npm test`. `npm test` only runs the
+`node:test` suite in `test/*.test.js` — hand-picked, fuzz, adversarial, and
+perf cases that exercise the public API end to end. It doesn't touch
+`vitest/`, which unit-tests internals like `enumerateValidSplits()`
+directly. That function resolves ambiguous glued numeric runs (does `"112"`
+against `['M', 'd']` mean month 1/day 12, or month 11/day 2?), and a bug
+in its edge cases — an empty token list, a range-boundary off-by-one — can
+easily dodge every `parse()` example in the main suite without ever being
+the specific input one of them happens to use. `test:all` also runs the
+type tests (`test:types`), so it's the only single command that actually
+covers everything. CI runs `test:all` for this reason; running plain `npm
+test` locally will pass even with a broken `vitest/` suite.
+
 ## License
 
 MIT

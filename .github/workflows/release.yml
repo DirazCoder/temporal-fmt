@@ -45,8 +45,7 @@ jobs:
             exit 1
           fi
 
-      - run: npm run build
-      - run: npm test
+      - run: npm run test:all
 
       # Sets 'latest' for main branch builds and tagged LTS tags for older release branches
       - name: Determine npm dist-tag
