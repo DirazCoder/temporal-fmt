@@ -5,21 +5,22 @@
 | Version | Supported          |
 | ------- | ------------------ |
 | 0.7.x   | :white_check_mark: |
-| 0.6.x   | :white_check_mark: (fixes only, if backportable) |
+| 0.6.x   | :white_check_mark: (security fixes only, if backportable) |
 | < 0.6   | :x:                |
 
 `0.7.x` is the one actively getting new stuff — features and fixes land
-there first. `0.6.x` gets fixes too, but no new features, and only when a
-fix is actually backportable — some rely on code or behavior that only
-exists on `0.7.x`, and those stay `0.7.x`-only.
+there first. `0.6.x` no longer gets regular bug fixes — only security
+fixes, and only when a fix is actually backportable — some rely on code or
+behavior that only exists on `0.7.x`, and those stay `0.7.x`-only.
 
 `0.6.x` is also a change in policy, not just the next line in order. Every
 version before it went straight to dead the moment the next one shipped —
 no backport window, no fixes-only period, nothing. `0.6.x` is the first one
 getting different treatment: once `0.7.x` (or whatever comes next) becomes
-the active line, `0.6.x` drops to fixes-only (backported when the fix
-doesn't depend on anything `0.7.x`-specific) instead of dying immediately.
-That's new going forward, not something applied backwards to older lines.
+the active line, `0.6.x` drops to security-fixes-only (backported when the
+fix doesn't depend on anything `0.7.x`-specific) instead of dying
+immediately. That's new going forward, not something applied backwards to
+older lines.
 
 ### Unsupported versions
 
