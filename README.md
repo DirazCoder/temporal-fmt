@@ -216,10 +216,16 @@ sitting in your output waiting to confuse someone in three weeks.
 
 ## Dev notes
 
-`tsconfig.json` sets `ignoreDeprecations: "6.0"` to work around a tsup bug
-([tsup#1388](https://github.com/egoist/tsup/issues/1388)/[#1389](https://github.com/egoist/tsup/issues/1389)). tsup's dts build step quietly injects a deprecated
-`baseUrl`, and TypeScript 6+ hard-errors on it. Workaround, not a fix — drop
-it the moment tsup ships a real one upstream.
+Building requires TypeScript 7.0.2+ but `.d.ts` generation runs as a separate
+`tsc` pass, not through tsup. tsup's dts step bundles types via
+`rollup-plugin-dts`, which calls into TypeScript's compiler API — the API
+isn't stable yet on 7.x ([targeted for
+7.1](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/)),
+so it crashes on 7.0.2. `tsup.config.ts` sets `dts: false` and `build` runs
+`tsup && tsc --declaration --emitDeclarationOnly` instead. One side effect:
+`dist/` now has one `.d.ts` per source file instead of a single rolled-up
+`index.d.ts` — same exported API, different file layout. Revert to `dts:
+true` once tsup/rollup-plugin-dts catch up.
 
 Tests pull from `temporal-polyfill/full`, not the slim `temporal-polyfill` —
 the Hebrew-calendar test needs the full build's calendar data, and the slim
