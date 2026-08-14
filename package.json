@@ -49,7 +49,7 @@
   "homepage": "https://github.com/DirazCoder/temporal-fmt#readme",
   "devDependencies": {
     "@typescript/native-preview": "^7.0.0-dev.20260707.2",
-    "temporal-polyfill": "^1.0.3",
+    "temporal-polyfill": "^1.0.4",
     "tsup": "^8.5.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
