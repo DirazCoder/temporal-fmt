@@ -4,7 +4,7 @@
 > This version is no longer maintained and does not receive security updates.
 >
 > This README documents the 0.6.x release and is kept for historical and
-> compatibility reference.
+> compatibility reference. the 0.6-lts tag  in npmjs.com is now removed 
 
 # temporal-fmt
 
