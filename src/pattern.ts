@@ -14,16 +14,11 @@ function getTimeZoneFragment(): string {
   if (timeZoneFragment) {
     return timeZoneFragment;
   }
-  const supportedValuesOf = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf;
-  if (typeof supportedValuesOf === 'function') {
-    // supportedValuesOf('timeZone') leaves out 'UTC', but format() can
-    // produce it from a real ZonedDateTime — without this, parse() couldn't
-    // parse our own library's own output back.
-    timeZoneFragment = alternation([...supportedValuesOf('timeZone'), 'UTC']);
-  } else {
-    // no Intl.supportedValuesOf — match on shape only
-    timeZoneFragment = '[A-Za-z_]+(?:\\/[A-Za-z_+\\-0-9]+)+|UTC';
-  }
+
+  const supportedZones = Intl.supportedValuesOf('timeZone');
+  const escapedZones = supportedZones.map(escapeRegExp);
+  const offsetPattern = '[+-]\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?';
+  timeZoneFragment = `(?:UTC|${offsetPattern}|${alternation(escapedZones)})`;
   return timeZoneFragment;
 }
 
@@ -131,28 +126,45 @@ export const UNPADDED_NUMERIC_RANGES: Record<string, Array<{ digits: 1 | 2; min:
  * anyone writing a 3-token glued run.
  */
 export function enumerateValidSplits(digits: string, tokens: string[]): number[][] {
-  if (tokens.length === 0) {
-    return digits.length === 0 ? [[]] : [];
-  }
-  const [token, ...rest] = tokens;
-  const ranges = UNPADDED_NUMERIC_RANGES[token!];
-  if (!ranges) {
-    throw new Error(`temporal-fmt: internal error — "${token}" is not an unpadded numeric token`);
-  }
-  const results: number[][] = [];
-  for (const { digits: width, min, max } of ranges) {
-    if (digits.length < width) continue;
-    const piece = digits.slice(0, width);
-    // reject a leading zero on the 2-digit branch's piece — matches the
-    // regex fragments, which never allow M/d/H/h/m/s to start with '0' in
-    // their 2-digit form (that shape belongs to the padded token instead)
-    if (width === 2 && piece[0] === '0') continue;
-    const value = parseInt(piece, 10);
-    if (value < min || value > max) continue;
-    const restSplits = enumerateValidSplits(digits.slice(width), rest);
-    for (const restSplit of restSplits) {
-      results.push([value, ...restSplit]);
+  const memo = new Map<string, number[][]>();
+
+  function solve(tokenIndex: number, offset: number): number[][] {
+    const key = `${tokenIndex}:${offset}`;
+    const cached = memo.get(key);
+    if (cached) {
+      return cached;
     }
+
+    if (tokenIndex === tokens.length) {
+      const result = offset === digits.length ? [[]] : [];
+      memo.set(key, result);
+      return result;
+    }
+
+    const token = tokens[tokenIndex];
+    const ranges = UNPADDED_NUMERIC_RANGES[token!];
+    if (!ranges) {
+      throw new Error(`temporal-fmt: internal error — "${token}" is not an unpadded numeric token`);
+    }
+
+    const results: number[][] = [];
+    for (const { digits: width, min, max } of ranges) {
+      if (offset + width > digits.length) continue;
+      const piece = digits.slice(offset, offset + width);
+      if (width === 2 && piece[0] === '0') continue;
+      const value = Number(piece);
+      if (value < min || value > max) continue;
+
+      for (const restSplit of solve(tokenIndex + 1, offset + width)) {
+        results.push([value, ...restSplit]);
+        if (results.length === 2) break;
+      }
+      if (results.length === 2) break;
+    }
+
+    memo.set(key, results);
+    return results;
   }
-  return results;
+
+  return solve(0, 0);
 }

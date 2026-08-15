@@ -4,7 +4,7 @@ import { buildCapturingPattern, type CapturingPattern } from './parsePattern.js'
 import { enumerateValidSplits } from './pattern.js';
 import { getLocaleVocab } from './localeVocab.js';
 import { getTemporal } from './temporalProvider.js';
-import { MAX_FORMAT_LENGTH } from './constants.js';
+import { MAX_FORMAT_LENGTH, MAX_INPUT_LENGTH } from './constants.js';
 
 // format strings are short hand-written literals reused across many calls —
 // cache the compiled capturing pattern per (formatStr, locale) pair instead
@@ -13,7 +13,7 @@ const patternCache = new Map<string, CapturingPattern>();
 const MAX_CACHE_SIZE = 500;
 
 function getPattern(formatStr: string, locale: string): CapturingPattern {
-  const key = locale + ' ' + formatStr;
+  const key = JSON.stringify([locale, formatStr]);
   let pattern = patternCache.get(key);
   if (pattern) {
     return pattern;
@@ -48,8 +48,12 @@ function resolveCalendar(locale: string): string | undefined {
     if (oldestKey !== undefined) calendarCache.delete(oldestKey);
   }
   let calendar: string | undefined;
-  if (locale.includes('-u-ca-')) {
-    const resolved = new Intl.DateTimeFormat(locale).resolvedOptions().calendar;
+  const canonicalLocale = new Intl.Locale(locale).toString().toLowerCase();
+  const parts = canonicalLocale.split('-');
+  const extensionIndex = parts.indexOf('u');
+  const calendarKeyIndex = extensionIndex === -1 ? -1 : parts.indexOf('ca', extensionIndex + 1);
+  if (calendarKeyIndex !== -1 && calendarKeyIndex + 1 < parts.length) {
+    const resolved = new Intl.DateTimeFormat(canonicalLocale).resolvedOptions().calendar;
     calendar = resolved === 'gregory' ? undefined : resolved;
   }
   calendarCache.set(locale, calendar);
@@ -63,38 +67,74 @@ interface Fields {
   day?: number;
   hour?: number;
   hour12?: number;
+  dayPeriodRaw?: string;
   isPM?: boolean;
   minute?: number;
   second?: number;
   millisecond?: number;
   timeZoneId?: string;
-  weekdayExpected?: number; // ISO dayOfWeek, 1=Mon, 7=Sun
+  weekdayExpected?: number;
   weekdayRaw?: string;
 }
 
-function applyGroup(fields: Fields, token: string, raw: string, locale: string): void {
+function assignField<T>(fields: Fields, key: keyof Fields, value: T): void {
+  (fields as Record<string, T | undefined>)[key] = value;
+}
+
+function applyGroup(fields: Fields, token: string, raw: string, locale: string, formatStr: string): void {
+  const vocab = getLocaleVocab(locale);
   switch (token) {
-    case 'yyyy': fields.year = parseInt(raw, 10); break;
-    case 'yy': fields.twoDigitYear = parseInt(raw, 10); break;
-    case 'MM': case 'M': fields.month = parseInt(raw, 10); break;
-    case 'MMMM': fields.month = getLocaleVocab(locale).monthLong.indexOf(raw) + 1; break;
-    case 'MMM': fields.month = getLocaleVocab(locale).monthShort.indexOf(raw) + 1; break;
-    case 'dd': case 'd': fields.day = parseInt(raw, 10); break;
+    case 'yyyy':
+      assignField(fields, 'year', Number(raw));
+      break;
+    case 'yy':
+      assignField(fields, 'twoDigitYear', Number(raw));
+      break;
+    case 'MM': case 'M':
+      assignField(fields, 'month', Number(raw));
+      break;
+    case 'MMMM':
+      assignField(fields, 'month', vocab.monthLong.indexOf(raw) + 1);
+      break;
+    case 'MMM':
+      assignField(fields, 'month', vocab.monthShort.indexOf(raw) + 1);
+      break;
+    case 'dd': case 'd':
+      assignField(fields, 'day', Number(raw));
+      break;
     case 'EEEE':
-      fields.weekdayRaw = raw;
-      fields.weekdayExpected = getLocaleVocab(locale).weekdayLong.indexOf(raw) + 1;
+      assignField(fields, 'weekdayRaw', raw);
+      assignField(fields, 'weekdayExpected', vocab.weekdayLong.indexOf(raw) + 1);
       break;
     case 'EEE':
-      fields.weekdayRaw = raw;
-      fields.weekdayExpected = getLocaleVocab(locale).weekdayShort.indexOf(raw) + 1;
+      assignField(fields, 'weekdayRaw', raw);
+      assignField(fields, 'weekdayExpected', vocab.weekdayShort.indexOf(raw) + 1);
       break;
-    case 'HH': case 'H': fields.hour = parseInt(raw, 10); break;
-    case 'hh': case 'h': fields.hour12 = parseInt(raw, 10); break;
-    case 'mm': case 'm': fields.minute = parseInt(raw, 10); break;
-    case 'ss': case 's': fields.second = parseInt(raw, 10); break;
-    case 'SSS': fields.millisecond = parseInt(raw, 10); break;
-    case 'a': fields.isPM = raw === getLocaleVocab(locale).dayPeriod[1]; break;
-    case 'zzz': fields.timeZoneId = raw; break;
+    case 'HH': case 'H':
+      assignField(fields, 'hour', Number(raw));
+      break;
+    case 'hh': case 'h':
+      assignField(fields, 'hour12', Number(raw));
+      break;
+    case 'mm': case 'm':
+      assignField(fields, 'minute', Number(raw));
+      break;
+    case 'ss': case 's':
+      assignField(fields, 'second', Number(raw));
+      break;
+    case 'SSS':
+      assignField(fields, 'millisecond', Number(raw));
+      break;
+    case 'a': {
+      const periodIndex = vocab.dayPeriod.indexOf(raw);
+      if (periodIndex < 0) throw new Error(`temporal-fmt: unknown day period "${raw}" for locale "${locale}".`);
+      assignField(fields, 'dayPeriodRaw', raw);
+      assignField(fields, 'isPM', periodIndex === 1);
+      break;
+    }
+    case 'zzz':
+      assignField(fields, 'timeZoneId', raw);
+      break;
   }
 }
 
@@ -102,6 +142,11 @@ function applyGroup(fields: Fields, token: string, raw: string, locale: string):
 // on the current clock: 00-68 -> 2000-2068, 69-99 -> 1900-1999
 // https://www.man7.org/linux//man-pages/man3/strptime.3p.html
 function resolveYear(fields: Fields): number | undefined {
+  if (fields.year !== undefined && fields.twoDigitYear !== undefined) {
+    throw new Error(
+      'temporal-fmt: format string mixes "yyyy" and "yy" year representations.'
+    );
+  }
   if (fields.year !== undefined) return fields.year;
   if (fields.twoDigitYear !== undefined) {
     return fields.twoDigitYear <= 68 ? 2000 + fields.twoDigitYear : 1900 + fields.twoDigitYear;
@@ -109,14 +154,25 @@ function resolveYear(fields: Fields): number | undefined {
   return undefined;
 }
 
-function resolveHour(fields: Fields, formatStr: string): number | undefined {
+function resolveHour(fields: Fields, formatStr: string, locale: string): number | undefined {
   if (fields.hour !== undefined && fields.hour12 !== undefined) {
     throw new Error(
       `temporal-fmt: format string "${formatStr}" mixes a 24-hour token ("HH"/"H") with a ` +
-      `12-hour token ("hh"/"h"). Pick one or the other — parse() won't guess which is authoritative.`
+      `12-hour token ("hh"/"h").`
     );
   }
-  if (fields.hour !== undefined) return fields.hour;
+  if (fields.hour !== undefined) {
+    if (fields.dayPeriodRaw !== undefined) {
+      const vocab = getLocaleVocab(locale);
+      const expected = fields.hour < 12 ? vocab.dayPeriod[0] : vocab.dayPeriod[1];
+      if (fields.dayPeriodRaw !== expected) {
+        throw new Error(
+          `temporal-fmt: format string "${formatStr}" contains a day period that contradicts the 24-hour value.`
+        );
+      }
+    }
+    return fields.hour;
+  }
   if (fields.hour12 !== undefined) {
     if (fields.isPM === undefined) {
       throw new Error(
@@ -156,6 +212,12 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
     throw new Error(
       `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
       `(got ${formatStr.length}).`
+    );
+  }
+
+  if (input.length > MAX_INPUT_LENGTH) {
+    throw new Error(
+      `temporal-fmt: input exceeds maximum length of ${MAX_INPUT_LENGTH} characters (got ${input.length}).`
     );
   }
 
@@ -199,11 +261,11 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
 
   const fields: Fields = {};
   for (const { name, token } of pattern.groups) {
-    applyGroup(fields, token, match.groups![name]!, locale);
+    applyGroup(fields, token, match.groups![name]!, locale, formatStr);
   }
 
   const year = resolveYear(fields);
-  const hour = resolveHour(fields, formatStr);
+  const hour = resolveHour(fields, formatStr, locale);
   const { month, day, minute, second, millisecond, timeZoneId, weekdayExpected, weekdayRaw } = fields;
 
   const hasAnyDatePart = year !== undefined || month !== undefined || day !== undefined;

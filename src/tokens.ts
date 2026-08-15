@@ -38,7 +38,7 @@ const formatterCache = new Map<string, Intl.DateTimeFormat>();
 const MAX_CACHE_SIZE = 500;
 
 function getFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
-  const key = locale + JSON.stringify(options);
+  const key = JSON.stringify([locale, options]);
   let formatter = formatterCache.get(key);
   if (formatter) {
     return formatter;
