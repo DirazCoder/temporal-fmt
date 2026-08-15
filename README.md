@@ -1,5 +1,5 @@
 > [!WARNING]
-> ## 0.6.x is End of Life
+> ## 0.6.x is End of Life on 15/08/2026
 >
 > This version is no longer maintained and does not receive security updates.
 >
