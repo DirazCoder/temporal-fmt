@@ -114,45 +114,53 @@ export const UNPADDED_NUMERIC_RANGES: Record<string, Array<{ digits: 1 | 2; min:
 /**
  * Given the literal digit string a run of N adjacent unpadded-numeric
  * tokens matched as a whole (e.g. "112" for a 2-token run), enumerates
- * every way to split it into N pieces (one per token, each piece 1-2
- * digits per that token's own width rule) and returns every split where
- * every piece is independently valid for its token. Length 0 means the
- * run's regex match shouldn't have been possible in the first place
- * (shouldn't happen — the caller only invokes this after the whole
- * pattern already matched, meaning at least one split exists: the one the
- * regex actually took). Length 1 means the reading is unambiguous.
- * Length 2+ means true ambiguity — the caller should throw rather than
- * pick one.
- *
- * Recursive over token count rather than hardcoded to 2, so a 3+ token
- * unseparated run (e.g. "Hms") is covered by the same logic without a
- * special case — those are rarer in practice but not impossible, and a
- * partial fix that only covered pairs would leave the identical bug for
- * anyone writing a 3-token glued run.
+ * valid splits where every piece is independently valid for its token. Length 0
+ * means there is no valid interpretation. Length 1 means the reading is
+ * unambiguous. The function stops after finding two valid splits because the
+ * caller only needs to distinguish ambiguity from a unique interpretation.
+ * The search is memoized by token index and input offset so repeated states do
+ * not expand recursively more than once.
  */
 export function enumerateValidSplits(digits: string, tokens: string[]): number[][] {
-  if (tokens.length === 0) {
-    return digits.length === 0 ? [[]] : [];
-  }
-  const [token, ...rest] = tokens;
-  const ranges = UNPADDED_NUMERIC_RANGES[token!];
-  if (!ranges) {
-    throw new Error(`temporal-fmt: internal error — "${token}" is not an unpadded numeric token`);
-  }
-  const results: number[][] = [];
-  for (const { digits: width, min, max } of ranges) {
-    if (digits.length < width) continue;
-    const piece = digits.slice(0, width);
-    // reject a leading zero on the 2-digit branch's piece — matches the
-    // regex fragments, which never allow M/d/H/h/m/s to start with '0' in
-    // their 2-digit form (that shape belongs to the padded token instead)
-    if (width === 2 && piece[0] === '0') continue;
-    const value = parseInt(piece, 10);
-    if (value < min || value > max) continue;
-    const restSplits = enumerateValidSplits(digits.slice(width), rest);
-    for (const restSplit of restSplits) {
-      results.push([value, ...restSplit]);
+  const memo = new Map<string, number[][]>();
+
+  function solve(tokenIndex: number, offset: number): number[][] {
+    const key = `${tokenIndex}:${offset}`;
+    const cached = memo.get(key);
+    if (cached) {
+      return cached;
     }
+
+    if (tokenIndex === tokens.length) {
+      const result = offset === digits.length ? [[]] : [];
+      memo.set(key, result);
+      return result;
+    }
+
+    const token = tokens[tokenIndex];
+    const ranges = UNPADDED_NUMERIC_RANGES[token!];
+    if (!ranges) {
+      throw new Error(`temporal-fmt: internal error — "${token}" is not an unpadded numeric token`);
+    }
+
+    const results: number[][] = [];
+    for (const { digits: width, min, max } of ranges) {
+      if (offset + width > digits.length) continue;
+      const piece = digits.slice(offset, offset + width);
+      if (width === 2 && piece[0] === '0') continue;
+      const value = Number(piece);
+      if (value < min || value > max) continue;
+
+      for (const restSplit of solve(tokenIndex + 1, offset + width)) {
+        results.push([value, ...restSplit]);
+        if (results.length === 2) break;
+      }
+      if (results.length === 2) break;
+    }
+
+    memo.set(key, results);
+    return results;
   }
-  return results;
+
+  return solve(0, 0);
 }

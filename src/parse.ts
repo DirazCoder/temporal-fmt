@@ -4,7 +4,7 @@ import { buildCapturingPattern, type CapturingPattern } from './parsePattern.js'
 import { enumerateValidSplits } from './pattern.js';
 import { getLocaleVocab } from './localeVocab.js';
 import { getTemporal } from './temporalProvider.js';
-import { MAX_FORMAT_LENGTH } from './constants.js';
+import { MAX_FORMAT_LENGTH, MAX_INPUT_LENGTH } from './constants.js';
 
 // format strings are short hand-written literals reused across many calls —
 // cache the compiled capturing pattern per (formatStr, locale) pair instead
@@ -152,6 +152,12 @@ function resolveHour(fields: Fields, formatStr: string): number | undefined {
  * parse('yyyy-MM-dd', '2026-02-30') // throws — not a real date
  */
 export function parse(formatStr: string, input: string, options: FormatOptions = {}): unknown | undefined {
+  if (input.length > MAX_INPUT_LENGTH) {
+    throw new Error(
+      `temporal-fmt: input exceeds maximum length of ${MAX_INPUT_LENGTH} characters (got ${input.length}).`
+    );
+  }
+
   if (formatStr.length > MAX_FORMAT_LENGTH) {
     throw new Error(
       `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
