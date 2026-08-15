@@ -13,10 +13,10 @@
 and parser hardening land here first.
 
 `0.7.x` is still supported and is the previous maintained release line.
-Bug fixes and security fixes continue to land there where they are
+security fixes continue to land there where they are
 appropriate for the branch.
 
-`0.6.x` is now end of life. It no longer receives bug fixes or security
+`0.6.x` is now end of life. It no longer receives security
 fixes. Upgrade to `0.8.x` or `0.7.x` instead.
 
 ### Unsupported versions
