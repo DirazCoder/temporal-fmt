@@ -1,3 +1,11 @@
+> [!WARNING]
+> ## 0.2.x was End of Life on 04/08/2026
+>
+> This version is no longer maintained and does not receive security updates.
+>
+> This README documents the 0.2.x release and is kept for historical and
+> compatibility reference.
+> 
 # temporal-fmt
 
 Format `Temporal.PlainDate` / `PlainTime` / `PlainDateTime` / `ZonedDateTime` objects
