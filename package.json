@@ -8,9 +8,14 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     }
   },
   "files": [
@@ -18,13 +23,14 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsup && tsc --declaration --emitDeclarationOnly",
+    "build": "tsup && tsc --declaration --emitDeclarationOnly && node scripts/emit-cjs-types.mjs",
     "dev": "tsup --watch",
-    "test": "node --test test/*.test.js",
+    "test": "node --test test/*.test.js test/*.test.cjs",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "test:types": "vitest run --typecheck",
-    "test:all": "npm run build && npm test && npm run test:unit && npm run test:types",
+    "test:pack": "attw --pack .",
+    "test:all": "npm run build && npm test && npm run test:unit && npm run test:types && npm run test:pack",
     "prepublishOnly": "npm run build && npm test"
   },
   "keywords": [
@@ -48,6 +54,7 @@
   },
   "homepage": "https://github.com/DirazCoder/temporal-fmt#readme",
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
     "temporal-polyfill": "^1.0.4",
     "tsup": "^8.5.1",
     "typescript": "^7.0.2",
