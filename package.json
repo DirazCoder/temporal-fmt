@@ -1,6 +1,6 @@
 {
   "name": "temporal-fmt",
-  "version": "0.8.2",
+  "version": "0.8.1",
   "description": "Format Temporal.PlainDate/PlainDateTime/PlainTime/ZonedDateTime objects using date-fns-style token strings.",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -25,12 +25,13 @@
   "scripts": {
     "build": "tsup && tsc --declaration --emitDeclarationOnly && node scripts/emit-cjs-types.mjs",
     "dev": "tsup --watch",
-    "test": "node --test test/*.test.js test/*.test.cjs",
+    "test": "node scripts/run-tests.mjs",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
+    "test:coverage": "c8 --include=\"dist/index.js\" --include=\"dist/index.cjs\" --check-coverage --lines 90 --branches 75 --functions 90 -r text node scripts/run-tests.mjs",
     "test:types": "vitest run --typecheck",
-    "test:pack": "attw --pack .",
-    "test:all": "npm run build && npm test && npm run test:unit && npm run test:types && npm run test:pack",
+    "test:pack": "attw --pack . && publint .",
+    "test:all": "npm run build && npm test && npm run test:coverage && npm run test:unit && npm run test:types && npm run test:pack",
     "prepublishOnly": "npm run build && npm test"
   },
   "keywords": [
@@ -55,6 +56,8 @@
   "homepage": "https://github.com/DirazCoder/temporal-fmt#readme",
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
+    "c8": "^12.0.0",
+    "publint": "^0.3.23",
     "temporal-polyfill": "^1.0.4",
     "tsup": "^8.5.1",
     "typescript": "^7.0.2",
