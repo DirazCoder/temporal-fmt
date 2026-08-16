@@ -8,23 +8,62 @@ function alternation(values: string[]): string {
   return `(?:${values.map(escapeRegExp).join('|')})`;
 }
 
-let timeZoneFragment: string | undefined;
+// Every real IANA zone id is letters/digits/'_'/'+'/'-' segments joined by
+// '/' (e.g. "America/Argentina/Buenos_Aires", "Etc/GMT+12"); UTC and
+// fixed-offset strings are the only other shapes zzz accepts. Matching that
+// *shape* here — instead of alternating every zone name inline — keeps the
+// compiled regex small regardless of how many zzz tokens appear in a
+// format string. Without this, a format string could repeat "zzz" up to
+// the MAX_FORMAT_LENGTH limit and force the regex engine to compile and
+// match a pattern with the entire zone list duplicated at every
+// occurrence — MAX_FORMAT_LENGTH caps the *source* length, not the size of
+// what it expands into, so that cap alone didn't bound the actual cost.
+// The captured text is checked against the real zone set in
+// isValidTimeZone() after the overall pattern matches, so this is a
+// matching-cost change, not a validation-strictness change: a bogus zone
+// id still fails "no valid pattern matches", just via the post-match
+// check now instead of the regex alternation itself.
+const TIME_ZONE_SHAPE = '(?:UTC|[+-]\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?|[A-Za-z_]+(?:[+-]\\d{1,2})?(?:\\/[A-Za-z0-9_+-]+)*)';
 
 function getTimeZoneFragment(): string {
-  if (timeZoneFragment) {
-    return timeZoneFragment;
+  return TIME_ZONE_SHAPE;
+}
+
+let validZoneSet: Set<string> | undefined;
+
+// Real zone ids plus the couple of aliases zzz has always accepted even
+// though Intl.supportedValuesOf('timeZone') doesn't list them (UTC isn't
+// itself an IANA zone name, it's the identity offset). Falls back to
+// undefined when Intl.supportedValuesOf isn't available — see
+// isValidTimeZone below for what that means for validation.
+function getValidZoneSet(): Set<string> | undefined {
+  if (validZoneSet) {
+    return validZoneSet;
   }
   const supportedValuesOf = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf;
-  if (typeof supportedValuesOf === 'function') {
-    // supportedValuesOf('timeZone') leaves out 'UTC', but format() can
-    // produce it from a real ZonedDateTime — without this, parse() couldn't
-    // parse our own library's own output back.
-    timeZoneFragment = alternation([...supportedValuesOf('timeZone'), 'UTC']);
-  } else {
-    // no Intl.supportedValuesOf — match on shape only
-    timeZoneFragment = '[A-Za-z_]+(?:\\/[A-Za-z_+\\-0-9]+)+|UTC';
+  if (typeof supportedValuesOf !== 'function') {
+    return undefined;
   }
-  return timeZoneFragment;
+  validZoneSet = new Set(supportedValuesOf('timeZone'));
+  validZoneSet.add('UTC');
+  return validZoneSet;
+}
+
+const FIXED_OFFSET_RE = /^[+-]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?$/;
+
+// Called post-match on whatever the bounded TIME_ZONE_SHAPE captured, since
+// that shape is deliberately looser than "a real zone id" (it has to be, to
+// stay a fixed-size regex fragment — see the comment above). A fixed offset
+// is valid by construction; a real IANA name is checked against the actual
+// list when one is available. Without Intl.supportedValuesOf, there's no
+// list to check against — same as the old shape-only fallback this branch
+// already had for that environment — so any non-offset shape match passes.
+export function isValidTimeZone(raw: string): boolean {
+  if (FIXED_OFFSET_RE.test(raw)) {
+    return true;
+  }
+  const zones = getValidZoneSet();
+  return zones ? zones.has(raw) : true;
 }
 
 // mirrors the ranges pad() in tokens.ts actually produces — keep in sync

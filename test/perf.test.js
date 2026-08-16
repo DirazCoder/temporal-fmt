@@ -115,6 +115,26 @@ test('locale with a large alternation vocabulary (long IANA zone list via "zzz")
   assert.ok(failMs < BUDGET_MS, `parse() rejecting a long fake zone id took ${failMs}ms, expected < ${BUDGET_MS}ms`);
 });
 
+test('many repeated zzz tokens in one format string do not exhibit pathological slowdown', () => {
+  // The test above covers a single zzz — this covers what actually made
+  // the zone alternation dangerous: getTimeZoneFragment() used to build
+  // one large fragment and re-embed it once per zzz occurrence, so a
+  // format string under MAX_FORMAT_LENGTH could still expand into a
+  // regex millions of characters long once enough zzz tokens were glued
+  // together. MAX_FORMAT_LENGTH caps the format *string*, not what it
+  // compiles into, so this case wasn't covered by that limit at all.
+  const formatStr = 'zzz'.repeat(160);
+  const input = 'x'.repeat(formatStr.length);
+
+  const failMs = timeMs(() => {
+    try { parse(formatStr, input); } catch { /* expected — input doesn't match real zones */ }
+  });
+  assert.ok(
+    failMs < BUDGET_MS,
+    `parse() with ${formatStr.length / 3} repeated zzz tokens took ${failMs}ms, expected < ${BUDGET_MS}ms`
+  );
+});
+
 test('locale with a large month/weekday vocabulary under a long near-miss input does not exhibit pathological slowdown', () => {
   // ja-JP's vocab includes counter-suffix-merged strings (see localeVocab.ts
   // partValue()) — a different shape of alternation entry than a plain

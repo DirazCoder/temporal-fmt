@@ -1,7 +1,7 @@
 import { DEFAULT_LOCALE, type FormatOptions } from './tokens.js';
 import { tokenize } from './tokenize.js';
 import { buildCapturingPattern, type CapturingPattern } from './parsePattern.js';
-import { enumerateValidSplits } from './pattern.js';
+import { enumerateValidSplits, isValidTimeZone } from './pattern.js';
 import { getLocaleVocab } from './localeVocab.js';
 import { getTemporal } from './temporalProvider.js';
 import { MAX_FORMAT_LENGTH, MAX_INPUT_LENGTH } from './constants.js';
@@ -175,6 +175,19 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
 
   if (pattern.groups.length === 0) {
     throw new Error(`temporal-fmt: format string "${formatStr}" has no tokens — nothing to parse into a value.`);
+  }
+
+  // The regex's zzz fragment only matches a bounded zone-id *shape* (see
+  // TIME_ZONE_SHAPE in pattern.ts) rather than alternating every real IANA
+  // name inline, so a shape match isn't proof of a real zone yet — check
+  // each captured zzz group against the actual zone list here. Kept as the
+  // same "no valid pattern matches" error the inline-alternation version
+  // used to throw, since from the caller's perspective this is still the
+  // regex rejecting the input, just checked in two steps instead of one.
+  for (const { name, token } of pattern.groups) {
+    if (token === 'zzz' && !isValidTimeZone(match.groups![name]!)) {
+      throw new Error(`temporal-fmt: no valid pattern matches the format string and input shape`);
+    }
   }
 
   // A run of 2+ adjacent unpadded-numeric tokens with no literal separator
