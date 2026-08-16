@@ -115,6 +115,29 @@ test('locale with a large alternation vocabulary (long IANA zone list via "zzz")
   assert.ok(failMs < BUDGET_MS, `parse() rejecting a long fake zone id took ${failMs}ms, expected < ${BUDGET_MS}ms`);
 });
 
+test('many zzz tokens in a single format string does not exhibit pathological slowdown (H-01 regression)', () => {
+  // getTimeZoneFragment() used to inline the full IANA zone alternation
+  // (~7KB) into the compiled regex source for every zzz occurrence, so a
+  // format string near MAX_FORMAT_LENGTH packed with "zzz" tokens (each 3
+  // chars, so up to ~330 of them fit) produced a multi-megabyte regex
+  // source per unique formatStr — cheap to trigger, expensive to compile,
+  // and the pattern cache bounds by *entry count* not size, so an attacker
+  // cycling unique format strings could force that cost repeatedly. Each
+  // call here uses a distinct formatStr precisely to bypass the pattern
+  // cache and hit cold compilation every time — that's the actual attack
+  // shape, not a single warmed-up call.
+  const zzzCount = Math.floor(MAX_FORMAT_LENGTH / 3);
+  for (let i = 0; i < 5; i++) {
+    // trailing spaces keep each formatStr unique (distinct cache key)
+    // without changing its zzz count or pushing it over MAX_FORMAT_LENGTH
+    const formatStr = 'zzz'.repeat(zzzCount - i).padEnd(zzzCount * 3, ' ');
+    const ms = timeMs(() => {
+      try { parse(formatStr, 'anything'); } catch { /* expected — not a real date/time */ }
+    });
+    assert.ok(ms < BUDGET_MS, `parse() with ${zzzCount - i} zzz tokens (cold, formatStr #${i}) took ${ms}ms, expected < ${BUDGET_MS}ms`);
+  }
+});
+
 test('locale with a large month/weekday vocabulary under a long near-miss input does not exhibit pathological slowdown', () => {
   // ja-JP's vocab includes counter-suffix-merged strings (see localeVocab.ts
   // partValue()) — a different shape of alternation entry than a plain

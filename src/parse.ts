@@ -1,8 +1,8 @@
 import { DEFAULT_LOCALE, type FormatOptions } from './tokens.js';
 import { tokenize } from './tokenize.js';
 import { buildCapturingPattern, type CapturingPattern } from './parsePattern.js';
-import { enumerateValidSplits } from './pattern.js';
-import { getLocaleVocab } from './localeVocab.js';
+import { enumerateValidSplits, isValidTimeZone } from './pattern.js';
+import { getLocaleVocab, canonicalCacheKey } from './localeVocab.js';
 import { getTemporal } from './temporalProvider.js';
 import { MAX_FORMAT_LENGTH, MAX_INPUT_LENGTH } from './constants.js';
 
@@ -13,7 +13,7 @@ const patternCache = new Map<string, CapturingPattern>();
 const MAX_CACHE_SIZE = 500;
 
 function getPattern(formatStr: string, locale: string): CapturingPattern {
-  const key = JSON.stringify([locale, formatStr]);
+  const key = JSON.stringify([canonicalCacheKey(locale), formatStr]);
   let pattern = patternCache.get(key);
   if (pattern) {
     return pattern;
@@ -40,15 +40,23 @@ const calendarCache = new Map<string, string | undefined>();
 const MAX_CALENDAR_CACHE_SIZE = 500;
 
 function resolveCalendar(locale: string): string | undefined {
-  if (calendarCache.has(locale)) {
-    return calendarCache.get(locale);
+  // computed up front (not just at cache-miss time) so the cache key is
+  // the canonical form too — otherwise 'en-US' and 'en-us' would each get
+  // their own entry for what's really the same locale (see
+  // canonicalCacheKey's comment in localeVocab.ts for why that matters).
+  // Left un-lowercased/un-canonicalized calls into new Intl.Locale() below
+  // would still throw on a genuinely malformed tag either way; doing it
+  // here just means that throw happens before touching the cache instead
+  // of after, which is the more natural place for it.
+  const canonicalLocale = new Intl.Locale(locale).toString().toLowerCase();
+  if (calendarCache.has(canonicalLocale)) {
+    return calendarCache.get(canonicalLocale);
   }
   if (calendarCache.size >= MAX_CALENDAR_CACHE_SIZE) {
     const oldestKey = calendarCache.keys().next().value;
     if (oldestKey !== undefined) calendarCache.delete(oldestKey);
   }
   let calendar: string | undefined;
-  const canonicalLocale = new Intl.Locale(locale).toString().toLowerCase();
   const parts = canonicalLocale.split('-');
   const extensionIndex = parts.indexOf('u');
   const calendarKeyIndex = extensionIndex === -1 ? -1 : parts.indexOf('ca', extensionIndex + 1);
@@ -56,7 +64,7 @@ function resolveCalendar(locale: string): string | undefined {
     const resolved = new Intl.DateTimeFormat(canonicalLocale).resolvedOptions().calendar;
     calendar = resolved === 'gregory' ? undefined : resolved;
   }
-  calendarCache.set(locale, calendar);
+  calendarCache.set(canonicalLocale, calendar);
   return calendar;
 }
 
@@ -231,6 +239,19 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
 
   if (pattern.groups.length === 0) {
     throw new Error(`temporal-fmt: format string "${formatStr}" has no tokens — nothing to parse into a value.`);
+  }
+
+  // The regex's zzz fragment only matches a bounded zone-id *shape* (see
+  // TIME_ZONE_SHAPE in pattern.ts) rather than alternating every real IANA
+  // name inline, so a shape match isn't proof of a real zone yet — check
+  // each captured zzz group against the actual zone list here. Kept as the
+  // same "no valid pattern matches" error the inline-alternation version
+  // used to throw, since from the caller's perspective this is still the
+  // regex rejecting the input, just checked in two steps instead of one.
+  for (const { name, token } of pattern.groups) {
+    if (token === 'zzz' && !isValidTimeZone(match.groups![name]!)) {
+      throw new Error(`temporal-fmt: no valid pattern matches the format string and input shape`);
+    }
   }
 
   // A run of 2+ adjacent unpadded-numeric tokens with no literal separator

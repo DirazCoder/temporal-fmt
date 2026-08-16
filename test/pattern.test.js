@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parse, setTemporal } from '../dist/index.js';
+import { parse, format, setTemporal } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
 // tokenFragment() and NUMERIC_FRAGMENTS aren't exported — only reachable
@@ -94,13 +94,65 @@ test('yyyy rejects fewer than 4 digits', () => {
   assert.throws(() => parse('yyyy-MM-dd', '026-08-04'), /no valid pattern matches/);
 });
 
-test('yyyy rejects more than 4 digits — a 5-digit run doesn\'t partially match and leave a stray digit', () => {
-  // NUMERIC_FRAGMENTS.yyyy is "\d{4}" with no upper bound of its own — this
-  // only rejects because the whole pattern is fully anchored (^...$) and the
-  // literal "-" separator can't absorb the extra digit. Worth pinning down
-  // separately from the "fewer than 4" case above since it's a different
-  // mechanism (anchoring, not the fragment) doing the rejecting.
-  assert.throws(() => parse('yyyy-MM-dd', '20260-08-04'), /no valid pattern matches/);
+test('yyyy accepts more than 4 digits when followed by a literal separator, round-tripping format()\'s own output for large years', () => {
+  // format(date, 'yyyy') pads to a *minimum* of 4 digits and never
+  // truncates (see pad() in tokens.ts), so a year like 20260 formats to
+  // "20260" — a 5-digit yyyy is real output this library itself produces,
+  // not just a hand-crafted edge case. yyyy used to be a fixed "\d{4}",
+  // which meant format() could emit a string parse() would then reject:
+  // a broken round trip (M-01). It's the literal "-" right after yyyy
+  // that makes the extra digit safe here — see the glued-token test below
+  // for the case where that separator isn't there.
+  const result = parse('yyyy-MM-dd', '20260-08-04');
+  assert.equal(result.year, 20260);
+  assert.equal(result.month, 8);
+  assert.equal(result.day, 4);
+});
+
+test('yyyy accepts a negative (BCE) year when followed by a literal separator, round-tripping format()\'s own output', () => {
+  // pad() deliberately preserves the sign for negative years (see its own
+  // comment in tokens.ts) rather than making 45 BCE indistinguishable from
+  // 45 CE — the "yy doesn't support negative years, use yyyy instead"
+  // error elsewhere only makes sense as a promise if yyyy actually accepts
+  // them back.
+  const result = parse('yyyy-MM-dd', '-0045-08-04');
+  assert.equal(result.year, -45);
+});
+
+test('yyyy glued directly to another digit token (no literal separator) stays exactly 4 digits, so it can\'t silently swallow that token\'s digits', () => {
+  // Unlike the literal-separator case above, "yyyyMM" has no separator to
+  // stop a greedy year match from eating into MM's digits — e.g. reading
+  // "2026080401" as year 202608 / month 04 / day 01 instead of year 2026 /
+  // month 08 / day 0401(invalid) or the intended 2026-08-04 plus 2 stray
+  // characters. tokenFragment() special-cases this: yyyy immediately
+  // before another digit-leading token gets the exact-4-digit fragment,
+  // not the open-ended one, so the only large-year cost is that "yyyyMM"
+  // specifically can't represent a year past 9999 — see pattern.ts.
+  const result = parse('yyyyMMdd', '20260804');
+  assert.equal(result.year, 2026);
+  assert.equal(result.month, 8);
+  assert.equal(result.day, 4);
+
+  assert.throws(
+    () => parse('yyyyMMdd', '2026080401'),
+    /no valid pattern matches/,
+    'a 5-digit-year reading that leaves a valid MM/dd split must not be silently accepted'
+  );
+});
+
+test('yyyy round-trips through format() then parse() for a year past 9999 (M-01 regression)', () => {
+  // The actual bug: format() emits whatever pad() produces (no upper
+  // bound), but parse() used to hard-reject anything but exactly 4
+  // digits — so format()'s own output could fail to parse back. year
+  // 20260 (not just a synthetic string) exercises the real call path
+  // instead of a hand-built input.
+  const date = { year: 20260, month: 8, day: 4 };
+  const formatted = format(date, 'yyyy-MM-dd');
+  assert.equal(formatted, '20260-08-04');
+  const parsed = parse('yyyy-MM-dd', formatted);
+  assert.equal(parsed.year, 20260);
+  assert.equal(parsed.month, 8);
+  assert.equal(parsed.day, 4);
 });
 
 test('yy rejects a single digit or three digits — must be exactly 2', () => {

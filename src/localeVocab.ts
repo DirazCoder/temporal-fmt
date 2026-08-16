@@ -10,6 +10,33 @@ export interface LocaleVocab {
   dayPeriod: string[]; // typically [AM-ish, PM-ish], deduped
 }
 
+// Every locale-keyed cache in this library (this one, formatterCache in
+// tokens.ts, patternCache/calendarCache in parse.ts) used to key on the
+// exact locale string a caller passed in. Intl treats spelling variants of
+// the same locale as equivalent ('en-US' / 'en-us' / 'en_US' all resolve
+// the same way), but a plain string-keyed Map doesn't — so callers mixing
+// spellings for what's really one locale would silently fragment across
+// separate cache entries instead of sharing one, making the bounded
+// eviction limits (MAX_*_CACHE_SIZE) less effective than they look. This
+// doesn't change any cache's *correctness* (each entry is still built from
+// -- and valid for -- whatever locale string produced it), only how many
+// distinct entries equivalent spellings end up costing. Falls back to the
+// original string on a malformed/unrecognized tag rather than throwing —
+// cache-key normalization shouldn't be where a bad locale first surfaces
+// as an error; whatever actually calls `new Intl.DateTimeFormat(locale)`
+// downstream is the right place for that.
+export function canonicalCacheKey(locale: string): string {
+  try {
+    // Intl.Locale requires BCP-47 hyphens and rejects underscore-separated
+    // tags like 'en_US' outright (RangeError), rather than normalizing
+    // them — so without this replace, that spelling would just fall
+    // through to the catch below and never fold with 'en-US'.
+    return new Intl.Locale(locale.replace(/_/g, '-')).toString().toLowerCase();
+  } catch {
+    return locale;
+  }
+}
+
 const vocabCache = new Map<string, LocaleVocab>();
 const MAX_VOCAB_CACHE_SIZE = 500;
 
@@ -59,7 +86,8 @@ function assertNoCollision(names: string[], label: string, locale: string): void
 }
 
 export function getLocaleVocab(locale: string): LocaleVocab {
-  const cached = vocabCache.get(locale);
+  const cacheKey = canonicalCacheKey(locale);
+  const cached = vocabCache.get(cacheKey);
   if (cached) {
     return cached;
   }
@@ -100,6 +128,6 @@ export function getLocaleVocab(locale: string): LocaleVocab {
     const oldestKey = vocabCache.keys().next().value;
     if (oldestKey !== undefined) vocabCache.delete(oldestKey);
   }
-  vocabCache.set(locale, vocab);
+  vocabCache.set(cacheKey, vocab);
   return vocab;
 }

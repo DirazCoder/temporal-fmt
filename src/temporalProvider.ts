@@ -19,6 +19,19 @@ export interface TemporalNamespace {
 
 let injectedTemporal: TemporalNamespace | undefined;
 
+// Anything that caches a result derived from *which* Temporal
+// implementation is active (right now: tokens.ts's native-Intl-support
+// probe) registers here so it gets invalidated whenever setTemporal()
+// swaps the implementation — see the comment on setTemporal() below for
+// why that matters. A plain array instead of an event-emitter-style API
+// since this only ever needs "call every listener, in registration order,
+// with no payload" — nothing here needs unsubscribe or payload data.
+const onTemporalChanged: Array<() => void> = [];
+
+export function subscribeToTemporalChanges(listener: () => void): void {
+  onTemporalChanged.push(listener);
+}
+
 /**
  * Explicitly hand temporal-fmt the Temporal implementation to use, instead
  * of relying on a global `Temporal`. Call this once, before your first
@@ -34,6 +47,15 @@ let injectedTemporal: TemporalNamespace | undefined;
  */
 export function setTemporal(temporal?: TemporalNamespace): void {
   injectedTemporal = temporal;
+  // tokens.ts's native-Intl-support probe is keyed on whichever Temporal
+  // implementation was active the first time a locale-aware format() ran —
+  // if that implementation changes later (native -> polyfill or back), the
+  // memoized probe result can go stale and disagree with what's now
+  // actually active. Resetting it here means the next locale-aware format()
+  // after any setTemporal() call re-probes against the implementation
+  // that's active *now*, at the (small, one-time-per-switch) cost of
+  // re-running the probe.
+  for (const listener of onTemporalChanged) listener();
 }
 
 function resolveTemporal(): TemporalNamespace | undefined {

@@ -8,18 +8,43 @@ function alternation(values: string[]): string {
   return `(?:${values.map(escapeRegExp).join('|')})`;
 }
 
-let timeZoneFragment: string | undefined;
+// Every real IANA zone id is letters/digits/'_'/'+'/'-' segments joined by
+// '/' (e.g. "America/Argentina/Buenos_Aires", "Etc/GMT+12"); UTC and
+// fixed-offset strings are the only other shapes zzz accepts. Matching that
+// *shape* here — instead of alternating all ~400 zone names inline — keeps
+// the compiled regex small regardless of how many zzz tokens appear in a
+// format string. The captured text still gets checked against the real
+// zone set in isValidTimeZone() after the overall pattern matches, so this
+// is strictly a matching-cost change, not a validation-strictness change:
+// a bogus zone id fails "no valid pattern matches" exactly like it did when
+// the zone list was inlined (see isValidTimeZone's caller in parse.ts).
+const TIME_ZONE_SHAPE = '(?:UTC|[+-]\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?|[A-Za-z_]+(?:[+-]\\d{1,2})?(?:\\/[A-Za-z0-9_+-]+)*)';
 
 function getTimeZoneFragment(): string {
-  if (timeZoneFragment) {
-    return timeZoneFragment;
-  }
+  return TIME_ZONE_SHAPE;
+}
 
-  const supportedZones = Intl.supportedValuesOf('timeZone');
-  const escapedZones = supportedZones.map(escapeRegExp);
-  const offsetPattern = '[+-]\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?';
-  timeZoneFragment = `(?:UTC|${offsetPattern}|${alternation(escapedZones)})`;
-  return timeZoneFragment;
+let validZoneSet: Set<string> | undefined;
+
+// Real zone ids plus the couple of aliases zzz has always accepted even
+// though Intl.supportedValuesOf('timeZone') doesn't list them (UTC isn't
+// itself an IANA zone name, it's the identity offset).
+function getValidZoneSet(): Set<string> {
+  if (!validZoneSet) {
+    validZoneSet = new Set(Intl.supportedValuesOf('timeZone'));
+    validZoneSet.add('UTC');
+  }
+  return validZoneSet;
+}
+
+const FIXED_OFFSET_RE = /^[+-]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?$/;
+
+// Called post-match on whatever the bounded TIME_ZONE_SHAPE captured, since
+// that shape is deliberately looser than "a real zone id" (it has to be, to
+// stay a fixed-size regex fragment — see the comment above). A fixed offset
+// is valid by construction; anything else has to be a real IANA name.
+export function isValidTimeZone(raw: string): boolean {
+  return FIXED_OFFSET_RE.test(raw) || getValidZoneSet().has(raw);
 }
 
 // mirrors the ranges pad() in tokens.ts actually produces — keep in sync
@@ -43,7 +68,6 @@ function getTimeZoneFragment(): string {
 // should prefer the same). Found via the token×token combinatorial glue
 // matrix in combinatorial.test.js — see that file for the full case list.
 const NUMERIC_FRAGMENTS: Record<string, string> = {
-  yyyy: '\\d{4}',
   yy: '\\d{2}',
   MM: '(?:0[1-9]|1[0-2])',
   M: '(?:1[0-2]|[1-9])',
@@ -60,7 +84,38 @@ const NUMERIC_FRAGMENTS: Record<string, string> = {
   SSS: '\\d{3}',
 };
 
-export function tokenFragment(token: string, locale: string): string {
+// pad()'s year formatter (tokens.ts) never truncates: it preserves the sign
+// for BCE years and doesn't cap width past 9999, so a formatted "yyyy" can
+// be longer than 4 digits or start with '-'. YYYY_EXTENDED accepts that;
+// YYYY_EXACT is the plain 4-unsigned-digit case. Which one a given "yyyy"
+// occurrence gets depends on what follows it — see buildCapturingPattern in
+// parsePattern.ts. Two separate fragments instead of one `-?\d{4,}` because
+// an open-ended-width year directly followed by another digit token (e.g.
+// "yyyyMM") lets the year's own greediness silently eat digits meant for
+// the next token — same class of bug as UNPADDED_NUMERIC_TOKENS below, but
+// unbounded-width, so it can't reuse enumerateValidSplits' fixed-range
+// splitting. Restricting to exactly 4 digits whenever something could
+// follow closes that off entirely, at the cost of "yyyyMM" not being able
+// to represent a 5-digit year — an already-rare case doubly rare in
+// combination with a glued adjacent token.
+const YYYY_EXACT = '-?\\d{4}';
+const YYYY_EXTENDED = '-?\\d{4,}';
+
+// True for any token whose matched text can start with a digit — i.e.
+// every token here except the locale-named ones (MMMM/MMM/EEEE/EEE/a) and
+// zzz (which can start with a digit only via a fixed offset like "+09:00",
+// already handled by requiring a leading sign there). Used to decide
+// whether a "yyyy" immediately before this token needs the exact-4-digit
+// fragment instead of the open-ended one.
+const DIGIT_LEADING_TOKENS = new Set([
+  'yyyy', 'yy', 'MM', 'M', 'dd', 'd', 'HH', 'H', 'hh', 'h', 'mm', 'm', 'ss', 's', 'SSS',
+]);
+
+export function tokenFragment(token: string, locale: string, nextToken?: string): string {
+  if (token === 'yyyy') {
+    return nextToken !== undefined && DIGIT_LEADING_TOKENS.has(nextToken) ? YYYY_EXACT : YYYY_EXTENDED;
+  }
+
   const numeric = NUMERIC_FRAGMENTS[token];
   if (numeric) {
     return numeric;

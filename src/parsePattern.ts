@@ -38,7 +38,7 @@ export function buildCapturingPattern(pieces: Piece[], locale: string): Capturin
     currentRun = { groupNames: [], tokens: [] };
   };
 
-  for (const piece of pieces) {
+  for (const [idx, piece] of pieces.entries()) {
     if (piece.kind === 'literal') {
       source += escapeRegExp(piece.value);
       flushRun(); // a literal (even a single character) breaks adjacency
@@ -46,7 +46,9 @@ export function buildCapturingPattern(pieces: Piece[], locale: string): Capturin
     }
     const name = `g${i++}`;
     groups.push({ name, token: piece.value });
-    source += `(?<${name}>${tokenFragment(piece.value, locale)})`;
+    const nextPiece = pieces[idx + 1];
+    const nextToken = nextPiece?.kind === 'token' ? nextPiece.value : undefined;
+    source += `(?<${name}>${tokenFragment(piece.value, locale, nextToken)})`;
 
     if (UNPADDED_NUMERIC_TOKENS.has(piece.value)) {
       currentRun.groupNames.push(name);

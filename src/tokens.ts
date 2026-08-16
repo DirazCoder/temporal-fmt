@@ -1,4 +1,5 @@
-import { getTemporal } from './temporalProvider.js';
+import { getTemporal, subscribeToTemporalChanges } from './temporalProvider.js';
+import { canonicalCacheKey } from './localeVocab.js';
 
 export function pad(n: number, len: number): string {
   // padStart pads the whole string, sign included, so pad(-45, 4) used to
@@ -38,7 +39,7 @@ const formatterCache = new Map<string, Intl.DateTimeFormat>();
 const MAX_CACHE_SIZE = 500;
 
 function getFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
-  const key = JSON.stringify([locale, options]);
+  const key = JSON.stringify([canonicalCacheKey(locale), options]);
   let formatter = formatterCache.get(key);
   if (formatter) {
     return formatter;
@@ -63,6 +64,13 @@ function getFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl
 // Probed once and memoized and only from intlPart(), so it never
 // runs unless a format string actually uses a locale-aware token.
 let nativeSupport: boolean | undefined;
+// Invalidate the memoized probe whenever setTemporal() swaps the active
+// implementation — otherwise a probe result from "is native Temporal
+// supported" could keep being used after the active implementation is
+// no longer the one that was probed. See setTemporal() in
+// temporalProvider.ts for the other half of this.
+subscribeToTemporalChanges(() => { nativeSupport = undefined; });
+
 function intlSupportsNativeTemporal(): boolean {
   if (nativeSupport === undefined) {
     nativeSupport = false;
@@ -88,13 +96,30 @@ function intlPart(
   // match the object's own (e.g. en-US formatter defaults to gregory, but
   // a hebrew/islamic PlainDate needs its own calendar passed through).
   //
-  // skip this for iso8601 specifically — passing `calendar: 'iso8601'`
-  // explicitly alongside a single-field options object makes formatToParts()
-  // come back empty for some reason.
+  // For iso8601 specifically, force 'gregory' rather than leaving calendar
+  // unset: numeric fields (yyyy/dd, see tokens' pad()-based handlers) are
+  // always pulled straight off the object's own ISO fields — so if the
+  // *locale* carries a `-u-ca-*` extension (e.g. 'en-u-ca-hebrew') and this
+  // step left calendar unset, the formatter would resolve its own default
+  // calendar from the locale and format MMMM/EEEE in that calendar while
+  // yyyy/dd stay ISO, producing a date that looks internally consistent
+  // (a real Hebrew month name next to a real-looking day/year) but names a
+  // completely different day than the object actually represents. Forcing
+  // 'gregory' here keeps every field of an ISO object's output anchored to
+  // the same (ISO/Gregorian) calendar — a locale's calendar extension only
+  // takes effect when the object itself already carries a non-ISO calendar
+  // (via `.withCalendar()`), matching what the README documents.
+  //
+  // 'gregory' specifically, not 'iso8601' — passing `calendar: 'iso8601'`
+  // explicitly alongside a single-field options object makes
+  // formatToParts() come back empty for some reason, but 'gregory' doesn't
+  // have that problem and Temporal's iso8601 calendar is Gregorian-shaped
+  // (proleptic Gregorian throughout, no Julian cutover) so the two agree
+  // on every numeric field this library ever reads.
   const calendar = temporal?.calendarId;
   const formatterOptions: Intl.DateTimeFormatOptions = {
     ...options,
-    ...(calendar && calendar !== 'iso8601' ? { calendar } : {}),
+    calendar: calendar && calendar !== 'iso8601' ? calendar : 'gregory',
   };
 
   // Temporal.prototype.toLocaleString() is part of the Temporal spec itself:
