@@ -6,7 +6,7 @@
 > This README documents the 0.6.x release and is kept for historical and
 > compatibility reference. the 0.6-lts tag  in npmjs.com is now removed 
 
-# temporal-fmt
+# temporal-fmt (v0.6.3)
 
 Format `Temporal.PlainDate` / `PlainTime` / `PlainDateTime` / `ZonedDateTime` objects
 using date-fns-style token strings.
