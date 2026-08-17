@@ -7,7 +7,7 @@
 > compatibility reference.
 
 
-# temporal-fmt
+# temporal-fmt (v0.5.4)
 
 Format `Temporal.PlainDate` / `PlainTime` / `PlainDateTime` / `ZonedDateTime` objects
 using date-fns-style token strings.
