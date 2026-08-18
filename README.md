@@ -167,6 +167,7 @@ yourself.
 | M     | month              | 8       |
 | dd    | 2-digit day        | 04      |
 | d     | day                | 4       |
+| do    | ordinal day (English-only: 1st, 2nd, 3rd, 4th, ... 11th/12th/13th, ... 21st) | 4th |
 | EEEE  | full weekday       | Tuesday |
 | EEE   | short weekday      | Tue     |
 | HH    | 2-digit hour (24h) | 15      |
@@ -179,11 +180,160 @@ yourself.
 | s     | second             | 30      |
 | SSS   | milliseconds       | 000     |
 | a     | AM/PM              | PM      |
+| Q     | numeric quarter (1-4) | 3    |
+| QQQ   | quarter with "Q" prefix (Q1, Q2, Q3, Q4) | Q3 |
+| ww    | ISO 8601 week (01-53), format-only | 32 |
+| RRRR  | ISO 8601 week-numbering year, format-only | 2026 |
 | zzz   | IANA time zone id  | America/New_York |
+
+`do` is format-only (parse() rejects it — the "st"/"nd"/"rd"/"th" suffix isn't structurally distinguishable from adjacent literal text in a parse context). The English-only suffix rule is on purpose — locale-aware ordinals are out of scope; `Intl.DateTimeFormat` has no part type for ordinals, and the rest of this library routes locale-specific names through it.
+
+`Q` and `QQQ` both format and parse. On parse, they cross-check against any month/date tokens present in the same format string, the same way `EEEE` cross-checks weekday against date — throw if they disagree.
+
+`ww` and `RRRR` are format-only. Parsing "ww"/"RRRR" back into a date requires resolving an ISO week + a weekday to a specific date, which is a different parsing surface than the token-based `parse()` here.
+
+`RRRR` is the **ISO week-numbering year**, not the calendar year — they can differ at year boundaries. Dec 29-31 often belong to week 1 of the *next* year; Jan 1-3 often belong to week 52/53 of the *previous* year. Examples: `format(PlainDate.from('2026-12-31'), 'ww RRRR')` → `"53 2026"`; `format(PlainDate.from('2027-01-01'), 'ww RRRR')` → `"53 2026"` (Friday in ISO year 2026's week 53); `format(PlainDate.from('2027-01-04'), 'ww RRRR')` → `"01 2027"` (Monday starting ISO week 1 of 2027).
 
 Try to use a token your input type doesn't support — `HH` on a `PlainDate`,
 say — and you'll get a real error telling you so, not a silent `undefined`
 sitting in your output waiting to confuse someone in three weeks.
+
+## Duration formatting
+
+`formatDuration(duration, formatStr, options?)` formats a `Temporal.Duration` (or a plain field bag `{ years, months, weeks, days, hours, minutes, seconds, milliseconds }`) with a duration-specific token set. A duration doesn't sit on a calendar — it has no year/month/day position the way a PlainDate does — so the date/time token table above doesn't apply.
+
+Token grammar: each unit has three forms, in increasing verbosity.
+
+| Token | Form | Example |
+|-------|------|---------|
+| `y` / `yy` / `yyy` | numeric / short / long (years) | `2` / `2yr` / `2 years` |
+| `o` / `oo` / `ooo` | numeric / short / long (months) | `2` / `2mo` / `2 months` |
+| `w` / `ww` / `www` | weeks | `2` / `2wk` / `2 weeks` |
+| `d` / `dd` / `ddd` | days | `2` / `2d` / `2 days` |
+| `h` / `hh` / `hhh` | hours | `2` / `2h` / `2 hours` |
+| `m` / `mm` / `mmm` | minutes | `2` / `2m` / `2 minutes` |
+| `s` / `ss` / `sss` | seconds | `2` / `2s` / `2 seconds` |
+| `S` / `SS` / `SSS` | milliseconds | `2` / `2ms` / `2 milliseconds` |
+
+The short and long forms are plural-aware (singular for value 1, plural otherwise).
+
+```js
+import { formatDuration } from 'temporal-fmt';
+
+formatDuration({ years: 2, months: 3 }, 'yyy ooo')      // "2 years 3 months"
+formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm')   // "2 hours 30 minutes"
+formatDuration({ hours: 2, minutes: 30 }, 'h:mm')      // "2:30"
+```
+
+**Zero-value handling**: by default, zero-value units are omitted from the output. `formatDuration({ hours: 2 }, 'hhh mmm')` returns `"2 hours "` (the trailing space is the literal separator from the format string — the codemod doesn't do separator cleanup; the caller is responsible for structuring the format string). Pass `{ showZeroValues: true }` to force zero-value units to render.
+
+Unit names are hardcoded English in this pass. `Intl.DurationFormat` exists in some engines but is still maturing; for now, English-only is explicit. Callers wanting locale-aware duration formatting should use `Intl.DurationFormat` directly.
+
+## Relative time: formatDistance
+
+`formatDistance(date1, date2, options?)` returns a human-readable relative-time string — "3 days ago", "in 2 hours", "now". Delegates unit names and pluralization to `Intl.RelativeTimeFormat` so the output localizes the same way the rest of the library's locale-aware tokens do.
+
+```js
+import { formatDistance } from 'temporal-fmt';
+
+const today = Temporal.PlainDate.from('2026-08-04');
+const yesterday = Temporal.PlainDate.from('2026-08-03');
+
+formatDistance(today, yesterday)              // "yesterday" (numeric: 'auto')
+formatDistance(today, yesterday, { numeric: 'always' }) // "1 day ago"
+formatDistance(today, today)                    // "now"
+formatDistance(today, today.add({ days: 2 }), { locale: 'fr-FR' }) // "dans 2 jours"
+```
+
+**Direction convention**: `diff = date1 - date2`. Positive diff → date1 is in the future relative to date2 → "in X". Negative diff → date1 is in the past → "X ago". Swap the args to flip the direction.
+
+**Unit-selection cutoffs** (documented, not configurable):
+
+| abs(diff) | Unit |
+|-----------|------|
+| < 60 seconds | seconds |
+| < 60 minutes | minutes |
+| < 24 hours | hours |
+| < 30 days | days |
+| < 365 days | months |
+| otherwise | years |
+
+30 days is an approximation of a month (calendar months are 28-31 days); 365 days is an approximation of a year. These are the same cutoffs date-fns uses, trimmed to the units `Intl.RelativeTimeFormat` supports across engines.
+
+Accepts `Temporal.PlainDate`, `PlainDateTime`, or `ZonedDateTime`. A `PlainDate` is treated as midnight when diffing against a `PlainDateTime`. Throws on `PlainTime` (no anchor date to diff against) and on partial-date shapes (e.g. `{ year: 2026 }` with no month/day).
+
+## Lenient parse mode
+
+By default, `parse()` throws when an ambiguous glued numeric run (e.g. `"121"` against `yyyy-Md`) has more than one valid split. The library refuses to guess — silently picking one would mean returning a value indistinguishable from a different, equally-valid value the same input could describe.
+
+Pass `{ lenient: true }` to opt into a documented heuristic that picks one split instead of throwing:
+
+```js
+parse('yyyy-Md', '2026-121')                              // throws — ambiguous
+parse('yyyy-Md', '2026-121', { lenient: true }).toString() // '2026-12-01'
+```
+
+**Heuristic**: when one of the tokens in the ambiguous run is `d` (day), prefer the split where the day value is ≤ 12. Rationale: when a person writes a glued run like `"121"` for an `Md` format string, they're more likely to mean "Dec 1" (M=12, d=1) than "Jan 21" (M=1, d=21) — if they meant Jan 21, they'd more often have written it as `"1/21"` or `"01/21"` with a separator or padding. This isn't a guarantee (which is exactly why lenient mode is opt-in), but it's a reasonable default when the caller has explicitly asked us to guess.
+
+When the heuristic doesn't narrow (e.g. both splits have day ≤ 12), falls back to the first valid split from `enumerateValidSplits()` — deterministic but necessarily arbitrary. When no `d` token is in the run (e.g. `Hm`), the heuristic doesn't apply; falls back to first split.
+
+The default behavior (lenient unset or `false`) is unchanged — this is strictly additive.
+
+## Custom locale vocabularies
+
+`registerLocaleVocab(locale, vocab)` lets callers supply their own month/weekday/day-period vocabulary for a locale key `Intl` doesn't cover well. The known limitation this addresses: a 13-month Hebrew leap year silently loses a month because `Intl`'s 12-month vocabulary can't name it.
+
+```js
+import { registerLocaleVocab, format, parse } from 'temporal-fmt';
+
+registerLocaleVocab('en-u-ca-hebrew-leap', {
+  monthLong: ['Nisan','Iyar','Sivan','Tammuz','Av','Elul','Tishrei','Marcheshvan','Kislev','Tevet','Shevat','Adar I','Adar II'],
+  monthShort: ['Nis','Iyy','Siv','Tam','Av','Elu','Tish','Chesh','Kis','Tev','Shv','Ad1','Ad2'],
+  weekdayLong: ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],
+  weekdayShort: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
+  dayPeriod: ['AM','PM'],
+});
+
+const date = Temporal.PlainDate.from('2026-08-04').withCalendar('hebrew');
+format(date, 'MMMM d, yyyy', { locale: 'en-u-ca-hebrew-leap' }) // "Av 4, 5786" (or similar)
+```
+
+Validation is strict: throws descriptively on wrong array lengths (must be 12 months, 7 weekdays, 2 day periods), empty strings, duplicate entries, and identical AM/PM day periods (which would make `parse()` unable to tell AM from PM). All errors surface at registration time, not later during format/parse.
+
+Registered vocab takes precedence over the `Intl`-derived vocab for that locale key, for both `format()` and `parse()`.
+
+## parseRelative: natural-language date parsing
+
+`parseRelative(input, referenceDate, options?)` resolves common English relative-date phrases against a reference date, returning a `Temporal.PlainDate`. English only this pass — the matching patterns are hand-written regular expressions keyed on English month/weekday names.
+
+Supported phrases:
+
+- **weekday references**: "next Tuesday", "last Friday", "this Monday"
+- **relative day offsets**: "today", "tomorrow", "yesterday"
+- **relative unit offsets**: "in 3 days", "2 weeks ago", "in 1 month", "1 year ago"
+- **month-day without year**: "March 5th", "Aug 4" (resolved to next occurrence)
+
+```js
+import { parseRelative } from 'temporal-fmt';
+
+const today = Temporal.PlainDate.from('2026-08-04'); // Tuesday
+parseRelative('today', today).toString()                  // '2026-08-04'
+parseRelative('tomorrow', today).toString()                // '2026-08-05'
+parseRelative('next Tuesday', today).toString()            // '2026-08-11' (7 days out, not today)
+parseRelative('last Friday', today).toString()            // '2026-07-31'
+parseRelative('in 3 days', today).toString()               // '2026-08-07'
+parseRelative('2 weeks ago', today).toString()             // '2026-07-21'
+parseRelative('March 5th', today).toString()              // '2027-03-05' (next occurrence)
+```
+
+**Ambiguous-case choices** (documented, not inferred):
+
+- **"next Tuesday" said on a Tuesday** = 7 days out, not today. "this Tuesday" handles the same-week case, so "next Tuesday" staying strictly-future gives the two phrases distinct, non-overlapping meanings.
+- **"last Tuesday" said on a Tuesday** = 7 days ago (strictly-past, symmetric to "next").
+- **"March 5th" without a year** = next occurrence. Future-leaning: today's date returns today; a past date this year returns next year's occurrence. (The alternative — "nearest in time, past or future" — would mean "March 5th" said on March 6 returns yesterday, which is counterintuitive for the typical "next birthday"/"next deadline" use case.)
+- **"5 days" without "in" or "ago"** = throws. Past or future? parseRelative refuses to guess — same contract as `parse()`'s strict mode.
+
+Throws a descriptive error for any phrase it doesn't recognize, naming the supported categories in the message. Accepts `PlainDate`, `PlainDateTime`, or `ZonedDateTime` as the reference (needs `dayOfWeek` to compute weekday offsets). Throws on `PlainTime`.
 
 ## Known limitations
 
@@ -248,6 +398,18 @@ the specific input one of them happens to use. `test:all` also runs the
 type tests (`test:types`), so it's the only single command that actually
 covers everything. CI runs `test:all` for this reason; running plain `npm
 test` locally will pass even with a broken `vitest/` suite.
+
+## Related tools
+
+ojgewijgipejgiejwjpgiejig
+
+Flipped the hell out, yanked the wrong build by mistake, republished it clean, and now npm's anti-malware lockout thinks I'm a supply chain attacker for the next 24 hours — yes, I'm unpatient crap too, so clone it and build it yourself, it's not some multi-hour C++ compile, just a quick build. This library's unaffected btw, bcz I actually didn't screw this one up hahaha, ha, ha ....... sorry nobody laughed.
+
+(will pull this line once it's back up)
+
+
+- [`eslint-plugin-temporal-fmt`](https://github.com/DirazCoder/eslint-plugin-temporal-fmt) — lints format strings for common mistakes (e.g. `hh` without `a`)
+- [`temporal-fmt-codemod`](https://github.com/DirazCoder/temporal-fmt-codemod) — one-time migration tool that rewrites dayjs/date-fns calls to temporal-fmt
 
 ## License
 

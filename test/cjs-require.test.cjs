@@ -28,5 +28,10 @@ test('parse() works end-to-end through the CJS build', () => {
 test('module.exports has no default-export wrapper — named destructuring is the real shape, not a transpiler artifact', () => {
   const mod = require('../dist/index.cjs');
   assert.equal(mod.default, undefined);
-  assert.deepEqual(Object.keys(mod).sort(), ['format', 'parse', 'setTemporal']);
+  // Mirrors src/index.ts's export list. Update both together when the
+  // public API surface changes.
+  assert.deepEqual(
+    Object.keys(mod).sort(),
+    ['format', 'formatDistance', 'formatDuration', 'parse', 'parseRelative', 'registerLocaleVocab', 'setTemporal'],
+  );
 });

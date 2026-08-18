@@ -1,5 +1,6 @@
 import { getTemporal, subscribeToTemporalChanges } from './temporalProvider.js';
-import { canonicalCacheKey } from './localeVocab.js';
+import { canonicalCacheKey, getCustomVocab } from './localeVocab.js';
+import { isoWeekYearAndWeek } from './isoWeek.js';
 
 export function pad(n: number, len: number): string {
   // padStart pads the whole string, sign included, so pad(-45, 4) used to
@@ -29,6 +30,13 @@ export interface TemporalLike {
 export interface FormatOptions {
   /** BCP 47 locale tag, e.g. 'en-US', 'fr-FR', 'ar-EG'. Defaults to 'en-US'. */
   locale?: string;
+  /**
+   * When set on parse(), opts into the lenient split heuristic for ambiguous
+   * glued numeric runs (e.g. "121" against "Md"). Default (false) keeps
+   * parse()'s strict behavior — throw on ambiguity rather than guess.
+   * See README "Lenient parse mode" for the heuristic and why it's opt-in.
+   */
+  lenient?: boolean;
 }
 
 export const DEFAULT_LOCALE = 'en-US';
@@ -174,6 +182,15 @@ function intlPart(
 // instead — that's worked the same on every engine regardless of whether
 // Temporal itself is native or polyfilled.
 function dayPeriodPart(hour: number, locale: string): string {
+  // Custom vocab (when registered) takes precedence over Intl — same
+  // contract as the other locale-aware tokens. Intl won't know about a
+  // caller-supplied AM/PM string for a made-up locale key, so going
+  // through Intl would produce something other than what the caller
+  // registered.
+  const custom = getCustomVocab(locale);
+  if (custom) {
+    return hour < 12 ? custom.dayPeriod[0]! : custom.dayPeriod[1]!;
+  }
   const date = new Date(Date.UTC(1970, 0, 1, hour));
   const formatter = getFormatter(locale, { hour: 'numeric', hour12: true, timeZone: 'UTC' });
   const part = formatter.formatToParts(date).find((p) => p.type === 'dayPeriod');
@@ -181,6 +198,25 @@ function dayPeriodPart(hour: number, locale: string): string {
     throw new Error(`temporal-fmt: locale "${locale}" produced no "dayPeriod" part for token "a".`);
   }
   return part.value;
+}
+
+// Resolves a locale-aware month/weekday name from the registered custom
+// vocab when one exists for this locale, falling through to Intl otherwise.
+// Without this, format() would silently keep producing Intl's strings while
+// parse() matched against the registered vocab — the two would round-trip-fail
+// against each other.
+function localeAwareName(
+  temporal: TemporalLike,
+  locale: string,
+  options: Intl.DateTimeFormatOptions,
+  partType: Intl.DateTimeFormatPartTypes,
+  customArray: string[] | undefined,
+  customIndex: number | undefined,
+): string {
+  if (customArray && customIndex !== undefined && customIndex >= 0 && customIndex < customArray.length) {
+    return customArray[customIndex]!;
+  }
+  return intlPart(temporal, locale, options, partType);
 }
 
 type TokenHandler = (t: TemporalLike, locale: string) => string;
@@ -205,14 +241,26 @@ export const TOKENS: Array<[string, TokenHandler, keyof TemporalLike]> = [
     }
     return pad(t.year! % 100, 2);
   }, 'year'],
-  ['MMMM', (t, locale) => intlPart(t, locale, { month: 'long' }, 'month'), 'month'],
-  ['MMM', (t, locale) => intlPart(t, locale, { month: 'short' }, 'month'), 'month'],
+  ['MMMM', (t, locale) => {
+    const custom = getCustomVocab(locale);
+    return localeAwareName(t, locale, { month: 'long' }, 'month', custom?.monthLong, t.month! - 1);
+  }, 'month'],
+  ['MMM', (t, locale) => {
+    const custom = getCustomVocab(locale);
+    return localeAwareName(t, locale, { month: 'short' }, 'month', custom?.monthShort, t.month! - 1);
+  }, 'month'],
   ['MM', (t) => pad(t.month!, 2), 'month'],
   ['M', (t) => String(t.month!), 'month'],
   ['dd', (t) => pad(t.day!, 2), 'day'],
   ['d', (t) => String(t.day!), 'day'],
-  ['EEEE', (t, locale) => intlPart(t, locale, { weekday: 'long' }, 'weekday'), 'dayOfWeek'],
-  ['EEE', (t, locale) => intlPart(t, locale, { weekday: 'short' }, 'weekday'), 'dayOfWeek'],
+  ['EEEE', (t, locale) => {
+    const custom = getCustomVocab(locale);
+    return localeAwareName(t, locale, { weekday: 'long' }, 'weekday', custom?.weekdayLong, t.dayOfWeek! - 1);
+  }, 'dayOfWeek'],
+  ['EEE', (t, locale) => {
+    const custom = getCustomVocab(locale);
+    return localeAwareName(t, locale, { weekday: 'short' }, 'weekday', custom?.weekdayShort, t.dayOfWeek! - 1);
+  }, 'dayOfWeek'],
   ['HH', (t) => pad(t.hour!, 2), 'hour'],
   ['H', (t) => String(t.hour!), 'hour'],
   ['hh', (t) => pad(t.hour! % 12 || 12, 2), 'hour'],
@@ -226,4 +274,50 @@ export const TOKENS: Array<[string, TokenHandler, keyof TemporalLike]> = [
   // still needs .hour on the input to compute which period it is
   ['a', (t, locale) => dayPeriodPart(t.hour!, locale), 'hour'],
   ['zzz', (t) => t.timeZoneId!, 'timeZoneId'],
+
+  // Ordinal day (1st, 2nd, 3rd, ... 21st). English suffix rules only —
+  // locale-aware ordinals ("2." in de-DE, "2日" in ja-JP) are out of scope,
+  // since the rest of this library routes locale-specific names through
+  // Intl.DateTimeFormat, and Intl has no part type for ordinals. Format-only:
+  // the suffix isn't structurally distinguishable from a literal in a parse
+  // context (a "st"/"nd"/"rd"/"th" suffix isn't a digit and would collide
+  // with any adjacent literal text), so there's no good way to read it back.
+  ['do', (t) => {
+    const day = t.day!;
+    const lastDigit = day % 10;
+    // 11, 12, 13 are the exception — they'd otherwise match the 1/2/3 rule
+    // and produce "11st"/"12nd"/"13rd", which is wrong. They always take "th".
+    const lastTwoDigits = day % 100;
+    if (lastTwoDigits >= 11 && lastTwoDigits <= 13) {
+      return day + 'th';
+    }
+    if (lastDigit === 1) return day + 'st';
+    if (lastDigit === 2) return day + 'nd';
+    if (lastDigit === 3) return day + 'rd';
+    return day + 'th';
+  }, 'day'],
+
+  // Quarter computed from month: 1-3=Q1, 4-6=Q2, 7-9=Q3, 10-12=Q4.
+  // `Q` is plain numeric, `QQQ` renders as "Q3" — same convention as
+  // date-fns's `Q` and `QQQ` for parity with the most common prior art.
+  // Both format and parse; parse() cross-checks Q/QQQ against the parsed
+  // month in the same spirit as the EEEE-vs-date cross-check.
+  ['Q', (t) => String(Math.ceil(t.month! / 3)), 'month'],
+  ['QQQ', (t) => 'Q' + Math.ceil(t.month! / 3), 'month'],
+
+  // ISO 8601 week and week-numbering year. Both are format-only — parsing
+  // "ww"/"RRRR" back into a real date requires resolving an ISO week + a
+  // weekday (or some other disambiguator) to a specific date, which is a
+  // different parsing surface than the token-based parse() here. The
+  // ISO-week year (RRRR) can differ from the calendar year at the boundary:
+  // Dec 29-31 often belong to week 1 of the *next* year; Jan 1-3 often
+  // belong to week 52/53 of the *previous* year. See isoWeekYearAndWeek().
+  ['ww', (t) => {
+    const { week } = isoWeekYearAndWeek(t.year!, t.month!, t.day!, t.dayOfWeek!);
+    return pad(week, 2);
+  }, 'dayOfWeek'],
+  ['RRRR', (t) => {
+    const { isoYear } = isoWeekYearAndWeek(t.year!, t.month!, t.day!, t.dayOfWeek!);
+    return pad(isoYear, 4);
+  }, 'dayOfWeek'],
 ];

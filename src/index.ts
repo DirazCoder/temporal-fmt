@@ -1,5 +1,13 @@
 export { format } from './format.js';
 export { parse } from './parse.js';
 export { setTemporal } from './temporalProvider.js';
+export { formatDuration } from './formatDuration.js';
+export { formatDistance } from './formatDistance.js';
+export { parseRelative } from './parseRelative.js';
+export { registerLocaleVocab } from './localeVocab.js';
+export type { LocaleVocab } from './localeVocab.js';
 export type { TemporalLike, FormatOptions } from './tokens.js';
+export type { DurationFormatOptions } from './formatDuration.js';
+export type { FormatDistanceOptions } from './formatDistance.js';
+export type { ParseRelativeOptions } from './parseRelative.js';
 export type { TemporalNamespace } from './temporalProvider.js';

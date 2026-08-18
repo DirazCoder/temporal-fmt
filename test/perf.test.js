@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { format, parse, setTemporal } from '../dist/index.js';
+import { format, parse, setTemporal, formatDistance, formatDuration } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
 // Every regex this library builds (see buildCapturingPattern in
@@ -189,4 +189,43 @@ test('cost scales roughly linearly with format string length, not superlinearly 
     `time ratio ${ratioSmallToLarge.toFixed(2)}x for a ${sizeRatio}x size increase looks superlinear ` +
     `(timings: ${JSON.stringify(timings)})`
   );
+});
+
+// formatDistance and formatDuration are plausible hot-path candidates
+// (rendering relative timestamps / durations in tables, lists, etc.).
+// Confirm both stay well under the budget per-call after warmup.
+
+test('formatDistance() stays under budget per call after warmup (no Intl.RelativeTimeFormat cache thrash)', () => {
+  const today = Temporal.PlainDate.from('2026-08-04');
+  const yesterday = Temporal.PlainDate.from('2026-08-03');
+  // warm the RTF cache for en-US once
+  formatDistance(today, yesterday);
+  const ms = timedAfterWarmup(() => formatDistance(today, yesterday));
+  assert.ok(ms < BUDGET_MS, `formatDistance took ${ms}ms, expected < ${BUDGET_MS}ms`);
+});
+
+test('formatDuration() stays under budget per call after warmup', () => {
+  const dur = { hours: 2, minutes: 30, seconds: 5 };
+  formatDuration(dur, 'hhh mmm sss');
+  const ms = timedAfterWarmup(() => formatDuration(dur, 'hhh mmm sss'));
+  assert.ok(ms < BUDGET_MS, `formatDuration took ${ms}ms, expected < ${BUDGET_MS}ms`);
+});
+
+test('formatDistance() across many locales does not exhibit pathological slowdown (RTF cache is bounded, not unbounded)', () => {
+  const today = Temporal.PlainDate.from('2026-08-04');
+  const tomorrow = Temporal.PlainDate.from('2026-08-05');
+  const locales = ['en-US', 'fr-FR', 'ja-JP', 'ar-EG', 'zh-CN', 'de-DE', 'ko-KR', 'ru-RU', 'es-ES', 'it-IT'];
+  // First pass: warm every locale's RTF (cold-cache cost is real but
+  // one-time per locale — second pass should be fast from the cache).
+  for (const locale of locales) formatDistance(tomorrow, today, { locale });
+  // Second pass: every locale's RTF is cached; per-call cost should
+  // be uniformly low.
+  const start = process.hrtime.bigint();
+  for (let i = 0; i < 100; i++) {
+    const locale = locales[i % locales.length];
+    formatDistance(tomorrow, today, { locale });
+  }
+  const ms = Number(process.hrtime.bigint() - start) / 1e6;
+  // 100 calls across 10 locales in well under BUDGET — cache must be working
+  assert.ok(ms < BUDGET_MS, `100 formatDistance calls across 10 locales took ${ms}ms, expected < ${BUDGET_MS}ms`);
 });

@@ -83,6 +83,7 @@ interface Fields {
   timeZoneId?: string;
   weekdayExpected?: number;
   weekdayRaw?: string;
+  quarter?: number;
 }
 
 function assignField<T>(fields: Fields, key: keyof Fields, value: T): void {
@@ -143,7 +144,41 @@ function applyGroup(fields: Fields, token: string, raw: string, locale: string, 
     case 'zzz':
       assignField(fields, 'timeZoneId', raw);
       break;
+    case 'Q':
+      assignField(fields, 'quarter', Number(raw));
+      break;
+    case 'QQQ':
+      // strips the literal "Q" prefix the token itself formats; the suffix
+      // digit is the quarter value 1-4
+      assignField(fields, 'quarter', Number(raw.slice(1)));
+      break;
   }
+}
+
+// The lenient split-selection heuristic for ambiguous glued numeric runs.
+// See README "Lenient parse mode" — the strict default throws on these,
+// lenient mode opts into picking one split instead.
+function pickLenientSplit(splits: number[][], tokens: string[]): number[] {
+  // Prefer the split where a "d" (day) token, if any, has a value of 12 or
+  // less. Rationale: when a person writes a glued run like "121" for an
+  // Md format string, the reading "Dec 1" (M=12, d=1) is what they
+  // typically meant — if they meant "Jan 21" they would more often have
+  // written it as "1/21" or "01/21" with a separator or padding, since the
+  // 2-digit day is the more naturally-cohesive unit to keep glued. This
+  // isn't a guarantee, which is exactly why lenient mode is opt-in — but
+  // it's a reasonable default when the caller has asked us to guess.
+  const dayIndex = tokens.indexOf('d');
+  if (dayIndex !== -1) {
+    const smallDaySplits = splits.filter((s) => s[dayIndex]! <= 12);
+    if (smallDaySplits.length > 0) {
+      return smallDaySplits[0]!;
+    }
+  }
+  // Fallback to the first valid split when the day heuristic doesn't
+  // narrow it down — deterministic, and "first" here means "whichever
+  // enumerateValidSplits returned first", which is a depth-first
+  // leftmost-shortest walk over the candidate splits.
+  return splits[0]!;
 }
 
 // emulates strptime (POSIX) for 2-digit years so the result doesn't depend
@@ -262,32 +297,56 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
   // its alternation ordering happens to prefer); silently trusting that
   // one would mean parse() sometimes returns a value indistinguishable
   // from a different, equally valid value the same input could describe.
-  // Rather than guess, check every ambiguous run explicitly and throw if
-  // more than one split is actually valid for the substring this call
-  // matched — the input itself is what's ambiguous, not a fixable
-  // property of the pattern.
+  // Rather than guess, check every ambiguous run explicitly. Strict mode
+  // (the default) throws; lenient mode opts into picking one split via a
+  // documented heuristic. The input itself is what's ambiguous, not a
+  // fixable property of the pattern.
+  // Collect any lenient-mode split overrides before the applyGroup loop,
+  // so it can substitute the heuristic-chosen values for tokens in a
+  // multiply-split run instead of trusting the regex's arbitrary split.
+  const runPicks: Array<{ groupNames: string[]; values: number[] }> = [];
   for (const run of pattern.ambiguousRuns) {
     const runDigits = run.groupNames.map((name) => match.groups![name]!).join('');
     const splits = enumerateValidSplits(runDigits, run.tokens);
     if (splits.length > 1) {
-      throw new Error(
-        `temporal-fmt: "${runDigits}" in format string "${formatStr}" is ambiguous — ` +
-        `${splits.length} different ways to read tokens "${run.tokens.join('')}" (with no separator ` +
-        `between them) are all individually valid (e.g. ${JSON.stringify(splits[0])} vs ${JSON.stringify(splits[1])}). ` +
-        `parse() won't guess; add a separator between these tokens, or use their padded form ` +
-        `(e.g. "MM" instead of "M") so each one has a fixed width.`
-      );
+      // Strict default — throw on ambiguity. The whole point of the
+      // library's parse() is to refuse to guess when the same input has
+      // more than one valid reading. Lenient mode (opt-in via
+      // options.lenient) instead picks one split via a documented
+      // heuristic — see pickLenientSplit() above and the README section
+      // "Lenient parse mode" for why this is strictly additive and never
+      // the default.
+      if (!options.lenient) {
+        throw new Error(
+          `temporal-fmt: "${runDigits}" in format string "${formatStr}" is ambiguous — ` +
+          `${splits.length} different ways to read tokens "${run.tokens.join('')}" (with no separator ` +
+          `between them) are all individually valid (e.g. ${JSON.stringify(splits[0])} vs ${JSON.stringify(splits[1])}). ` +
+          `parse() won't guess; add a separator between these tokens, or use their padded form ` +
+          `(e.g. "MM" instead of "M") so each one has a fixed width. ` +
+          `Pass { lenient: true } to opt into a documented heuristic that picks one.`
+        );
+      }
+      runPicks.push({ groupNames: run.groupNames, values: pickLenientSplit(splits, run.tokens) });
     }
   }
 
   const fields: Fields = {};
+  // Map group-name -> heuristic-picked value (as string) for groups that
+  // belong to a lenient-resolved ambiguous run. The applyGroup loop reads
+  // from here first, falling back to the regex's own captured value when
+  // the group isn't part of a lenient-resolved run.
+  const lenientValues = new Map<string, string>();
+  for (const { groupNames, values } of runPicks) {
+    groupNames.forEach((name, i) => lenientValues.set(name, String(values[i])));
+  }
   for (const { name, token } of pattern.groups) {
-    applyGroup(fields, token, match.groups![name]!, locale, formatStr);
+    const raw = lenientValues.get(name) ?? match.groups![name]!;
+    applyGroup(fields, token, raw, locale, formatStr);
   }
 
   const year = resolveYear(fields);
   const hour = resolveHour(fields, formatStr, locale);
-  const { month, day, minute, second, millisecond, timeZoneId, weekdayExpected, weekdayRaw } = fields;
+  const { month, day, minute, second, millisecond, timeZoneId, weekdayExpected, weekdayRaw, quarter } = fields;
 
   const hasAnyDatePart = year !== undefined || month !== undefined || day !== undefined;
   const hasFullDate = year !== undefined && month !== undefined && day !== undefined;
@@ -357,6 +416,23 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
       throw new Error(
         `temporal-fmt: "${weekdayRaw}" doesn't match the actual weekday (${vocab.weekdayLong[actual - 1]}) ` +
         `for the parsed date.`
+      );
+    }
+  }
+
+  // Q/QQQ is a derived field of the month: 1-3 -> Q1, 4-6 -> Q2, 7-9 -> Q3,
+  // 10-12 -> Q4. If a format string carries a quarter token alongside
+  // month/date tokens, parse() cross-checks the parsed quarter against the
+  // month the same way EEEE cross-checks weekday against date — silently
+  // accepting a mismatch would defeat the point of having a quarter token
+  // at all, since you'd be telling parse() one thing and the date another.
+  if (quarter !== undefined && month !== undefined) {
+    const expectedQuarter = Math.ceil(month / 3);
+    if (quarter !== expectedQuarter) {
+      throw new Error(
+        `temporal-fmt: format string "${formatStr}" contains a quarter token (Q/QQQ) whose value ` +
+        `(Q${quarter}) disagrees with the parsed month's actual quarter — month ${month} is in ` +
+        `Q${expectedQuarter}.`
       );
     }
   }

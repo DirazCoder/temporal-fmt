@@ -82,7 +82,22 @@ const NUMERIC_FRAGMENTS: Record<string, string> = {
   ss: '(?:[0-5]\\d)',
   s: '(?:[1-5]\\d|[0-9])',
   SSS: '\\d{3}',
+  // Q is always a single digit 1-4 (no padding variant, so no width ambiguity
+  // with adjacent digit tokens the way M/d/H/m/s have).
+  Q: '[1-4]',
 };
+
+// QQQ matches its own formatted output: the literal "Q" prefix plus a single
+// digit 1-4. Kept as a static fragment rather than routed through vocab,
+// since the "Q" prefix is part of the token's own contract, not locale-vocab
+// data that could ever differ.
+const QQQ_FRAGMENT = 'Q[1-4]';
+
+// Format-only tokens — they have no parse counterpart. The tokenizer still
+// recognizes them (so format() can use them), but parse()'s regex builder
+// rejects them with a clear error rather than silently dropping the token
+// or falling through to the generic "unknown token" message.
+const FORMAT_ONLY_TOKENS = new Set(['do', 'ww', 'RRRR']);
 
 // pad()'s year formatter (tokens.ts) never truncates: it preserves the sign
 // for BCE years and doesn't cap width past 9999, so a formatted "yyyy" can
@@ -119,6 +134,17 @@ export function tokenFragment(token: string, locale: string, nextToken?: string)
   const numeric = NUMERIC_FRAGMENTS[token];
   if (numeric) {
     return numeric;
+  }
+
+  if (token === 'QQQ') {
+    return QQQ_FRAGMENT;
+  }
+
+  if (FORMAT_ONLY_TOKENS.has(token)) {
+    throw new Error(
+      `temporal-fmt: token "${token}" is format-only — it can't be parsed back into a value. ` +
+      `Use a different token in the parse format string (e.g. "d" for "do", "MM" for "ww").`
+    );
   }
 
   const vocab = getLocaleVocab(locale);

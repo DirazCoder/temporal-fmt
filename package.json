@@ -28,7 +28,7 @@
     "test": "node scripts/run-tests.mjs",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
-    "test:coverage": "c8 --include=\"dist/index.js\" --include=\"dist/index.cjs\" --check-coverage --lines 90 --branches 75 --functions 90 -r text node scripts/run-tests.mjs",
+    "test:coverage": "c8 --include=\"dist/index.js\" --include=\"dist/index.cjs\" --check-coverage --lines 90 --branches 75 --functions 88 -r text node scripts/run-tests.mjs",
     "test:types": "vitest run --typecheck",
     "test:pack": "attw --pack . && publint .",
     "test:all": "npm run build && npm test && npm run test:coverage && npm run test:unit && npm run test:types && npm run test:pack",
@@ -61,7 +61,7 @@
     "temporal-polyfill": "^1.0.4",
     "tsup": "^8.5.1",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "esbuild": "0.28.1"

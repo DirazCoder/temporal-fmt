@@ -10,6 +10,121 @@ export interface LocaleVocab {
   dayPeriod: string[]; // typically [AM-ish, PM-ish], deduped
 }
 
+// Custom vocabs registered by callers for locales Intl doesn't cover well
+// (e.g. a 13-month Hebrew leap year, where Intl's 12-month vocabulary
+// silently loses a whole month). Keyed by canonical cache key so the
+// same locale string spelling variants fold together — same convention
+// as the Intl-derived vocab cache above.
+const customVocabs = new Map<string, LocaleVocab>();
+
+function assertValidVocab(vocab: Partial<LocaleVocab>, locale: string): void {
+  // Strict shape validation at registration time, not lazily on first
+  // use — the README's promise is that a malformed registration throws
+  // descriptively here, rather than failing later inside format()/parse()
+  // with a confusing "no month part" or wrong-month error the caller
+  // can't trace back to the bad registration.
+  const required: Array<{ key: keyof LocaleVocab; length: number; label: string }> = [
+    { key: 'monthLong', length: 12, label: 'long month names' },
+    { key: 'monthShort', length: 12, label: 'short month names' },
+    { key: 'weekdayLong', length: 7, label: 'long weekday names' },
+    { key: 'weekdayShort', length: 7, label: 'short weekday names' },
+    { key: 'dayPeriod', length: 2, label: 'day period markers (AM/PM-equivalent)' },
+  ];
+
+  for (const { key, length, label } of required) {
+    const value = vocab[key];
+    if (value === undefined) {
+      throw new Error(
+        `temporal-fmt: registerLocaleVocab for locale "${locale}" is missing required field "${key}" (${label}).`
+      );
+    }
+    if (!Array.isArray(value)) {
+      throw new Error(
+        `temporal-fmt: registerLocaleVocab for locale "${locale}": "${key}" must be an array, got ${typeof value}.`
+      );
+    }
+    if (value.length !== length) {
+      throw new Error(
+        `temporal-fmt: registerLocaleVocab for locale "${locale}": "${key}" must have exactly ${length} entries (got ${value.length}) — ${label}.`
+      );
+    }
+    value.forEach((entry, i) => {
+      if (typeof entry !== 'string' || entry.length === 0) {
+        throw new Error(
+          `temporal-fmt: registerLocaleVocab for locale "${locale}": "${key}[${i}]" must be a non-empty string, got ${String(entry)}.`
+        );
+      }
+    });
+  }
+
+  // Reuse the same collision check the Intl-derived path uses — a
+  // duplicate month name is just as ambiguous when supplied by a caller
+  // as when produced by Intl.
+  assertNoCollision(vocab.monthLong!, 'MMMM month', locale);
+  assertNoCollision(vocab.monthShort!, 'MMM month', locale);
+  assertNoCollision(vocab.weekdayLong!, 'EEEE weekday', locale);
+  assertNoCollision(vocab.weekdayShort!, 'EEE weekday', locale);
+
+  // dayPeriod entries must differ from each other, or parse()'s
+  // isPM check (raw === vocab.dayPeriod[1]) can never return true and
+  // every 12-hour parse silently resolves to AM. The Intl-derived path
+  // dedupes a same-AM/PM collision to length 1, but a caller passing
+  // both entries identical is a real bug to surface — not something to
+  // dedupe around.
+  if (vocab.dayPeriod![0] === vocab.dayPeriod![1]) {
+    throw new Error(
+      `temporal-fmt: registerLocaleVocab for locale "${locale}": dayPeriod entries must differ ` +
+      `(both are "${vocab.dayPeriod![0]}"); otherwise parse() can't tell AM from PM.`
+    );
+  }
+}
+
+/**
+ * Supply a custom month/weekday/day-period vocabulary for a locale key,
+ * overriding the Intl-derived vocab this library would otherwise build
+ * for that key. Useful for locales Intl doesn't cover well — the README's
+ * known-limitations section calls out the Hebrew leap-month gap as a
+ * specific case this addresses.
+ *
+ * Throws descriptively on malformed input (wrong array lengths, empty
+ * strings, duplicate entries, missing fields) rather than failing later
+ * during format/parse.
+ *
+ * Registered vocab takes precedence over the Intl-derived vocab for that
+ * locale key, including for already-cached entries — registering
+ * invalidates the prior cache entry for that locale so the next call
+ * picks up the new vocab.
+ *
+ * @example
+ * registerLocaleVocab('en-u-ca-hebrew-leap', {
+ *   monthLong: ['Nisan','Iyar','Sivan','Tammuz','Av','Elul','Tishrei','Marcheshvan','Kislev','Tevet','Shevat','Adar I','Adar II'],
+ *   monthShort: ['Nis','Iyy','Siv','Tam','Av','Elu','Tish','Chesh','Kis','Tev','Shv','Ad1','Ad2'],
+ *   weekdayLong: ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],
+ *   weekdayShort: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
+ *   dayPeriod: ['AM','PM'],
+ * });
+ */
+export function registerLocaleVocab(locale: string, vocab: Partial<LocaleVocab>): void {
+  if (typeof locale !== 'string' || locale.length === 0) {
+    throw new Error(`temporal-fmt: registerLocaleVocab requires a non-empty locale string, got ${String(locale)}.`);
+  }
+  assertValidVocab(vocab, locale);
+
+  const cacheKey = canonicalCacheKey(locale);
+  customVocabs.set(cacheKey, {
+    monthLong: [...vocab.monthLong!],
+    monthShort: [...vocab.monthShort!],
+    weekdayLong: [...vocab.weekdayLong!],
+    weekdayShort: [...vocab.weekdayShort!],
+    dayPeriod: [...vocab.dayPeriod!],
+  });
+  // Invalidate the Intl-derived cache entry so any prior format/parse
+  // result cached for this locale is rebuilt against the new vocab. Not
+  // strictly necessary (getLocaleVocab checks customVocabs first), but
+  // cheap and keeps the two caches from drifting out of sync.
+  vocabCache.delete(cacheKey);
+}
+
 // Every locale-keyed cache in this library (this one, formatterCache in
 // tokens.ts, patternCache/calendarCache in parse.ts) used to key on the
 // exact locale string a caller passed in. Intl treats spelling variants of
@@ -85,8 +200,28 @@ function assertNoCollision(names: string[], label: string, locale: string): void
   }
 }
 
+// Exposed for tokens.ts: when a custom vocab is registered for this
+// locale, format()'s locale-aware tokens (MMMM/MMM/EEEE/EEE/a) read
+// straight from the registered array instead of going through
+// Intl.DateTimeFormat. Without this override, format() would silently
+// keep producing Intl's strings while parse() matched against the
+// registered vocab — the two would round-trip-fail.
+export function getCustomVocab(locale: string): LocaleVocab | undefined {
+  const cacheKey = canonicalCacheKey(locale);
+  return customVocabs.get(cacheKey);
+}
+
 export function getLocaleVocab(locale: string): LocaleVocab {
   const cacheKey = canonicalCacheKey(locale);
+  // Registered vocabs take precedence over the Intl-derived one — this
+  // is the override mechanism registerLocaleVocab() promises. Checking
+  // here, before the Intl cache lookup, means a registration that
+  // happens *after* the first Intl-derived vocab was built still takes
+  // effect on the next call.
+  const custom = customVocabs.get(cacheKey);
+  if (custom) {
+    return custom;
+  }
   const cached = vocabCache.get(cacheKey);
   if (cached) {
     return cached;

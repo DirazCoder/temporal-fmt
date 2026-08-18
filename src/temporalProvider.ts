@@ -8,6 +8,10 @@
 // setTemporal(), or we fall back to globalThis.Temporal
 interface TemporalFactory {
   from(fields: Record<string, number | string | undefined>, options?: { overflow?: 'constrain' | 'reject' }): unknown;
+  // compare() lives on the namespace (Temporal.PlainDate.compare), not on
+  // instances. Optional here since a consumer might be passing a
+  // stripped-down Temporal shim that doesn't expose it.
+  compare?(one: unknown, two: unknown): number;
 }
 
 export interface TemporalNamespace {

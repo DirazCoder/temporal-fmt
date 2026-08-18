@@ -443,3 +443,107 @@ test('"a" (day period) immediately followed by an unpadded numeric token with no
   }
   assert.equal(failures.length, 0, JSON.stringify(failures.slice(0, 10), null, 2));
 });
+
+// New tokens (do, Q, QQQ, ww, RRRR) in combination with existing tokens.
+// These verify that the new tokens compose correctly with the existing
+// token set in format strings — not just in isolation.
+
+test('do (ordinal day) composes with month/year tokens across the LOCALES matrix', () => {
+  // do is English-only and format-only; locale only affects the
+  // locale-aware neighbors (MMMM, MMM). The ordinal suffix itself
+  // must remain English regardless of locale, which is the
+  // documented contract. Don't round-trip — parse() rejects `do`
+  // as a format-only token by design.
+  const date = Temporal.PlainDate.from('2026-08-04');
+  const failures = [];
+  for (const locale of LOCALES) {
+    try {
+      const formatted = format(date, "MMMM do, yyyy", { locale });
+      // ordinal suffix is always English; the month name varies by locale
+      if (!formatted.endsWith('4th, 2026')) {
+        failures.push({ locale, formatted, note: 'ordinal suffix should always be English "4th"' });
+      }
+    } catch (err) {
+      failures.push({ locale, error: err.message });
+    }
+  }
+  assert.equal(failures.length, 0, JSON.stringify(failures.slice(0, 10), null, 2));
+});
+
+test('Q and QQQ compose with locale-aware month names (MMMM/MMM) across the LOCALES matrix', () => {
+  // The quarter token is locale-independent (always numeric or "Q" + digit),
+  // but the month name is locale-aware. Confirm both coexist in a single
+  // format string across the full locale matrix and the quarter cross-check
+  // still triggers on parse.
+  const date = Temporal.PlainDate.from('2026-08-04'); // Q3
+  const failures = [];
+  for (const locale of LOCALES) {
+    for (const fmt of ['Q MMMM d, yyyy', 'QQQ MMMM d, yyyy']) {
+      try {
+        const formatted = format(date, fmt, { locale });
+        const reparsed = parse(fmt, formatted, { locale });
+        if (reparsed.toString() !== '2026-08-04') {
+          failures.push({ locale, fmt, formatted, got: reparsed.toString() });
+        }
+      } catch (err) {
+        failures.push({ locale, fmt, error: err.message });
+      }
+    }
+  }
+  assert.equal(failures.length, 0, JSON.stringify(failures.slice(0, 10), null, 2));
+});
+
+test('Q and QQQ cross-check works across every locale in the matrix', () => {
+  // Adversarial: feed a quarter that disagrees with the month, expect
+  // the cross-check to throw regardless of locale.
+  const date = Temporal.PlainDate.from('2026-08-04'); // August = Q3
+  const failures = [];
+  for (const locale of LOCALES) {
+    // format "Q1 MMMM d, yyyy" with August = mismatch; we can't
+    // format() it (since format() emits the correct Q3), so construct
+    // the input manually by swapping the quarter in a format() output.
+    const correct = format(date, 'QQQ MMMM d, yyyy', { locale });
+    // Replace "Q3" with "Q1" in the formatted string
+    const mismatched = correct.replace('Q3', 'Q1');
+    try {
+      parse('QQQ MMMM d, yyyy', mismatched, { locale });
+      failures.push({ locale, mismatched, note: 'should have thrown (quarter disagreement)' });
+    } catch (err) {
+      if (!/disagrees with the parsed month's actual quarter/.test(err.message)) {
+        failures.push({ locale, mismatched, error: err.message, note: 'wrong error type' });
+      }
+    }
+  }
+  assert.equal(failures.length, 0, JSON.stringify(failures.slice(0, 10), null, 2));
+});
+
+test('ww and RRRR compose with date tokens across the LOCALES matrix (numeric tokens are locale-independent)', () => {
+  // ww/RRRR are format-only and computed from the date fields; locale
+  // only affects the locale-aware neighbors. Confirm ww/RRRR compose
+  // correctly with both numeric (yyyy-MM-dd) and locale-aware (MMMM)
+  // neighbors.
+  const date = Temporal.PlainDate.from('2026-08-04');
+  const failures = [];
+  for (const locale of LOCALES) {
+    try {
+      const formatted = format(date, "yyyy-MM-dd 'W'ww RRRR", { locale });
+      const expected = "2026-08-04 'W'32 2026".replace("'W'", 'W');
+      if (formatted !== expected) {
+        failures.push({ locale, formatted, expected });
+      }
+    } catch (err) {
+      failures.push({ locale, error: err.message });
+    }
+  }
+  assert.equal(failures.length, 0, JSON.stringify(failures.slice(0, 10), null, 2));
+});
+
+test('do, Q, QQQ, ww, RRRR all compose together in a single format string', () => {
+  // One format string exercising every new token at once — confirms
+  // the tokenizer can distinguish all of them and format() emits
+  // each in the right position.
+  const date = Temporal.PlainDate.from('2026-08-04'); // Tuesday, week 32, Q3
+  const formatted = format(date, "yyyy-MM-do 'Q'Q 'in' QQQ 'week' ww of RRRR");
+  // do=4th, Q=3, QQQ=Q3, ww=32, RRRR=2026
+  assert.equal(formatted, '2026-08-4th Q3 in Q3 week 32 of 2026');
+});

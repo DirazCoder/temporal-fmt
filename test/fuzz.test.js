@@ -119,9 +119,15 @@ function isKnownIcuCutoverFailure(dateYear, formatStr) {
 // hit. Grouped by which Temporal fields they need, so the generator can
 // build format strings whose tokens are mutually satisfiable by one
 // randomly-generated date/time value.
+//
+// Includes the new quarter tokens Q/QQQ (parse-supported, cross-checks
+// against month). Format-only tokens (do, ww, RRRR) aren't tested here
+// for round-trip since parse() rejects them — covered separately by
+// isoWeek.test.js and ordinal.test.js for direct format-output correctness.
 const DATE_TOKENS = ['yyyy', 'yy', 'MMMM', 'MMM', 'MM', 'M', 'dd', 'd'];
 const TIME_TOKENS = ['HH', 'H', 'mm', 'm', 'ss', 's', 'SSS'];
 const HOUR12_TOKENS = ['hh', 'h']; // needs 'a' alongside it, handled separately
+const QUARTER_TOKENS = ['Q', 'QQQ']; // computed from month, cross-checked on parse
 
 function randomPlainDate(rng) {
   const year = randInt(rng, 1, 9999);
@@ -335,6 +341,39 @@ test(`round-trip fuzz: 12-hour clock with "a" token, across ${ROUND_TRIP_ITERATI
   assert.equal(
     failures.length, 0,
     `${failures.length}/${ROUND_TRIP_ITERATIONS} round-trip failures:\n${JSON.stringify(failures.slice(0, 5), null, 2)}`
+  );
+});
+
+// Quarter token (Q/QQQ) round-trip fuzz. Q and QQQ are computed from
+// month and cross-checked against the parsed month on parse(). Since
+// the cross-check throws on disagreement, only the agreeing combinations
+// round-trip — which is exactly what we generate here (the date has a
+// real month, so format() emits the correct quarter, so parse() must
+// accept it back).
+test(`round-trip fuzz: Q/QQQ alongside yyyy-MM-dd, ${ROUND_TRIP_ITERATIONS} iterations`, () => {
+  const rng = makeRng(4012026);
+  const failures = [];
+
+  for (let i = 0; i < ROUND_TRIP_ITERATIONS; i++) {
+    const date = randomPlainDate(rng);
+    const quarterTok = pick(rng, QUARTER_TOKENS);
+    const formatStr = `${quarterTok} yyyy-MM-dd`;
+    let formatted, reparsed;
+    try {
+      formatted = format(date, formatStr);
+      reparsed = parse(formatStr, formatted);
+    } catch (err) {
+      failures.push({ date: date.toString(), formatStr, error: err.message });
+      continue;
+    }
+    if (reparsed.toString() !== date.toString()) {
+      failures.push({ date: date.toString(), formatStr, formatted, reparsedAs: reparsed.toString() });
+    }
+  }
+
+  assert.equal(
+    failures.length, 0,
+    `${failures.length}/${ROUND_TRIP_ITERATIONS} Q/QQQ round-trip failures:\n${JSON.stringify(failures.slice(0, 5), null, 2)}`
   );
 });
 

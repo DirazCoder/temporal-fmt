@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { format, parse, setTemporal } from '../dist/index.js';
+import { format, parse, setTemporal, parseRelative, registerLocaleVocab } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
 // fuzz.test.js covers random ASCII noise. This file targets specific
@@ -236,4 +236,117 @@ test('a format string combining bidi override, zero-width joiner, and deeply nes
 test('parse() fed a combined hostile input (bidi + zero-width + surrogate) against a strict numeric format throws cleanly rather than crashing', () => {
   const hostileInput = '2026\u200D-08-\uD800' + '\u202E04';
   expectCleanErrorOrResult(() => parse('yyyy-MM-dd', hostileInput), 'parse with combined hostile input');
+});
+
+// Adversarial coverage for the new features. The pattern is the same
+// as the existing adversarial tests: hostile/ambiguous input must
+// produce a clean thrown Error or a correct result, never a crash or
+// silently-wrong value.
+
+test('parseRelative: "next foo" (unrecognized weekday) throws cleanly rather than crashing', () => {
+  const ref = Temporal.PlainDate.from('2026-08-04');
+  expectCleanErrorOrResult(() => parseRelative('next foo', ref), 'parseRelative next foo');
+});
+
+test('parseRelative: "next Tuesday" said on a Tuesday is 7 days out, not today (documented adversarial choice)', () => {
+  const ref = Temporal.PlainDate.from('2026-08-04'); // Tuesday
+  const result = parseRelative('next Tuesday', ref);
+  // Refusing to interpret "next Tuesday" as today is the documented
+  // behavior; this test pins it so a silent flip to "today" is caught.
+  assert.equal(result.toString(), '2026-08-11');
+});
+
+test('parseRelative: "5 days" (no direction marker) throws rather than guessing past or future', () => {
+  const ref = Temporal.PlainDate.from('2026-08-04');
+  expectCleanErrorOrResult(() => parseRelative('5 days', ref), 'parseRelative 5 days (no direction)');
+});
+
+test('parseRelative: case-insensitive matching works for every weekday', () => {
+  const ref = Temporal.PlainDate.from('2026-08-04'); // Tuesday
+  // lowercase, uppercase, mixed — all should resolve the same weekday
+  const lower = parseRelative('next tuesday', ref).toString();
+  const upper = parseRelative('next TUESDAY', ref).toString();
+  const mixed = parseRelative('next tUEsday', ref).toString();
+  assert.equal(lower, upper);
+  assert.equal(upper, mixed);
+});
+
+test('registerLocaleVocab: malformed shape throws cleanly per-field rather than crashing later', () => {
+  // Each of these is a different malformed-shape failure that the
+  // strict validator should catch at registration time rather than
+  // letting an invalid vocab slip through to format()/parse() where
+  // it'd produce a confusing wrong-output or "no month part" error.
+  expectCleanErrorOrResult(
+    () => registerLocaleVocab('en-x-malformed1', { monthLong: ['short'] }),
+    'registerLocaleVocab short monthLong'
+  );
+  expectCleanErrorOrResult(
+    () => registerLocaleVocab('en-x-malformed2', {
+      monthLong: new Array(12).fill('x'),
+      monthShort: new Array(12).fill('y'),
+      weekdayLong: new Array(7).fill('z'),
+      weekdayShort: new Array(7).fill('w'),
+      dayPeriod: ['AM', 'AM'], // identical entries — collision
+    }),
+    'registerLocaleVocab identical dayPeriod'
+  );
+});
+
+test('QQQ cross-check: feeding a quarter that disagrees with the month throws cleanly with a clear message naming both sides', () => {
+  // Adversarial: feed "Q1 2026-08-04" — Q1 vs month 8 (Q3). Parse
+  // should reject this with a message that names both the parsed
+  // quarter (Q1) and the expected quarter (Q3), so the caller can
+  // tell which side is wrong without grepping the docs.
+  expectCleanErrorOrResult(
+    () => parse('QQQ yyyy-MM-dd', 'Q1 2026-08-04'),
+    'QQQ cross-check disagreement'
+  );
+  // Confirm the message names both Q1 and Q3 explicitly — that's
+  // the "descriptive thrown errors" contract from the README.
+  try {
+    parse('QQQ yyyy-MM-dd', 'Q1 2026-08-04');
+    assert.fail('should have thrown');
+  } catch (err) {
+    assert.ok(err instanceof Error);
+    assert.match(err.message, /Q1/);
+    assert.match(err.message, /Q3/);
+  }
+});
+
+test('lenient parse mode: still rejects impossible dates (Feb 30) rather than silently landing on Feb 28', () => {
+  // Lenient mode picks a split when an ambiguous glued numeric run
+  // matches more than one way, but the constructed date still has
+  // to be a real date — Temporal's overflow: 'reject' must still
+  // trip, not silently clamp to Feb 28 (which is what overflow:
+  // 'constrain' would do, and exactly the silent-wrong-output the
+  // library refuses to produce).
+  expectCleanErrorOrResult(
+    () => parse('yyyy-Md', '2026-230', { lenient: true }),
+    'lenient parse Feb 30'
+  );
+  // Specifically confirm it throws, not returns Feb 28 or Mar 1
+  assert.throws(
+    () => parse('yyyy-Md', '2026-230', { lenient: true }),
+    /doesn't describe a valid date|out of range|invalid/i
+  );
+});
+
+test('ISO week boundary: Dec 31 / Jan 1 pairs that cross the year boundary produce consistent (week, year) pairs', () => {
+  // For each (year, year+1) pair, Dec 31 of year Y and Jan 1-3 of
+  // year Y+1 may belong to the same ISO week. Confirm that whenever
+  // two adjacent dates share a Thursday, they share an ISO (week, year).
+  // Adversarial against any drift between the ww computation and the
+  // RRRR computation.
+  for (let year = 2020; year <= 2025; year++) {
+    const dec31 = Temporal.PlainDate.from({ year, month: 12, day: 31 });
+    const jan1 = Temporal.PlainDate.from({ year: year + 1, month: 1, day: 1 });
+    // If their Thursdays are the same date, their (week, isoYear) must match.
+    const dec31Thu = dec31.add({ days: 4 - dec31.dayOfWeek });
+    const jan1Thu = jan1.add({ days: 4 - jan1.dayOfWeek });
+    if (dec31Thu.toString() === jan1Thu.toString()) {
+      const a = format(dec31, 'ww RRRR');
+      const b = format(jan1, 'ww RRRR');
+      assert.equal(a, b, `Dec 31 ${year} and Jan 1 ${year + 1} share a Thursday but disagree on (week, year): ${a} vs ${b}`);
+    }
+  }
 });
