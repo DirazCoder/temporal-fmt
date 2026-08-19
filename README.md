@@ -482,13 +482,6 @@ test` locally will pass even with a broken `vitest/` suite.
 
 ## Related tools
 
-ojgewijgipejgiejwjpgiejig
-
-Flipped the hell out, yanked the wrong build by mistake, republished it clean, and now npm's anti-malware lockout thinks I'm a supply chain attacker for the next 24 hours — yes, I'm unpatient crap too, so clone it and build it yourself, it's not some multi-hour C++ compile, just a quick build. This library's unaffected btw, bcz I actually didn't screw this one up hahaha, ha, ha ....... sorry nobody laughed.
-
-(will pull this line once it's back up)
-
-
 - [`eslint-plugin-temporal-fmt`](https://github.com/DirazCoder/eslint-plugin-temporal-fmt) — lints format strings for common mistakes (e.g. `hh` without `a`)
 - [`temporal-fmt-codemod`](https://github.com/DirazCoder/temporal-fmt-codemod) — one-time migration tool that rewrites dayjs/date-fns calls to temporal-fmt
 
