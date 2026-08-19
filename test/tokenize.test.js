@@ -35,12 +35,13 @@ test('three consecutive single quotes: doubled-quote escape then an unterminated
 });
 
 test('a literal run split by a token in the middle produces two merged literal pieces, not one', () => {
-  // "xb" + yyyy + "cq" — the two literal runs shouldn't merge across the
+  // "nb" + yyyy + "cq" — the two literal runs shouldn't merge across the
   // token in between. Deliberately avoiding a, d, and every other reserved
   // single-char token here (see TOKENS) so this actually tests literal
-  // handling instead of accidentally invoking a field handler.
+  // handling instead of accidentally invoking a field handler. "n" is the
+  // current placeholder; "x" was used before X/x became offset tokens.
   const date = Temporal.PlainDate.from('2026-08-04');
-  assert.equal(format(date, 'xbyyyycq'), 'xb2026cq');
+  assert.equal(format(date, 'nbyyyycq'), 'nb2026cq');
 });
 
 test('quoted text containing only whitespace is preserved exactly', () => {
@@ -50,20 +51,23 @@ test('quoted text containing only whitespace is preserved exactly', () => {
 
 test('a single unquoted apostrophe-like character that is not ASCII quote passes through as literal', () => {
   // U+2019 RIGHT SINGLE QUOTATION MARK isn't the ASCII quote tokenize()
-  // treats specially. Using "x" as the trailing literal here, not "s" —
+  // treats specially. Using "n" as the trailing literal here, not "s" —
   // "s" is the reserved seconds token and would throw on a PlainDate,
-  // which has no time fields.
+  // which has no time fields. ("n" is the current placeholder; "x" was
+  // used before X/x became offset tokens.)
   const date = Temporal.PlainDate.from('2026-08-04');
-  assert.equal(format(date, 'yyyy\u2019x'), '2026\u2019x');
+  assert.equal(format(date, 'yyyy\u2019n'), '2026\u2019n');
 });
 
 test('every single-character field token throws its own field-specific error when unquoted in plain text', () => {
-  // confirms tokenize() reads y, M, d, h, H, m, s, a as tokens even
+  // confirms tokenize() reads y, M, d, h, H, m, s, a, X, x as tokens even
   // standing alone in the middle of ordinary words, not just h (already
   // covered in format.test.js) — each should throw on the field it maps to
   const date = Temporal.PlainDate.from('2026-08-04');
   assert.throws(() => format(date, 'am'), /requires "hour"/); // "a" token
   assert.throws(() => format(date, 'sat'), /requires "second"/); // "s" token
+  assert.throws(() => format(date, 'Xat'), /requires "offset"/); // "X" token (offset)
+  assert.throws(() => format(date, 'xat'), /requires "offset"/); // "x" token (offset)
 });
 
 test('a format string that is entirely literal punctuation with no letters round-trips through parse unchanged', () => {

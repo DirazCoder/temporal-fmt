@@ -35,6 +35,34 @@ function foldCase(value: string): string {
 // the zone list was inlined (see isValidTimeZone's caller in parse.ts).
 const TIME_ZONE_SHAPE = '(?:UTC|[+-]\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?|[A-Za-z_]+(?:[+-]\\d{1,2})?(?:\\/[A-Za-z0-9_+-]+)*)';
 
+// Per-variant regex shapes for the six offset tokens. Each matches the
+// shape its own format counterpart produces, so a round-trip
+// format->parse succeeds for any input the library itself emitted.
+//
+// Kept loose (no hour/minute range bounds inline) on purpose, mirroring
+// how TIME_ZONE_SHAPE is loose: a permissive shape here lets parse()
+// surface a descriptive out-of-range error post-match (see
+// parseOffsetString in parse.ts) instead of the generic "no valid pattern
+// matches" the regex throws when the shape itself fails. "+99:99" should
+// tell the user it's out of range, not look like the input never matched
+// the format at all.
+//
+// X / x accept an optional minutes group so whole-hour offsets can be
+// written short ("+05") while non-whole-hour offsets still parse
+// ("+0530"). The optional group is greedy, so for input "+0530" the
+// engine prefers the 4-digit match; only falls back to 2-digit when
+// there's nothing else to consume — same longer-first preference the
+// unpadded numeric tokens use elsewhere in this file (see the comment on
+// NUMERIC_FRAGMENTS).
+const OFFSET_SHAPES: Record<string, string> = {
+  X:   '(?:Z|[+-]\\d{2}(?:\\d{2})?)',
+  XX:  '(?:Z|[+-]\\d{4})',
+  XXX: '(?:Z|[+-]\\d{2}:\\d{2})',
+  x:   '[+-]\\d{2}(?:\\d{2})?',
+  xx:  '[+-]\\d{4}',
+  xxx: '[+-]\\d{2}:\\d{2}',
+};
+
 function getTimeZoneFragment(): string {
   return TIME_ZONE_SHAPE;
 }
@@ -184,6 +212,9 @@ export function tokenFragment(token: string, locale: string, nextToken?: string)
     // exports, lowercase log timestamps).
     case 'a': return alternation(vocab.dayPeriod, true);
     case 'zzz': return getTimeZoneFragment();
+    case 'X': case 'XX': case 'XXX':
+    case 'x': case 'xx': case 'xxx':
+      return OFFSET_SHAPES[token]!;
     default:
       throw new Error(`temporal-fmt: unknown token "${token}"`);
   }

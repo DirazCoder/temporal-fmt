@@ -196,6 +196,12 @@ yourself.
 | ww    | ISO 8601 week (01-53), format-only | 32 |
 | RRRR  | ISO 8601 week-numbering year, format-only | 2026 |
 | zzz   | IANA time zone id  | America/New_York |
+| X     | UTC offset, hours only (or `Z` for UTC); minutes appended when non-zero, no colon | `+05` / `+0530` / `Z` |
+| XX    | UTC offset, hours+minutes, no colon (or `Z`) | `+0500` / `Z` |
+| XXX   | UTC offset, hours+minutes with colon (or `Z`) | `+05:00` / `Z` |
+| x     | same widths as `X` but never `Z` — always numeric, even for UTC | `+05` / `+0530` / `+00` |
+| xx    | same as `XX` but never `Z` | `+0500` / `+0000` |
+| xxx   | same as `XXX` but never `Z` | `+05:00` / `+00:00` |
 
 `do` is format-only (parse() rejects it — the "st"/"nd"/"rd"/"th" suffix isn't structurally distinguishable from adjacent literal text in a parse context). The English-only suffix rule is on purpose — locale-aware ordinals are out of scope; `Intl.DateTimeFormat` has no part type for ordinals, and the rest of this library routes locale-specific names through it.
 
@@ -204,6 +210,10 @@ yourself.
 `ww` and `RRRR` are format-only. Parsing "ww"/"RRRR" back into a date requires resolving an ISO week + a weekday to a specific date, which is a different parsing surface than the token-based `parse()` here.
 
 `RRRR` is the **ISO week-numbering year**, not the calendar year — they can differ at year boundaries. Dec 29-31 often belong to week 1 of the *next* year; Jan 1-3 often belong to week 52/53 of the *previous* year. Examples: `format(PlainDate.from('2026-12-31'), 'ww RRRR')` → `"53 2026"`; `format(PlainDate.from('2027-01-01'), 'ww RRRR')` → `"53 2026"` (Friday in ISO year 2026's week 53); `format(PlainDate.from('2027-01-04'), 'ww RRRR')` → `"01 2027"` (Monday starting ISO week 1 of 2027).
+
+The six offset tokens (`X`/`XX`/`XXX`/`x`/`xx`/`xxx`) are the standard date-fns/Unicode-LDML UTC offset family. They only work on `ZonedDateTime`; on a `PlainDate`/`PlainTime`/`PlainDateTime` they throw the same "requires offset, which this Temporal object doesn't have" error the other field-typed tokens throw when their field is missing. Uppercase variants (`X`/`XX`/`XXX`) collapse `+00:00` to `Z` for UTC; lowercase variants (`x`/`xx`/`xxx`) always emit a numeric offset, even for UTC (`+00`, `+0000`, `+00:00`). `X` and `x` (single-letter) drop minutes when zero (`+05` rather than `+0500`) and append them with no colon when non-zero (`+0530`) — matches the LDML spec's "hours required, minutes optional when zero" rule.
+
+On parse, an offset token requires a full date and time (year, month, day, and at least one time token) to anchor the instant, same rule `zzz` already enforces. A pattern with an offset token but no `zzz` produces a `ZonedDateTime` whose `timeZoneId` is the offset string itself (e.g. `"+09:00"`). A pattern with **both** `zzz` and an offset token is a cross-check: `zzz` wins for the result's `timeZoneId` (the IANA name is the meaningful label; the offset is a derived fact about that zone at this instant), and the offset token's value must match the zone's actual offset at the parsed wall-clock instant. If they disagree — e.g. `yyyy-MM-dd HH:mm zzz XXX` against `2026-08-04 15:45 America/New_York +09:00` (August in New York is `-04:00`, not `+09:00`) — parse() throws rather than silently picking one, same contract as the EEEE-vs-date and Q-vs-month cross-checks elsewhere in this library. Range checks: `-12:00` to `+14:00` (the IANA-supported range). Out-of-range values throw a descriptive error naming the bound, not a generic "no valid pattern matches".
 
 Try to use a token your input type doesn't support — `HH` on a `PlainDate`,
 say — and you'll get a real error telling you so, not a silent `undefined`
@@ -430,6 +440,10 @@ Throws a descriptive error for any phrase it doesn't recognize, naming the suppo
   `parse()` requires year, month, and day together to build a date, so a
   bare `Md` format string is incomplete regardless of ambiguity. The
   examples above use `yyyy-Md` for exactly this reason.
+
+- Offset tokens (`X`/`XX`/`XXX`/`x`/`xx`/`xxx`) read `ZonedDateTime.prototype.offset`, which Temporal exposes as a `+HH:MM` string for any modern date. Historical LMT (Local Mean Time) offsets with seconds — e.g. Europe/London before 1847, when it was `+00:01:15` — aren't reachable through that field, and the regex shapes the offset tokens accept don't include a seconds group either. If you need to round-trip a sub-minute historical offset, you're outside what the offset tokens can express; construct the `ZonedDateTime` directly.
+
+  Range is bounded to `-12:00` through `+14:00`, the IANA-supported range (Baker Island at `-12:00`, Kiritimati at `+14:00`). `+14:01` and `-12:01` throw with a descriptive error even though each piece alone is in bounds — the overall offset exceeds the maximum any real zone uses.
 
 ## Dev notes
 

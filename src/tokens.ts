@@ -45,6 +45,13 @@ export interface TemporalLike {
   microsecond?: number;
   nanosecond?: number;
   timeZoneId?: string;
+  // ZonedDateTime.prototype.offset — always `±HH:MM` (6 chars) for any
+  // modern date. Historical LMT offsets with seconds exist in IANA but
+  // aren't reachable through this Temporal field, so format-side offset
+  // tokens can assume the canonical 6-char shape. Parse-side writes a
+  // canonicalized `+HH:MM` here before handing it to
+  // Temporal.ZonedDateTime.from as the `timeZone` value.
+  offset?: string;
   dayOfWeek?: number; // 1=Mon, 7=Sun, per Temporal spec
   calendarId?: string;
   toInstant?: () => unknown;
@@ -243,6 +250,39 @@ function localeAwareName(
   return intlPart(temporal, locale, options, partType);
 }
 
+// Formats a `±HH:MM` offset string (the shape Temporal exposes on
+// ZonedDateTime.prototype.offset) into one of the six offset-token widths.
+// Width and Z-handling come from the variant letter+case:
+//
+//   X / x   — short form: minutes omitted when zero, no colon otherwise
+//   XX / xx — hours + minutes, no colon
+//   XXX / xxx — hours + minutes, with colon
+//
+// Uppercase (X) collapses +00:00 to "Z"; lowercase (x) always emits a
+// numeric offset, even for UTC. Mirrors the date-fns/Unicode-LDML offset
+// family — see README for the full variant table.
+function formatOffset(offset: string, variant: 'X' | 'XX' | 'XXX' | 'x' | 'xx' | 'xxx'): string {
+  if (offset === '+00:00' && (variant === 'X' || variant === 'XX' || variant === 'XXX')) {
+    return 'Z';
+  }
+  // offset is always 6 chars: sign + HH + ':' + MM
+  const sign = offset[0]!;
+  const hours = offset.slice(1, 3);
+  const minutes = offset.slice(4, 6);
+  switch (variant) {
+    case 'X': case 'x':
+      // minutes only matter when they're non-zero — otherwise drop them
+      // entirely. Matches LDML: "With a single X, the hours field is
+      // required. The minutes field is optional, but only if the
+      // minutes value is 0."
+      return minutes === '00' ? `${sign}${hours}` : `${sign}${hours}${minutes}`;
+    case 'XX': case 'xx':
+      return `${sign}${hours}${minutes}`;
+    case 'XXX': case 'xxx':
+      return `${sign}${hours}:${minutes}`;
+  }
+}
+
 type TokenHandler = (t: TemporalLike, locale: string) => string;
 
 // Longest-first — tokenizer is greedy, "yyyy" has to be tried before "yy".
@@ -314,6 +354,18 @@ export const TOKENS: Array<[string, TokenHandler, keyof TemporalLike]> = [
   // still needs .hour on the input to compute which period it is
   ['a', (t, locale) => dayPeriodPart(t.hour!, locale), 'hour'],
   ['zzz', (t) => t.timeZoneId!, 'timeZoneId'],
+  // Numeric UTC offset tokens (date-fns/Unicode-LDML family). Only
+  // ZonedDateTime carries an offset, so the field check in format() throws
+  // the same "requires offset, which this Temporal object doesn't have"
+  // error zzz throws on PlainDate/PlainTime/PlainDateTime — same
+  // validation path, just a different field name. See formatOffset above
+  // for the per-variant width and Z/numeric distinction.
+  ['xxx', (t) => formatOffset(t.offset!, 'xxx'), 'offset'],
+  ['xx', (t) => formatOffset(t.offset!, 'xx'), 'offset'],
+  ['X', (t) => formatOffset(t.offset!, 'X'), 'offset'],
+  ['XX', (t) => formatOffset(t.offset!, 'XX'), 'offset'],
+  ['XXX', (t) => formatOffset(t.offset!, 'XXX'), 'offset'],
+  ['x', (t) => formatOffset(t.offset!, 'x'), 'offset'],
 
   // Ordinal day (1st, 2nd, 3rd, ... 21st). English suffix rules only —
   // locale-aware ordinals ("2." in de-DE, "2日" in ja-JP) are out of scope,

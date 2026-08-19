@@ -83,9 +83,102 @@ interface Fields {
   microsecond?: number;
   nanosecond?: number;
   timeZoneId?: string;
+  // Canonical `+HH:MM` form of any offset token (X/XX/XXX/x/xx/xxx)
+  // captured in this pattern. Distinct from timeZoneId because the two
+  // can coexist in the same pattern (e.g. "yyyy-MM-dd HH:mm zzz XXX") —
+  // see the cross-check after construction for how a mismatch between
+  // them is resolved.
+  offsetString?: string;
   weekdayExpected?: number;
   weekdayRaw?: string;
   quarter?: number;
+}
+
+// Normalizes a captured offset-token string into the canonical `+HH:MM`
+// shape Temporal.ZonedDateTime.from accepts as a `timeZone` value. Throws
+// descriptive errors for out-of-range hours/minutes, since the regex
+// shape (OFFSET_SHAPES in pattern.ts) is deliberately permissive — a
+// post-match range check here gives the user a specific error ("offset
+// hours 99 out of range, max 14") instead of "no valid pattern matches".
+//
+// Range bounds: -12:00 to +14:00, the standard IANA offset range
+// (Baker/Howland at -12, Kiritimati at +14). +14:01 / -12:01 etc. are
+// rejected explicitly even though the per-piece bounds (hours ≤ 14,
+// minutes ≤ 59) alone wouldn't catch them.
+function parseOffsetString(raw: string, token: string): string {
+  if (raw === 'Z') {
+    if (token === 'x' || token === 'xx' || token === 'xxx') {
+      throw new Error(
+        `temporal-fmt: offset token "${token}" doesn't accept "Z" — only the uppercase variants (X/XX/XXX) emit "Z" for UTC. ` +
+        `Use "+00:00", "+0000", or "+00" depending on the variant's width.`
+      );
+    }
+    return '+00:00';
+  }
+
+  const sign = raw[0];
+  if (sign !== '+' && sign !== '-') {
+    throw new Error(`temporal-fmt: offset "${raw}" for token "${token}" doesn't start with "+", "-", or "Z".`);
+  }
+  const body = raw.slice(1);
+  let hoursStr: string;
+  let minutesStr: string;
+  if (body.length === 2) {
+    // +HH — only X/x emit this shape; XX/xx/XXX/xxx always carry minutes.
+    if (token !== 'X' && token !== 'x') {
+      throw new Error(
+        `temporal-fmt: offset token "${token}" can't match "${raw}" — it requires minutes, but "${raw}" has none.`
+      );
+    }
+    hoursStr = body;
+    minutesStr = '00';
+  } else if (body.length === 4) {
+    // +HHMM — X/x (when minutes are non-zero) or XX/xx.
+    if (token === 'XXX' || token === 'xxx') {
+      throw new Error(
+        `temporal-fmt: offset token "${token}" can't match "${raw}" — it requires a colon between hours and minutes (e.g. "${sign}${body.slice(0, 2)}:${body.slice(2)}").`
+      );
+    }
+    hoursStr = body.slice(0, 2);
+    minutesStr = body.slice(2, 4);
+  } else if (body.length === 5 && body[2] === ':') {
+    // +HH:MM — XXX/xxx only.
+    if (token !== 'XXX' && token !== 'xxx') {
+      throw new Error(
+        `temporal-fmt: offset token "${token}" can't match "${raw}" — it doesn't use a colon (use "${sign}${body.slice(0, 2)}${body.slice(3)}" instead).`
+      );
+    }
+    hoursStr = body.slice(0, 2);
+    minutesStr = body.slice(3, 5);
+  } else {
+    throw new Error(`temporal-fmt: offset "${raw}" doesn't match the shape token "${token}" accepts.`);
+  }
+
+  const hours = Number(hoursStr);
+  const minutes = Number(minutesStr);
+  // Per-piece range checks catch most malformed input.
+  if (hours > 14) {
+    throw new Error(
+      `temporal-fmt: offset hours ${hours} in "${raw}" out of range (max 14 — Kiritimati, Line Islands is +14:00).`
+    );
+  }
+  if (minutes > 59) {
+    throw new Error(`temporal-fmt: offset minutes ${minutes} in "${raw}" out of range (max 59).`);
+  }
+  // Boundary: +14:01..+14:59 and -12:01..-12:59 are out of range even
+  // though each piece alone is in bounds — the overall offset exceeds
+  // the IANA-supported range.
+  if (sign === '+' && hours === 14 && minutes !== 0) {
+    throw new Error(
+      `temporal-fmt: offset "${raw}" exceeds the maximum supported UTC offset of +14:00.`
+    );
+  }
+  if (sign === '-' && hours === 12 && minutes !== 0) {
+    throw new Error(
+      `temporal-fmt: offset "${raw}" exceeds the maximum supported negative UTC offset of -12:00.`
+    );
+  }
+  return `${sign}${hoursStr}:${minutesStr}`;
 }
 
 function assignField<T>(fields: Fields, key: keyof Fields, value: T): void {
@@ -158,6 +251,10 @@ function applyGroup(fields: Fields, token: string, raw: string, locale: string, 
     }
     case 'zzz':
       assignField(fields, 'timeZoneId', raw);
+      break;
+    case 'X': case 'XX': case 'XXX':
+    case 'x': case 'xx': case 'xxx':
+      assignField(fields, 'offsetString', parseOffsetString(raw, token));
       break;
     case 'Q':
       assignField(fields, 'quarter', Number(raw));
@@ -361,7 +458,7 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
 
   const year = resolveYear(fields);
   const hour = resolveHour(fields, formatStr, locale);
-  const { month, day, minute, second, millisecond, microsecond, nanosecond, timeZoneId, weekdayExpected, weekdayRaw, quarter } = fields;
+  const { month, day, minute, second, millisecond, microsecond, nanosecond, timeZoneId, offsetString, weekdayExpected, weekdayRaw, quarter } = fields;
 
   const hasAnyDatePart = year !== undefined || month !== undefined || day !== undefined;
   const hasFullDate = year !== undefined && month !== undefined && day !== undefined;
@@ -377,6 +474,18 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
   if (timeZoneId !== undefined && !(hasFullDate && hasTime)) {
     throw new Error(
       `temporal-fmt: format string "${formatStr}" has a "zzz" token but needs a full date and time ` +
+      `to build a ZonedDateTime.`
+    );
+  }
+
+  // Mirror zzz's full-date-and-time requirement: an offset alone is
+  // meaningless without a wall-clock instant to anchor it to. Throws the
+  // same kind of "needs full date and time" error zzz throws — separate
+  // message so a caller reading it can tell which token type they
+  // forgot to pair with a full date+time.
+  if (offsetString !== undefined && !(hasFullDate && hasTime)) {
+    throw new Error(
+      `temporal-fmt: format string "${formatStr}" has an offset token (X/XX/XXX/x/xx/xxx) but needs a full date and time ` +
       `to build a ZonedDateTime.`
     );
   }
@@ -416,7 +525,21 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
   let result: unknown;
   try {
     if (timeZoneId !== undefined) {
+      // zzz wins for the construction-time zone when both zzz and an
+      // offset token are present — the IANA name is the meaningful
+      // label, the offset is a derived fact about that zone at this
+      // instant. The offset cross-check below validates that the
+      // parsed offset matches the zone's actual offset; if it
+      // doesn't, parse() throws rather than silently disagreeing.
       result = temporal.ZonedDateTime.from({ year: year!, month: month!, day: day!, ...timeFields, ...calendarField, timeZone: timeZoneId }, reject);
+    } else if (offsetString !== undefined) {
+      // Pattern had an offset token but no zzz. Use the offset string
+      // directly as the timeZone — Temporal accepts a fixed-offset
+      // string and produces a ZonedDateTime whose timeZoneId is the
+      // offset string itself (e.g. "+09:00"). Same shape zzz produces
+      // when it parses a fixed offset, just reached via a different
+      // token.
+      result = temporal.ZonedDateTime.from({ year: year!, month: month!, day: day!, ...timeFields, ...calendarField, timeZone: offsetString }, reject);
     } else if (hasFullDate && hasTime) {
       result = temporal.PlainDateTime.from({ year: year!, month: month!, day: day!, ...timeFields, ...calendarField }, reject);
     } else if (hasFullDate) {
@@ -429,6 +552,26 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
       `temporal-fmt: "${input}" doesn't describe a valid date/time for format "${formatStr}": ` +
       `${(err as Error).message}`
     );
+  }
+
+  // Cross-check the offset token (if any) against the constructed
+  // ZonedDateTime's actual offset. When both zzz and an offset token are
+  // present, zzz's zone is what we built with — so if the parsed offset
+  // disagrees with the zone's real offset at this instant, the input is
+  // internally contradictory. Same pattern as EEEE-vs-date and Q-vs-month
+  // cross-checks: derived fields validate against the primary, never
+  // silently agree-to-disagree. When only the offset token is present
+  // (no zzz), the constructed ZonedDateTime's offset is by construction
+  // equal to offsetString, so this check is a no-op.
+  if (offsetString !== undefined && timeZoneId !== undefined) {
+    const actualOffset = (result as { offset: string }).offset;
+    if (actualOffset !== offsetString) {
+      throw new Error(
+        `temporal-fmt: format string "${formatStr}" has both a "zzz" zone ("${timeZoneId}") and an offset token ` +
+        `("${offsetString}"), but the zone's actual offset at this instant is "${actualOffset}". ` +
+        `The offset and the zone disagree — fix one or the other.`
+      );
+    }
   }
 
   if (weekdayExpected !== undefined) {
