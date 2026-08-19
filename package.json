@@ -31,7 +31,8 @@
     "test:coverage": "c8 --include=\"dist/index.js\" --include=\"dist/index.cjs\" --check-coverage --lines 90 --branches 75 --functions 88 -r text node scripts/run-tests.mjs",
     "test:types": "vitest run --typecheck",
     "test:pack": "attw --pack . && publint .",
-    "test:all": "npm run build && npm test && npm run test:coverage && npm run test:unit && npm run test:types && npm run test:pack",
+    "test:smoke": "node smoke-test/run.mjs",
+    "test:all": "npm run build && npm test && npm run test:coverage && npm run test:unit && npm run test:types && npm run test:pack && npm run test:smoke",
     "prepublishOnly": "npm run build && npm test"
   },
   "keywords": [

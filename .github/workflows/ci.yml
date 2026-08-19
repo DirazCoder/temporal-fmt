@@ -10,12 +10,17 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      # Tests across supported Node.js versions, including current/LTS releases
+      # Node versions x OSes. The OS axis exists because smoke-test/
+      # (real npm pack + install + require/import) broke three separate
+      # ways on Windows (ENOENT, EINVAL, DEP0190) that ubuntu-only CI
+      # never caught — those were only found by a person running it
+      # locally on Windows, which isn't something CI should depend on.
       matrix:
         node-version: [20, 22, 24, 26]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
