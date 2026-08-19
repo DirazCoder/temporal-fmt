@@ -1,6 +1,7 @@
-import { DEFAULT_LOCALE, type FormatOptions } from './tokens.js';
+import { type FormatOptions } from './tokens.js';
 import { tokenize } from './tokenize.js';
 import { MAX_FORMAT_LENGTH } from './constants.js';
+import { canonicalCacheKey } from './localeVocab.js';
 
 // A Temporal.Duration doesn't sit on a calendar — it has no year/month/day
 // position the way a PlainDate does — so the date/time token set in
@@ -18,11 +19,14 @@ import { MAX_FORMAT_LENGTH } from './constants.js';
 // chosen so it doesn't visually collide with `m` (minutes) or `M`
 // (months in date format) when a reader skims both tables side by side).
 //
-// Plural-awareness: English distinguishes "1 year" from "2 years". The
-// short form ("yr" vs "yrs") follows the same rule. When the value is
-// exactly 1, the singular form is used; otherwise the plural. This
-// matches Intl.NumberFormat's behavior for unit formatting and is what
-// most callers expect.
+// Locale-aware rendering: when a `locale` is passed, the short/long
+// forms delegate to `Intl.NumberFormat` with `style: 'unit'`. That gives
+// us pluralization, native unit names, and the locale's preferred
+// spacing for free, matching the same "delegate to Intl" approach
+// `formatDistance` already uses. Without a `locale`, the original
+// English-only hardcoded table is used so existing default output stays
+// byte-identical — this is an additive locale option, not a rewrite of
+// the default rendering path.
 
 type UnitKey = 'years' | 'months' | 'weeks' | 'days' | 'hours' | 'minutes' | 'seconds' | 'milliseconds';
 
@@ -35,17 +39,22 @@ interface UnitForms {
   shortPlural: string;
   // the property on Temporal.Duration to read for this unit
   field: UnitKey;
+  // Intl.NumberFormat unit identifier (used only on the locale-aware path).
+  // Confirmed against the current Intl spec — including `millisecond`, which
+  // is in fact supported by every engine we target (Node 20+, modern ICU).
+  // The task brief flagged this as a possible gap; empirically it isn't.
+  intlUnit: string;
 }
 
 const DURATION_UNITS: Record<string, UnitForms> = {
-  y: { longSingular: 'year', longPlural: 'years', shortSingular: 'yr', shortPlural: 'yrs', field: 'years' },
-  o: { longSingular: 'month', longPlural: 'months', shortSingular: 'mo', shortPlural: 'mos', field: 'months' },
-  w: { longSingular: 'week', longPlural: 'weeks', shortSingular: 'wk', shortPlural: 'wks', field: 'weeks' },
-  d: { longSingular: 'day', longPlural: 'days', shortSingular: 'd', shortPlural: 'd', field: 'days' },
-  h: { longSingular: 'hour', longPlural: 'hours', shortSingular: 'h', shortPlural: 'h', field: 'hours' },
-  m: { longSingular: 'minute', longPlural: 'minutes', shortSingular: 'm', shortPlural: 'm', field: 'minutes' },
-  s: { longSingular: 'second', longPlural: 'seconds', shortSingular: 's', shortPlural: 's', field: 'seconds' },
-  S: { longSingular: 'millisecond', longPlural: 'milliseconds', shortSingular: 'ms', shortPlural: 'ms', field: 'milliseconds' },
+  y: { longSingular: 'year', longPlural: 'years', shortSingular: 'yr', shortPlural: 'yrs', field: 'years', intlUnit: 'year' },
+  o: { longSingular: 'month', longPlural: 'months', shortSingular: 'mo', shortPlural: 'mos', field: 'months', intlUnit: 'month' },
+  w: { longSingular: 'week', longPlural: 'weeks', shortSingular: 'wk', shortPlural: 'wks', field: 'weeks', intlUnit: 'week' },
+  d: { longSingular: 'day', longPlural: 'days', shortSingular: 'd', shortPlural: 'd', field: 'days', intlUnit: 'day' },
+  h: { longSingular: 'hour', longPlural: 'hours', shortSingular: 'h', shortPlural: 'h', field: 'hours', intlUnit: 'hour' },
+  m: { longSingular: 'minute', longPlural: 'minutes', shortSingular: 'm', shortPlural: 'm', field: 'minutes', intlUnit: 'minute' },
+  s: { longSingular: 'second', longPlural: 'seconds', shortSingular: 's', shortPlural: 's', field: 'seconds', intlUnit: 'second' },
+  S: { longSingular: 'millisecond', longPlural: 'milliseconds', shortSingular: 'ms', shortPlural: 'ms', field: 'milliseconds', intlUnit: 'millisecond' },
 };
 
 // Token strings this module recognizes, longest-first for the greedy
@@ -126,7 +135,7 @@ function appendLiteral(pieces: Piece[], value: string): void {
 
 // Reads a unit value off the duration in a way that works for both real
 // Temporal.Duration objects and field bags ({ hours: 2, minutes: 30 }).
-// Temporal.Duration's fields are numbers, possibly negative for
+// Temporal.Duration values are numbers, possibly negative for
 // backwards durations; a field bag the caller passes might leave fields
 // off entirely (undefined → treated as 0 for this unit).
 function readUnit(duration: Record<string, unknown>, field: UnitKey): number {
@@ -143,6 +152,32 @@ function readUnit(duration: Record<string, unknown>, field: UnitKey): number {
     );
   }
   return coerced;
+}
+
+// Intl.NumberFormat is expensive to construct, and a typical duration
+// render walks 2-4 units — so a tight loop on the same (locale, unit,
+// display) triple would otherwise rebuild the formatter for every token
+// of every row. Cache by canonical-locale + unit + display, same
+// eviction shape as the other locale-keyed caches in this library
+// (formatterCache in tokens.ts, rtfCache in formatDistance.ts).
+const unitFormatterCache = new Map<string, Intl.NumberFormat>();
+const MAX_UNIT_FORMATTER_CACHE_SIZE = 200;
+
+function getUnitFormatter(locale: string, intlUnit: string, unitDisplay: 'short' | 'long'): Intl.NumberFormat {
+  const key = `${canonicalCacheKey(locale)}|${intlUnit}|${unitDisplay}`;
+  const cached = unitFormatterCache.get(key);
+  if (cached) return cached;
+  if (unitFormatterCache.size >= MAX_UNIT_FORMATTER_CACHE_SIZE) {
+    const oldestKey = unitFormatterCache.keys().next().value;
+    if (oldestKey !== undefined) unitFormatterCache.delete(oldestKey);
+  }
+  const formatter = new Intl.NumberFormat(locale, {
+    style: 'unit',
+    unit: intlUnit,
+    unitDisplay,
+  });
+  unitFormatterCache.set(key, formatter);
+  return formatter;
 }
 
 export interface DurationFormatOptions extends FormatOptions {
@@ -165,11 +200,20 @@ export interface DurationFormatOptions extends FormatOptions {
  * Zero-value units are omitted by default; pass { showZeroValues: true }
  * to force them to appear.
  *
+ * Unit-name localization: without a `locale`, output is the original
+ * English hardcoded singular/plural forms (byte-identical to previous
+ * versions). With a `locale`, the short/long forms delegate to
+ * `Intl.NumberFormat`'s `style: 'unit'` — same approach `formatDistance`
+ * already uses for `Intl.RelativeTimeFormat`. Numeric-only tokens
+ * (`y`, `o`, `w`, ...) are not affected by `locale`; they remain ASCII
+ * digits, matching the rest of this library's "numbers stay Western"
+ * convention.
+ *
  * @example
  * formatDuration(Temporal.Duration.from({ years: 2, months: 1 }), 'yyy ooo')
  * // "2 years 1 month"
- * formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm')
- * // "2 hours 30 minutes"
+ * formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm', { locale: 'fr-FR' })
+ * // "2 heures 30 minutes"
  */
 export function formatDuration(
   duration: Record<string, unknown>,
@@ -183,14 +227,16 @@ export function formatDuration(
     );
   }
 
-  // locale unused for the actual unit names — those are hardcoded English,
-  // same limitation as the `do` ordinal token. Intl.DurationFormat exists
-  // in some engines but is still maturing; for now, English-only is
-  // explicit. Callers wanting locale-aware duration formatting should use
-  // Intl.DurationFormat directly.
-  void options.locale;
-
   const showZeroes = options.showZeroValues === true;
+  // Undefined locale → keep the original hardcoded English path so
+  // existing default output is byte-identical. Any locale string passed
+  // (including 'en-US') takes the Intl.NumberFormat path — so an
+  // explicit `locale: 'en-US'` will produce Intl's spacing/word choices
+  // rather than the hand-rolled English table. That's intentional: the
+  // locale-aware path delegates to Intl, the default path doesn't.
+  const locale = options.locale;
+  const useIntl = locale !== undefined;
+
   const pieces = tokenizeDuration(formatStr);
   let result = '';
 
@@ -218,10 +264,27 @@ export function formatDuration(
 
     if (piece.form === 'numeric') {
       result += String(value);
-    } else if (piece.form === 'short') {
+      continue;
+    }
+
+    if (useIntl) {
+      // Intl.NumberFormat handles pluralization, native unit names, and
+      // locale-appropriate spacing all in one call — no point replicating
+      // that here. We pass the value as-is so negative durations
+      // (`-1 hour`) round-trip the sign the way Intl expects.
+      const unitDisplay = piece.form === 'short' ? 'short' : 'long';
+      const formatter = getUnitFormatter(locale!, unit.intlUnit, unitDisplay);
+      result += formatter.format(value);
+      continue;
+    }
+
+    // Default-path English. Plural rule based on absolute value matches
+    // what Intl does for unit style on en-US — only |value| === 1 is
+    // singular, including for negatives like "-1 hour" (which is what
+    // Intl produces for en-US too).
+    if (piece.form === 'short') {
       result += value + (value === 1 || value === -1 ? unit.shortSingular : unit.shortPlural);
     } else {
-      // long form
       result += value + ' ' + (value === 1 || value === -1 ? unit.longSingular : unit.longPlural);
     }
   }

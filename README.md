@@ -238,7 +238,18 @@ formatDuration({ hours: 2, minutes: 30 }, 'h:mm')      // "2:30"
 
 **Zero-value handling**: by default, zero-value units are omitted from the output. `formatDuration({ hours: 2 }, 'hhh mmm')` returns `"2 hours "` (the trailing space is the literal separator from the format string — the codemod doesn't do separator cleanup; the caller is responsible for structuring the format string). Pass `{ showZeroValues: true }` to force zero-value units to render.
 
-Unit names are hardcoded English in this pass. `Intl.DurationFormat` exists in some engines but is still maturing; for now, English-only is explicit. Callers wanting locale-aware duration formatting should use `Intl.DurationFormat` directly.
+**Locale-aware unit names**: pass a `locale` option to localize the short/long forms via `Intl.NumberFormat`'s `style: 'unit'` mode — same approach `formatDistance` uses for `Intl.RelativeTimeFormat`. Numeric-only tokens (`y`, `o`, `w`, ...) stay ASCII digits regardless of locale, matching the rest of the library's "numbers stay Western" convention.
+
+```js
+formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm', { locale: 'fr-FR' }) // "2 heures 30 minutes"
+formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm', { locale: 'es-ES' }) // "2 horas 30 minutos"
+formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm', { locale: 'de-DE' }) // "2 Stunden 30 Minuten"
+formatDuration({ milliseconds: 5 }, 'SSS', { locale: 'fr-FR' })           // "5 millisecondes"
+```
+
+Without a `locale`, the original English hardcoded singular/plural table is used — byte-identical to previous versions. This is additive: existing calls with no `locale` produce the same output as before. (Passing `locale: 'en-US'` explicitly is *not* identical to no-locale — Intl's spacing differs from the hand-rolled English table, e.g. `"2 hr"` vs `"2h"`. Pick the path that matches your needs.)
+
+Milliseconds *are* supported by `Intl.NumberFormat`'s unit list on every Node version this library targets — confirmed against the current Intl spec, not assumed. The original task brief flagged this as a possible gap; empirically it isn't.
 
 ## Relative time: formatDistance
 
@@ -258,18 +269,29 @@ formatDistance(today, today.add({ days: 2 }), { locale: 'fr-FR' }) // "dans 2 jo
 
 **Direction convention**: `diff = date1 - date2`. Positive diff → date1 is in the future relative to date2 → "in X". Negative diff → date1 is in the past → "X ago". Swap the args to flip the direction.
 
-**Unit-selection cutoffs** (documented, not configurable):
+**Unit-selection cutoffs** (defaults documented below; per-call override via the `cutoffs` option):
 
-| abs(diff) | Unit |
-|-----------|------|
-| < 60 seconds | seconds |
-| < 60 minutes | minutes |
-| < 24 hours | hours |
-| < 30 days | days |
-| < 365 days | months |
-| otherwise | years |
+| abs(diff) | Unit | Default cutoff |
+|-----------|------|----------------|
+| < 60 seconds | seconds | `seconds: 60` |
+| < 60 minutes | minutes | `minutes: 60` |
+| < 24 hours | hours | `hours: 24` |
+| < 30 days | days | `days: 30` |
+| < 365 days | months | `months: 365` (in days — see note) |
+| otherwise | years | — |
 
 30 days is an approximation of a month (calendar months are 28-31 days); 365 days is an approximation of a year. These are the same cutoffs date-fns uses, trimmed to the units `Intl.RelativeTimeFormat` supports across engines.
+
+The `months` cutoff is in days, not months — "months" itself isn't a fixed number of days, so the months→years boundary is expressed as a day count, matching how the original hardcoded table expressed the same boundary (`30 * MS_PER_DAY` for days, `365 * MS_PER_DAY` for the months cap). This lets a caller say "treat anything under 90 days as months" rather than "anything under 3 months as months" (which would require picking a definition of "month").
+
+Override any subset of the boundaries per call. Unspecified boundaries fall back to the defaults above. Throws descriptively on non-monotonic boundaries (e.g. `seconds: 300, minutes: 1` — 300s > 1min, so the seconds branch would always win and the minutes branch would be unreachable) or non-positive values, rather than producing confusing output downstream.
+
+```js
+formatDistance(in5d, today)                                     // "in 5 days" (default cutoffs)
+formatDistance(in14d, today, { cutoffs: { days: 10 } })         // "this month" (14d > 10d)
+formatDistance(in200d, today, { cutoffs: { months: 100 } })     // "this year" (200d > 100d)
+formatDistance(in30d, today)                                    // "next month" (exactly at default 30d boundary → next unit up)
+```
 
 Accepts `Temporal.PlainDate`, `PlainDateTime`, or `ZonedDateTime`. A `PlainDate` is treated as midnight when diffing against a `PlainDateTime`. Throws on `PlainTime` (no anchor date to diff against) and on partial-date shapes (e.g. `{ year: 2026 }` with no month/day).
 
@@ -315,7 +337,7 @@ Registered vocab takes precedence over the `Intl`-derived vocab for that locale 
 
 ## parseRelative: natural-language date parsing
 
-`parseRelative(input, referenceDate, options?)` resolves common English relative-date phrases against a reference date, returning a `Temporal.PlainDate`. English only this pass — the matching patterns are hand-written regular expressions keyed on English month/weekday names.
+`parseRelative(input, referenceDate, options?)` resolves common relative-date phrases against a reference date, returning a `Temporal.PlainDate`. English by default; pass `locale: 'es'` / `'fr'` / `'de'` (or any locale tag with that language subtag) to route to the corresponding grammar.
 
 Supported phrases:
 
@@ -323,6 +345,22 @@ Supported phrases:
 - **relative day offsets**: "today", "tomorrow", "yesterday"
 - **relative unit offsets**: "in 3 days", "2 weeks ago", "in 1 month", "1 year ago"
 - **month-day without year**: "March 5th", "Aug 4" (resolved to next occurrence)
+
+Per-language equivalents (each grammar is its own module — phrase patterns and vocabulary are NOT shared across languages, only the matching engine and the resolution helpers are):
+
+| Phrase class | es | fr | de |
+|--------------|----|----|-----|
+| today | `hoy` | `aujourd'hui` | `heute` |
+| tomorrow | `mañana` | `demain` | `morgen` |
+| yesterday | `ayer` | `hier` | `gestern` |
+| next Tuesday | `el próximo martes` / `martes próximo` | `mardi prochain` | `nächsten Dienstag` |
+| last Tuesday | `el martes pasado` | `mardi dernier` | `letzten Dienstag` |
+| this Wednesday | `este miércoles` | `ce mercredi` | `diesen Mittwoch` |
+| in 3 days | `en 3 días` | `dans 3 jours` | `in 3 Tagen` |
+| 2 weeks ago | `hace 2 semanas` | `il y a 2 semaines` | `vor 2 Wochen` |
+| March 5 | `5 de marzo` | `5 mars` | `5. März` |
+
+Diacritics are stripped before matching (NFD + combining-mark removal), so `"miercoles"` matches the same as `"miércoles"`, `"aout"` as `"août"`, `"naechsten"` as `"nächsten"`. German umlaut transliterations (`ä` → `ae`, `ö` → `oe`, `ü` → `ue`, `ß` → `ss`) are also expanded, so `"5. Maerz"` resolves the same as `"5. März"`.
 
 ```js
 import { parseRelative } from 'temporal-fmt';
@@ -337,12 +375,30 @@ parseRelative('2 weeks ago', today).toString()             // '2026-07-21'
 parseRelative('March 5th', today).toString()              // '2027-03-05' (next occurrence)
 ```
 
+Per-language examples:
+
+```js
+parseRelative('mañana', today, { locale: 'es-ES' }).toString()              // '2026-08-05'
+parseRelative('el próximo martes', today, { locale: 'es-ES' }).toString()    // '2026-08-11'
+parseRelative('5 de marzo', today, { locale: 'es-ES' }).toString()           // '2027-03-05'
+
+parseRelative('demain', today, { locale: 'fr-FR' }).toString()              // '2026-08-05'
+parseRelative('mardi prochain', today, { locale: 'fr-FR' }).toString()      // '2026-08-11'
+parseRelative('5 mars', today, { locale: 'fr-FR' }).toString()               // '2027-03-05'
+
+parseRelative('morgen', today, { locale: 'de-DE' }).toString()              // '2026-08-05'
+parseRelative('nächsten Dienstag', today, { locale: 'de-DE' }).toString()  // '2026-08-11'
+parseRelative('5. März', today, { locale: 'de-DE' }).toString()              // '2027-03-05'
+```
+
 **Ambiguous-case choices** (documented, not inferred):
 
 - **"next Tuesday" said on a Tuesday** = 7 days out, not today. "this Tuesday" handles the same-week case, so "next Tuesday" staying strictly-future gives the two phrases distinct, non-overlapping meanings.
 - **"last Tuesday" said on a Tuesday** = 7 days ago (strictly-past, symmetric to "next").
 - **"March 5th" without a year** = next occurrence. Future-leaning: today's date returns today; a past date this year returns next year's occurrence. (The alternative — "nearest in time, past or future" — would mean "March 5th" said on March 6 returns yesterday, which is counterintuitive for the typical "next birthday"/"next deadline" use case.)
-- **"5 days" without "in" or "ago"** = throws. Past or future? parseRelative refuses to guess — same contract as `parse()`'s strict mode.
+- **"5 days" without "in" or "ago"** = throws. Past or future? parseRelative refuses to guess — same contract as `parse()`'s strict mode. Per-language equivalent: bare `"3 días"` / `"3 jours"` / `"3 Tage"` all throw with a localized error message pointing at the disambiguation options (`"en 3 días"`/`"hace 3 días"`, etc.).
+
+**Cross-language consistency on the same-day-of-week ambiguity**: the "next X on X = 7 days out, not today" convention holds across all four supported languages (en/es/fr/de). The natural phrasing in each language (`"next Tuesday"` / `"el próximo martes"` / `"mardi prochain"` / `"nächsten Dienstag"`) all resolve to strictly-future-next-week when said on the named weekday. This is a deliberate cross-language convention, not an accident of implementation — if a future language grammar's natural phrasing for "next X" resolves differently by convention, document it in that grammar's section and the README here.
 
 Throws a descriptive error for any phrase it doesn't recognize, naming the supported categories in the message. Accepts `PlainDate`, `PlainDateTime`, or `ZonedDateTime` as the reference (needs `dayOfWeek` to compute weekday offsets). Throws on `PlainTime`.
 

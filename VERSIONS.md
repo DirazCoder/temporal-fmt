@@ -33,6 +33,108 @@ Everything below `0.7.0` is unsupported.
 
 These versions are no longer maintained. Upgrading is the fix.
 
+## 0.8.6
+
+`0.8.6` adds three locale-and-config features to the active
+`0.8.x` release line. All three are additive: calls with no new
+options produce byte-identical output to `0.8.5`, verified against
+the captured pre-change baseline.
+
+### Added
+
+- **Multi-language `formatDuration`** — pass `locale: 'es-ES'` /
+  `'fr-FR'` / `'de-DE'` (or any locale tag) and the short/long
+  word-form tokens (`yy`/`yyy`, `hh`/`hhh`, etc.) delegate to
+  `Intl.NumberFormat`'s `style: 'unit'` mode, same approach
+  `formatDistance` already uses for `Intl.RelativeTimeFormat`.
+  Numeric-only tokens (`y`, `o`, `w`, ...) stay ASCII digits.
+
+  The previous limitation ("English-only, hardcoded table") was
+  the documented behavior — a test pinned it down. That test now
+  asserts the locale-aware output instead.
+
+  Milliseconds are confirmed supported by `Intl.NumberFormat`'s
+  unit list on every Node version we target. The task brief flagged
+  this as a possible gap; empirically it isn't.
+
+  Example: `formatDuration({hours:2,minutes:30}, 'hhh mmm',
+  {locale:'fr-FR'}) // "2 heures 30 minutes"`
+
+- **Multi-language `parseRelative` for es/fr/de** — each language
+  has its own grammar module with its own phrase patterns and
+  vocabulary. The matching engine and resolution helpers (weekday
+  offset, leap-year fallback, direction-ambiguous throw) are shared
+  across languages; only the per-language regex patterns and name
+  lists differ. Not a config flag or token substitution over the
+  English grammar.
+
+  Every phrase class the English grammar supports has an equivalent
+  idiom in each language: weekday refs (next/last/this + weekday),
+  relative day offsets (today/tomorrow/yesterday), relative unit
+  offsets ("in N X" / "N X ago" equivalents), and month-day
+  without year (resolved to next occurrence).
+
+  Same ambiguity philosophy: bare `"3 días"` / `"3 jours"` /
+  `"3 Tage"` without a directional marker throws with a localized
+  error message pointing at the disambiguation options.
+
+  Diacritics are stripped before matching (NFD + combining-mark
+  removal), so `"miercoles"` matches `"miércoles"`, `"aout"`
+  matches `"août"`. German umlaut transliterations (`ä` → `ae`,
+  `ö` → `oe`, `ü` → `ue`, `ß` → `ss`) are also expanded, so
+  `"5. Maerz"` resolves the same as `"5. März"`.
+
+  Cross-language consistency on the same-day-of-week ambiguity:
+  `"next Tuesday"` said on a Tuesday means 7 days out, not today —
+  and the equivalent idiom in every supported language resolves
+  the same way. Documented as a deliberate convention; if a future
+  language's natural phrasing resolves differently, document it in
+  that grammar's section and here.
+
+  Unknown locales (Italian, Portuguese, etc.) fall back to the
+  English grammar rather than throwing — best-effort, matches how
+  `formatDistance` treats unknown locales.
+
+  Example: `parseRelative('el próximo martes', today,
+  {locale:'es-ES'}).toString() // '2026-08-11'`
+
+- **Configurable cutoffs for `formatDistance`** — the
+  seconds→minutes→hours→days→months→years boundaries used to be
+  hardcoded. Now override any subset per call via the `cutoffs`
+  option; unspecified boundaries fall back to the defaults (60s,
+  60min, 24h, 30d, 365d). Not a global registration function —
+  cutoffs are a per-call display preference, not shared
+  vocabulary state like `registerLocaleVocab`.
+
+  The `months` cutoff is in days, not months — "months" itself
+  isn't a fixed number of days, so the months→years boundary is
+  expressed as a day count, matching how the original hardcoded
+  table expressed the same boundary. This lets a caller say
+  "treat anything under 90 days as months" rather than "anything
+  under 3 months" (which would require picking a definition of
+  "month").
+
+  Throws descriptively on non-monotonic boundaries (e.g.
+  `seconds: 300, minutes: 1` — 300s > 1min, so the seconds branch
+  would always win and the minutes branch would be unreachable) or
+  non-positive values, rather than producing confusing output
+  downstream. The error message names all five cutoff values so
+  the user can spot the inverted pair.
+
+  Example: `formatDistance(in14d, today, {cutoffs: {days: 10}})
+  // "this month" (14d > 10d, crosses into month territory)`
+
+### Unchanged (default path)
+
+- `formatDuration` with no `locale` option: byte-identical English
+  output to 0.8.5 (the hardcoded singular/plural table is still
+  the default-path fallback).
+- `parseRelative` with no `locale` option: English grammar,
+  unchanged behavior. All existing English tests pass unmodified.
+- `formatDistance` with no `cutoffs` option: same default cutoffs
+  as 0.8.5 (60s/60min/24h/30d/365d). Verified byte-for-byte against
+  the captured pre-change baseline.
+
 ## 0.8.3
 
 `0.8.3` extends the active `0.8.x` release line with new formatting,

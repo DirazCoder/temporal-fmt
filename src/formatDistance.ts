@@ -108,13 +108,80 @@ function toEpochMs(fields: DateFieldView): number {
 // 30 days is an approximation of a month — a calendar month is 28-31
 // days, so the boundary is inherently fuzzy. Same with 365 days for a
 // year. Documented as approximations, not exact calendar arithmetic.
-const UNIT_CUTOFFS: Array<{ maxMs: number; unit: Intl.RelativeTimeFormatUnit }> = [
-  { maxMs: MS_PER_MINUTE, unit: 'second' },
-  { maxMs: MS_PER_HOUR, unit: 'minute' },
-  { maxMs: MS_PER_DAY, unit: 'hour' },
-  { maxMs: 30 * MS_PER_DAY, unit: 'day' },
-  { maxMs: 365 * MS_PER_DAY, unit: 'month' },
-];
+//
+// `cutoffs` on FormatDistanceOptions overrides individual boundaries
+// per call. DEFAULT_CUTOFFS holds the same numbers as the old hardcoded
+// UNIT_CUTOFFS so callers passing nothing see the same output as
+// before — verified byte-for-byte against the pre-change baseline.
+const DEFAULT_CUTOFFS = {
+  seconds: 60,   // 60 s
+  minutes: 60,   // 60 min
+  hours: 24,     // 24 h
+  days: 30,      // 30 d
+  months: 365,   // 365 d (in days, since the months→years boundary is day-resolution)
+} as const;
+
+type CutoffKey = keyof typeof DEFAULT_CUTOFFS;
+
+// Cutoffs the caller can override. Each value is in the unit's own
+// native scale (seconds for `seconds`, minutes for `minutes`, etc.) —
+// `months` is the exception: it's the day count that bounds the
+// months→years crossover, since "months" itself isn't a fixed number
+// of days. This mirrors how the original hardcoded table expressed
+// the same boundary (30 * MS_PER_DAY for days, 365 * MS_PER_DAY for
+// the months cap) and lets callers say "treat anything under 90 days
+// as months" rather than "anything under 3 months as months" (which
+// would require picking a definition of "month").
+export interface DistanceCutoffs {
+  seconds?: number;
+  minutes?: number;
+  hours?: number;
+  days?: number;
+  months?: number;
+}
+
+// Convert the user-facing cutoffs (per-unit numbers) into the ms
+// thresholds the matching loop needs. Validates each value is a
+// positive finite number, and that the boundaries are monotonically
+// non-decreasing in equivalent ms — without that, the smallest-bound
+// branch always wins and a later branch becomes unreachable, which
+// is never what the caller intended.
+function resolveCutoffs(user?: DistanceCutoffs): Array<{ maxMs: number; unit: Intl.RelativeTimeFormatUnit }> {
+  const merged: Record<CutoffKey, number> = { ...DEFAULT_CUTOFFS, ...user };
+
+  for (const key of Object.keys(merged) as CutoffKey[]) {
+    const value = merged[key];
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+      throw new Error(
+        `temporal-fmt: formatDistance cutoff "${key}" must be a positive finite number (got ${String(value)}).`
+      );
+    }
+  }
+
+  const secondsMs = merged.seconds * MS_PER_SECOND;
+  const minutesMs = merged.minutes * MS_PER_MINUTE;
+  const hoursMs = merged.hours * MS_PER_HOUR;
+  const daysMs = merged.days * MS_PER_DAY;
+  // `months` is in days — see DistanceCutoffs comment above.
+  const monthsMs = merged.months * MS_PER_DAY;
+
+  if (!(secondsMs <= minutesMs && minutesMs <= hoursMs && hoursMs <= daysMs && daysMs <= monthsMs)) {
+    throw new Error(
+      `temporal-fmt: formatDistance cutoffs must be monotonically non-decreasing in equivalent ms ` +
+      `(seconds ≤ minutes ≤ hours ≤ days ≤ months). Got: seconds=${merged.seconds}s, ` +
+      `minutes=${merged.minutes}min, hours=${merged.hours}h, days=${merged.days}d, months=${merged.months}d — ` +
+      `pick a sequence where each boundary is at least as large as the one before it.`
+    );
+  }
+
+  return [
+    { maxMs: secondsMs, unit: 'second' },
+    { maxMs: minutesMs, unit: 'minute' },
+    { maxMs: hoursMs, unit: 'hour' },
+    { maxMs: daysMs, unit: 'day' },
+    { maxMs: monthsMs, unit: 'month' },
+  ];
+}
 
 const rtfCache = new Map<string, Intl.RelativeTimeFormat>();
 const MAX_RTF_CACHE_SIZE = 100;
@@ -147,6 +214,17 @@ export interface FormatDistanceOptions extends FormatOptions {
    * 'always' forces the strict "1 day ago"/"in 1 day"/"in 0 seconds" form.
    */
   numeric?: 'always' | 'auto';
+  /**
+   * Override the unit-selection boundaries (seconds→minutes,
+   * minutes→hours, hours→days, days→months, months→years). Any
+   * subset can be supplied; omitted boundaries fall back to the
+   * defaults (60s, 60min, 24h, 30d, 365d). Values are in each
+   * unit's native scale except `months`, which is in days — see
+   * DistanceCutoffs. Throws descriptively on non-monotonic
+   * boundaries or non-positive values, rather than producing
+   * confusing output downstream.
+   */
+  cutoffs?: DistanceCutoffs;
 }
 
 /**
@@ -189,8 +267,9 @@ export function formatDistance(
   const diffMs = toEpochMs(fields1) - toEpochMs(fields2);
   const absMs = Math.abs(diffMs);
 
+  const unitCutoffs = resolveCutoffs(options.cutoffs);
   let unit: Intl.RelativeTimeFormatUnit = 'year';
-  for (const { maxMs, unit: candidateUnit } of UNIT_CUTOFFS) {
+  for (const { maxMs, unit: candidateUnit } of unitCutoffs) {
     if (absMs < maxMs) {
       unit = candidateUnit;
       break;

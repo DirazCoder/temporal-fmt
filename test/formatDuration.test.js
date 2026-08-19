@@ -143,13 +143,47 @@ test('non-finite values throw descriptively', () => {
   );
 });
 
-test('locale option is accepted but English-only (matches `do`)', () => {
-  // Intl.DurationFormat exists in some engines but is still maturing;
-  // for now, the unit names are hardcoded English. A caller passing
-  // { locale: 'fr-FR' } shouldn't crash, but should still get English
-  // unit names. Document this so a regression to locale-aware is caught.
+test('locale option localizes unit names via Intl.NumberFormat', () => {
+  // Word-form tokens (yy/yyy, etc.) delegate to Intl.NumberFormat's
+  // style:'unit' mode when a locale is supplied. Numeric tokens
+  // (y, o, ...) stay ASCII digits, matching the rest of the library's
+  // "numbers stay Western" convention.
+  // Intl.NumberFormat for fr-FR uses a non-breaking space (U+00A0) between
+  // the value and the unit — French typographic convention. Pin the exact
+  // bytes so a regression that produces a regular space surfaces here.
   assert.equal(
     formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm', { locale: 'fr-FR' }),
-    '2 hours 30 minutes'
+    '2\u00A0heures 30 minutes'
   );
+  assert.equal(
+    formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm', { locale: 'es-ES' }),
+    '2 horas 30 minutos'
+  );
+  assert.equal(
+    formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm', { locale: 'de-DE' }),
+    '2 Stunden 30 Minuten'
+  );
+  // Single-letter numeric tokens (h, m, s) stay ASCII digits regardless
+  // of locale — same "numbers stay Western" convention as the rest of
+  // the library. The double-letter short form (hh, mm) DOES localize,
+  // since it's a word-form token.
+  assert.equal(
+    formatDuration({ hours: 2, minutes: 30 }, 'h:m', { locale: 'fr-FR' }),
+    '2:30'
+  );
+});
+
+test('without a locale, unit names stay byte-identical to the pre-change English output', () => {
+  // The hardcoded English singular/plural table is the default-path
+  // fallback when no locale is supplied — locale-aware output is the
+  // additive path. This pins down the default-path output so a future
+  // refactor that accidentally routes default-locale calls through
+  // Intl.NumberFormat would show up here (Intl's en-US would produce
+  // "2 hr" with a space, not the original "2h").
+  assert.equal(formatDuration({ hours: 1 }, 'hh'), '1h');
+  assert.equal(formatDuration({ hours: 2 }, 'hh'), '2h');
+  assert.equal(formatDuration({ years: 1 }, 'yy'), '1yr');
+  assert.equal(formatDuration({ years: 2 }, 'yy'), '2yrs');
+  assert.equal(formatDuration({ milliseconds: 1 }, 'SSS'), '1 millisecond');
+  assert.equal(formatDuration({ milliseconds: 5 }, 'SSS'), '5 milliseconds');
 });
