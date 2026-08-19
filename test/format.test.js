@@ -1,12 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { format } from '../dist/index.js';
+import { format, parse, setTemporal } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
 // Use native Temporal when available (Node 26+), polyfill otherwise —
 // format() goes through Temporal.prototype.toLocaleString(), which works
 // the same either way.
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
+setTemporal(Temporal);
 
 test('PlainDate: basic yyyy-MM-dd', () => {
   const date = Temporal.PlainDate.from('2026-08-04');
@@ -262,6 +263,55 @@ test('SSS pads milliseconds to 3 digits including zero', () => {
 test('SSS pads single-digit milliseconds', () => {
   const dt = Temporal.PlainDateTime.from('2026-08-04T15:45:30.005');
   assert.equal(format(dt, 'SSS'), '005');
+});
+
+// Fractional-second tokens beyond SSS (S through SSSSSSSSS) expose
+// microsecond/nanosecond precision — see tokens.ts's formatFraction.
+test('fractional-second tokens truncate a 9-digit value to each width', () => {
+  const t = Temporal.PlainTime.from('09:30:00.123456789');
+  assert.equal(format(t, 'S'), '1');
+  assert.equal(format(t, 'SS'), '12');
+  assert.equal(format(t, 'SSS'), '123');
+  assert.equal(format(t, 'SSSS'), '1234');
+  assert.equal(format(t, 'SSSSS'), '12345');
+  assert.equal(format(t, 'SSSSSS'), '123456');
+  assert.equal(format(t, 'SSSSSSS'), '1234567');
+  assert.equal(format(t, 'SSSSSSSS'), '12345678');
+  assert.equal(format(t, 'SSSSSSSSS'), '123456789');
+});
+
+test('fractional-second tokens pad a short value out to each width, not just repeat the digit', () => {
+  // half a second is 500000000ns, not 5ns — SSSSSSSSS has to zero-pad on
+  // the right, the same direction format() pads everywhere else it's
+  // asked for more digits than the value has.
+  const t = Temporal.PlainTime.from('09:30:00.5');
+  assert.equal(format(t, 'S'), '5');
+  assert.equal(format(t, 'SSS'), '500');
+  assert.equal(format(t, 'SSSSSSSSS'), '500000000');
+});
+
+test('fractional-second tokens are all zero for a whole-second value', () => {
+  const t = Temporal.PlainTime.from('09:30:00');
+  assert.equal(format(t, 'SSSSSSSSS'), '000000000');
+});
+
+test('nanosecond round-trip through a ZonedDateTime survives format -> parse at full precision', () => {
+  const zdt = Temporal.ZonedDateTime.from('2026-07-13T09:30:00.123456789-04:00[America/New_York]');
+  const p = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSS'['zzz']'";
+  const formatted = format(zdt, p);
+  assert.equal(formatted, '2026-07-13T09:30:00.123456789[America/New_York]');
+  const back = parse(p, formatted);
+  assert.equal(back.nanosecond, zdt.nanosecond);
+  assert.equal(back.microsecond, zdt.microsecond);
+  assert.equal(back.millisecond, zdt.millisecond);
+  assert.equal(back.timeZoneId, zdt.timeZoneId);
+  assert.equal(back.epochNanoseconds, zdt.epochNanoseconds);
+});
+
+test('SSS keeps meaning exactly 3-digit milliseconds — unaffected by the wider tokens existing', () => {
+  const dt = Temporal.PlainDateTime.from('2026-08-04T15:45:30.123456789');
+  assert.equal(format(dt, 'SSS'), '123');
+  assert.equal(parse('HH:mm:ss.SSS', '15:45:30.123').millisecond, 123);
 });
 
 test('yy pads single digit year-mod-100', () => {

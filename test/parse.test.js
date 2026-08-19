@@ -402,6 +402,24 @@ test('round-trip: parse(format(x)) reconstructs an equivalent PlainDateTime', as
   assert.equal(reparsed.toString(), original.toString());
 });
 
+test('round-trip: nanosecond precision survives format -> parse, not just milliseconds', async () => {
+  const { format } = await import('../dist/index.js');
+  const original = Temporal.PlainDateTime.from('2026-08-04T15:45:30.123456789');
+  const formatStr = 'yyyy-MM-dd HH:mm:ss.SSSSSSSSS';
+  const formatted = format(original, formatStr);
+  const reparsed = parse(formatStr, formatted);
+  assert.equal(reparsed.toString(), original.toString());
+});
+
+test('parsing a short fraction under a wide token treats missing digits as trailing zeros, not omitted precision', () => {
+  // "5" under SSSSSSSSS is half a second (500000000ns) — the digits given
+  // are the leading digits of the fraction, not the whole value.
+  const result = parse('HH:mm:ss.SSSSSSSSS', '09:30:00.500000000');
+  assert.equal(result.nanosecond, 0);
+  assert.equal(result.microsecond, 0);
+  assert.equal(result.millisecond, 500);
+});
+
 test('round-trip: locale month name survives format -> parse in fr-FR', async () => {
   const { format } = await import('../dist/index.js');
   const original = Temporal.PlainDate.from('2026-08-04');

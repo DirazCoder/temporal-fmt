@@ -80,6 +80,8 @@ interface Fields {
   minute?: number;
   second?: number;
   millisecond?: number;
+  microsecond?: number;
+  nanosecond?: number;
   timeZoneId?: string;
   weekdayExpected?: number;
   weekdayRaw?: string;
@@ -131,9 +133,19 @@ function applyGroup(fields: Fields, token: string, raw: string, locale: string, 
     case 'ss': case 's':
       assignField(fields, 'second', Number(raw));
       break;
-    case 'SSS':
-      assignField(fields, 'millisecond', Number(raw));
+    case 'S': case 'SS': case 'SSS': case 'SSSS': case 'SSSSS':
+    case 'SSSSSS': case 'SSSSSSS': case 'SSSSSSSS': case 'SSSSSSSSS': {
+      // The captured digits are the leading N digits of a nanosecond-of-second
+      // value, not the whole thing — "5" under SSSSSSSSS means 500000000ns
+      // (half a second), not 5ns. Right-padding to 9 digits before splitting
+      // is what makes that work; left-padding (or just Number(raw)) would
+      // read "5" as 5ns instead.
+      const nanoOfSecond = Number(raw.padEnd(9, '0'));
+      assignField(fields, 'millisecond', Math.floor(nanoOfSecond / 1_000_000));
+      assignField(fields, 'microsecond', Math.floor(nanoOfSecond / 1_000) % 1_000);
+      assignField(fields, 'nanosecond', nanoOfSecond % 1_000);
       break;
+    }
     case 'a': {
       // Matches case-insensitively (see pattern.ts's foldCase), so the
       // lookup here has to fold too, or "pm" would pass the regex and
@@ -349,7 +361,7 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
 
   const year = resolveYear(fields);
   const hour = resolveHour(fields, formatStr, locale);
-  const { month, day, minute, second, millisecond, timeZoneId, weekdayExpected, weekdayRaw, quarter } = fields;
+  const { month, day, minute, second, millisecond, microsecond, nanosecond, timeZoneId, weekdayExpected, weekdayRaw, quarter } = fields;
 
   const hasAnyDatePart = year !== undefined || month !== undefined || day !== undefined;
   const hasFullDate = year !== undefined && month !== undefined && day !== undefined;
@@ -383,7 +395,14 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
   }
 
   const temporal = getTemporal();
-  const timeFields = { hour: hour ?? 0, minute: minute ?? 0, second: second ?? 0, millisecond: millisecond ?? 0 };
+  const timeFields = {
+    hour: hour ?? 0,
+    minute: minute ?? 0,
+    second: second ?? 0,
+    millisecond: millisecond ?? 0,
+    microsecond: microsecond ?? 0,
+    nanosecond: nanosecond ?? 0,
+  };
   // omitted entirely for the default calendar (see resolveCalendar) so
   // construction stays plain ISO 8601 unless a caller's locale asks for
   // something else — Temporal calendars don't apply to time-only values.

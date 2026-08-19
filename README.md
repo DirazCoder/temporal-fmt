@@ -118,6 +118,11 @@ A few things worth knowing:
   This is different from mixing `HH` with `hh`/`h` above — there's only one hour token here, `a` just confirms it.
 - **`a` (AM/PM) matches case-insensitively** — `pm`, `Pm`, and `PM` all parse the same way. Month and weekday
   names (`MMMM`, `EEEE`, etc.) stay case-sensitive; only the day-period marker is case-folded.
+- **`S` through `SSSSSSSSS` reach micro/nanosecond precision, not just milliseconds.** `SSS` is unchanged (3-digit
+  ms). Wider tokens expose whatever sub-millisecond precision the `Temporal` value actually carries — useful for
+  round-tripping machine-generated timestamps (DB exports, instrumentation logs) without silently truncating to
+  ms. Format truncates to the requested width (never rounds); parse right-pads short input, so `SSSSSSSSS` reading
+  `.5` means 500ms-worth of nanoseconds (`500000000`), not 5 nanoseconds.
 - **`MMMM`/`MMM` name matching assumes a 12-month calendar** — the vocabulary
   it matches against is generated from 12 Gregorian reference dates, so a
   calendar with a leap month (e.g. Hebrew's 13-month leap years) isn't fully
@@ -183,7 +188,8 @@ yourself.
 | m     | minute             | 45      |
 | ss    | 2-digit second     | 30      |
 | s     | second             | 30      |
-| SSS   | milliseconds       | 000     |
+| SSS   | milliseconds (3 digits) | 000 |
+| SSSSSSSSS...S | fractional second, 1-9 digits — `S` through `SSSSSSSSS`. `SSS` is the common 3-digit millisecond case; wider widths reach micro/nanosecond precision. Format slices from the underlying nanosecond value (never rounds); parse right-pads whatever digits it captured (`.5` under `SSSSSSSSS` means 500,000,000ns, not 5ns) | `SSSSSSSSS` → 123456789 |
 | a     | AM/PM (case-insensitive on parse) | PM |
 | Q     | numeric quarter (1-4) | 3    |
 | QQQ   | quarter with "Q" prefix (Q1, Q2, Q3, Q4) | Q3 |

@@ -96,7 +96,15 @@ const NUMERIC_FRAGMENTS: Record<string, string> = {
   m: '(?:[1-5]\\d|[0-9])',
   ss: '(?:[0-5]\\d)',
   s: '(?:[1-5]\\d|[0-9])',
+  SSSSSSSSS: '\\d{9}',
+  SSSSSSSS: '\\d{8}',
+  SSSSSSS: '\\d{7}',
+  SSSSSS: '\\d{6}',
+  SSSSS: '\\d{5}',
+  SSSS: '\\d{4}',
   SSS: '\\d{3}',
+  SS: '\\d{2}',
+  S: '\\d',
   // Q is always a single digit 1-4 (no padding variant, so no width ambiguity
   // with adjacent digit tokens the way M/d/H/m/s have).
   Q: '[1-4]',
@@ -138,7 +146,8 @@ const YYYY_EXTENDED = '-?\\d{4,}';
 // whether a "yyyy" immediately before this token needs the exact-4-digit
 // fragment instead of the open-ended one.
 const DIGIT_LEADING_TOKENS = new Set([
-  'yyyy', 'yy', 'MM', 'M', 'dd', 'd', 'HH', 'H', 'hh', 'h', 'mm', 'm', 'ss', 's', 'SSS',
+  'yyyy', 'yy', 'MM', 'M', 'dd', 'd', 'HH', 'H', 'hh', 'h', 'mm', 'm', 'ss', 's',
+  'SSSSSSSSS', 'SSSSSSSS', 'SSSSSSS', 'SSSSSS', 'SSSSS', 'SSSS', 'SSS', 'SS', 'S',
 ]);
 
 export function tokenFragment(token: string, locale: string, nextToken?: string): string {
