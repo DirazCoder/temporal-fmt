@@ -66,6 +66,47 @@ test('mixing a 24-hour token with a 12-hour token throws when the values disagre
   assert.throws(() => parse('HH h a', '15 9 AM'));
 });
 
+// HH + a (no h) is a different case from the two tests above: only one
+// hour token is present, so there's no ambiguity about which one to
+// trust — "a" is treated as a cross-check on the value HH already gives,
+// not a second, competing hour field. A consistent pairing is accepted;
+// a contradictory one throws.
+test('HH combined with a: consistent pairing succeeds', () => {
+  const result = parse('HH:mm a', '13:05 PM');
+  assert.equal(result.hour, 13);
+});
+
+test('HH combined with a: contradictory pairing throws', () => {
+  assert.throws(
+    () => parse('HH:mm a', '01:05 PM'),
+    /contains a day period that contradicts the 24-hour value/
+  );
+});
+
+test('HH combined with a: contradictory pairing throws at the boundary hour too', () => {
+  // 12:xx is the other hour where AM/PM and a naive hour<12 check could
+  // disagree if the comparison were off by one — 12 is PM, not AM.
+  assert.throws(
+    () => parse('HH:mm a', '12:05 AM'),
+    /contains a day period that contradicts the 24-hour value/
+  );
+  assert.equal(parse('HH:mm a', '12:05 PM').hour, 12);
+});
+
+test('AM/PM marker is case-insensitive by default', () => {
+  assert.equal(parse('h:mm a', '3:45 pm').hour, 15);
+  assert.equal(parse('h:mm a', '3:45 Pm').hour, 15);
+  assert.equal(parse('h:mm a', '3:45 am').hour, 3);
+});
+
+test('HH combined with a: case-insensitive marker still cross-checks correctly', () => {
+  assert.equal(parse('HH:mm a', '13:05 pm').hour, 13);
+  assert.throws(
+    () => parse('HH:mm a', '01:05 pm'),
+    /contains a day period that contradicts the 24-hour value/
+  );
+});
+
 test('locale month name reverse lookup, default en-US', () => {
   const result = parse('MMMM d, yyyy', 'August 4, 2026');
   assert.equal(result.toString(), Temporal.PlainDate.from('2026-08-04').toString());
@@ -300,8 +341,11 @@ test('weekday name lookup is case-sensitive too', () => {
   assert.throws(() => parse('EEEE, yyyy-MM-dd', 'tuesday, 2026-08-04'), /no valid pattern matches/);
 });
 
-test('AM/PM marker is case-sensitive — lowercase "pm" does not match default en-US vocab', () => {
-  assert.throws(() => parse('h:mm a', '3:45 pm'), /no valid pattern matches/);
+test('AM/PM marker matching is case-insensitive for the default en-US vocab', () => {
+  assert.equal(parse('h:mm a', '3:45 pm').hour, 15);
+  assert.equal(parse('h:mm a', '3:45 Pm').hour, 15);
+  assert.equal(parse('h:mm a', '3:45 AM').hour, 3);
+  assert.equal(parse('h:mm a', '3:45 am').hour, 3);
 });
 
 test('ar-EG day-period marker round-trips through parse', () => {

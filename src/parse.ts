@@ -135,7 +135,10 @@ function applyGroup(fields: Fields, token: string, raw: string, locale: string, 
       assignField(fields, 'millisecond', Number(raw));
       break;
     case 'a': {
-      const periodIndex = vocab.dayPeriod.indexOf(raw);
+      // Matches case-insensitively (see pattern.ts's foldCase), so the
+      // lookup here has to fold too, or "pm" would pass the regex and
+      // then fail this indexOf against the exact-case vocab.
+      const periodIndex = vocab.dayPeriod.findIndex((p) => p.toLowerCase() === raw.toLowerCase());
       if (periodIndex < 0) throw new Error(`temporal-fmt: unknown day period "${raw}" for locale "${locale}".`);
       assignField(fields, 'dayPeriodRaw', raw);
       assignField(fields, 'isPM', periodIndex === 1);
@@ -208,7 +211,7 @@ function resolveHour(fields: Fields, formatStr: string, locale: string): number 
     if (fields.dayPeriodRaw !== undefined) {
       const vocab = getLocaleVocab(locale);
       const expected = fields.hour < 12 ? vocab.dayPeriod[0] : vocab.dayPeriod[1];
-      if (fields.dayPeriodRaw !== expected) {
+      if (fields.dayPeriodRaw.toLowerCase() !== expected?.toLowerCase()) {
         throw new Error(
           `temporal-fmt: format string "${formatStr}" contains a day period that contradicts the 24-hour value.`
         );

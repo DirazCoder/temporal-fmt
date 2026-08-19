@@ -4,8 +4,23 @@ function escapeRegExp(literal: string): string {
   return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function alternation(values: string[]): string {
-  return `(?:${values.map(escapeRegExp).join('|')})`;
+function alternation(values: string[], caseInsensitive = false): string {
+  const escaped = values.map(escapeRegExp);
+  if (!caseInsensitive) return `(?:${escaped.join('|')})`;
+  // JS regex has no per-group inline case-insensitive flag, and this
+  // fragment gets embedded in one larger pattern built with a single flag
+  // set — so case-folding here means listing both cases explicitly rather
+  // than relying on a flag.
+  return `(?:${escaped.map(foldCase).join('|')})`;
+}
+
+// Expands "PM" into a character-class-per-letter pattern matching any
+// casing of it ("[Pp][Mm]"), so "pm", "Pm", "PM" all match the same
+// alternative. Only used for the day-period token (see the 'a' case
+// below) — not applied to month/weekday names, where case-folding across
+// scripts is a different and riskier problem this doesn't need to solve.
+function foldCase(value: string): string {
+  return value.replace(/[a-zA-Z]/g, (ch) => `[${ch.toLowerCase()}${ch.toUpperCase()}]`);
 }
 
 // Every real IANA zone id is letters/digits/'_'/'+'/'-' segments joined by
@@ -153,7 +168,12 @@ export function tokenFragment(token: string, locale: string, nextToken?: string)
     case 'MMM': return alternation(vocab.monthShort);
     case 'EEEE': return alternation(vocab.weekdayLong);
     case 'EEE': return alternation(vocab.weekdayShort);
-    case 'a': return alternation(vocab.dayPeriod);
+    // Case-insensitive on purpose: "pm"/"Pm"/"PM" all mean the same thing,
+    // and unlike the Md-glue ambiguity elsewhere in this file, there's no
+    // second valid reading to guess wrong — so rejecting on case buys no
+    // correctness, only friction against real-world data (mixed-case CSV
+    // exports, lowercase log timestamps).
+    case 'a': return alternation(vocab.dayPeriod, true);
     case 'zzz': return getTimeZoneFragment();
     default:
       throw new Error(`temporal-fmt: unknown token "${token}"`);
