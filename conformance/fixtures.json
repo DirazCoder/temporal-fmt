@@ -1,0 +1,269 @@
+{
+  "$schema": "./schema.md",
+  "name": "temporal-token-format-conformance",
+  "version": 1,
+  "updated": "2026-08-19",
+  "description": "Portable conformance cases for token-based format/parse of TC39 Temporal values. Every case is data, not code, so any library can be run against it. See README.md in this folder.",
+  "opinionatedFlag": "A case marked \"opinionated\": true encodes a design choice or a known limitation of temporal-format-parse, not a fact about dates. Another library can disagree with it and still be correct. Exclude these when scoring anything other than temporal-format-parse.",
+  "groups": {
+    "dst": "Daylight-saving gaps and overlaps in America/New_York.",
+    "invalid": "Inputs that must be rejected rather than silently corrected.",
+    "extreme-years": "Year 0, year 1, four-digit maximum, and the edges of Temporal's supported range.",
+    "offsets": "UTC offset spellings: ZZ, X, XX, XXX, Z-for-UTC, half-hour zones, sub-minute historical offsets.",
+    "zones": "IANA time-zone identity (VV) and what a ZonedDateTime needs to exist.",
+    "fraction": "Fractional seconds at 1 through 9 digits.",
+    "calendar": "The documented non-ISO calendar limitation.",
+    "shape": "Pattern/input shape: adjacent numeric tokens, literals, exact-width matching."
+  },
+  "cases": [
+    { "id": "dst-gap-offset-before-rejected", "group": "dst", "op": "parse",
+      "input": "2026-03-08T02:30-05:00[America/New_York]", "pattern": "yyyy-MM-dd'T'HH:mmZZ'['VV']'", "target": "ZonedDateTime",
+      "expect": { "throws": "ParseError" },
+      "why": "02:30 does not exist on the spring-forward day, so no offset can be valid for it." },
+
+    { "id": "dst-gap-offset-after-rejected", "group": "dst", "op": "parse",
+      "input": "2026-03-08T02:30-04:00[America/New_York]", "pattern": "yyyy-MM-dd'T'HH:mmZZ'['VV']'", "target": "ZonedDateTime",
+      "expect": { "throws": "ParseError" },
+      "why": "Same missing clock time; the post-transition offset does not rescue it." },
+
+    { "id": "dst-gap-no-offset-shifts-forward", "opinionated": true, "opinion": "Follows Temporal's default 'compatible' disambiguation. A library may reasonably reject a nonexistent clock time instead.", "group": "dst", "op": "parse",
+      "input": "2026-03-08T02:30[America/New_York]", "pattern": "yyyy-MM-dd'T'HH:mm'['VV']'", "target": "ZonedDateTime",
+      "expect": { "value": "2026-03-08T03:30:00-04:00[America/New_York]" },
+      "why": "With no offset to check against, Temporal's default 'compatible' disambiguation moves a gap time forward." },
+
+    { "id": "dst-overlap-no-offset-picks-first", "opinionated": true, "opinion": "Follows Temporal's default 'compatible' disambiguation, which picks the earlier of two possible instants.", "group": "dst", "op": "parse",
+      "input": "2026-11-01T01:30[America/New_York]", "pattern": "yyyy-MM-dd'T'HH:mm'['VV']'", "target": "ZonedDateTime",
+      "expect": { "value": "2026-11-01T01:30:00-04:00[America/New_York]" },
+      "why": "01:30 happens twice on the fall-back day; without an offset the earlier one is chosen." },
+
+    { "id": "dst-overlap-offset-selects-first", "group": "dst", "op": "parse",
+      "input": "2026-11-01T01:30-04:00[America/New_York]", "pattern": "yyyy-MM-dd'T'HH:mmZZ'['VV']'", "target": "ZonedDateTime",
+      "expect": { "value": "2026-11-01T01:30:00-04:00[America/New_York]" },
+      "why": "The offset disambiguates the repeated hour. This is why ZZ+VV is the round-trip-safe pattern." },
+
+    { "id": "dst-overlap-offset-selects-second", "group": "dst", "op": "parse",
+      "input": "2026-11-01T01:30-05:00[America/New_York]", "pattern": "yyyy-MM-dd'T'HH:mmZZ'['VV']'", "target": "ZonedDateTime",
+      "expect": { "value": "2026-11-01T01:30:00-05:00[America/New_York]" },
+      "why": "Same wall clock, other side of the transition — a genuinely different instant." },
+
+    { "id": "dst-overlap-roundtrip-second-instant", "group": "dst", "op": "roundtrip",
+      "from": { "type": "ZonedDateTime", "iso": "2026-11-01T01:30-05:00[America/New_York]" },
+      "pattern": "yyyy-MM-dd'T'HH:mmZZ'['VV']'", "target": "ZonedDateTime",
+      "expect": { "output": "2026-11-01T01:30-05:00[America/New_York]", "equals": true },
+      "why": "The ambiguous hour must survive format -> parse as the same instant." },
+
+    { "id": "dst-offset-not-in-zone-rejected", "group": "dst", "op": "parse",
+      "input": "2026-07-13T09:30-07:00[America/New_York]", "pattern": "yyyy-MM-dd'T'HH:mmZZ'['VV']'", "target": "ZonedDateTime",
+      "expect": { "throws": "ParseError" },
+      "why": "New York is never at -07:00. A disagreeing offset and zone must be an error, not a silent winner." },
+
+    { "id": "invalid-feb-30", "group": "invalid", "op": "parse",
+      "input": "2026-02-30", "pattern": "yyyy-MM-dd", "target": "PlainDate",
+      "expect": { "throws": "ParseError" }, "why": "Must not roll over into March." },
+
+    { "id": "invalid-feb-29-common-year", "group": "invalid", "op": "parse",
+      "input": "2026-02-29", "pattern": "yyyy-MM-dd", "target": "PlainDate",
+      "expect": { "throws": "ParseError" }, "why": "2026 is not a leap year." },
+
+    { "id": "valid-feb-29-leap-year", "group": "invalid", "op": "parse",
+      "input": "2024-02-29", "pattern": "yyyy-MM-dd", "target": "PlainDate",
+      "expect": { "value": "2024-02-29" }, "why": "The leap day itself must be accepted." },
+
+    { "id": "invalid-month-zero", "group": "invalid", "op": "parse",
+      "input": "2026-00-10", "pattern": "yyyy-MM-dd", "target": "PlainDate",
+      "expect": { "throws": "ParseError" }, "why": "Months are 1-based." },
+
+    { "id": "invalid-month-13", "group": "invalid", "op": "parse",
+      "input": "2026-13-10", "pattern": "yyyy-MM-dd", "target": "PlainDate",
+      "expect": { "throws": "ParseError" }, "why": "Must not roll into the next year." },
+
+    { "id": "invalid-day-zero", "group": "invalid", "op": "parse",
+      "input": "2026-07-00", "pattern": "yyyy-MM-dd", "target": "PlainDate",
+      "expect": { "throws": "ParseError" }, "why": "Days are 1-based." },
+
+    { "id": "invalid-hour-24", "group": "invalid", "op": "parse",
+      "input": "24:00", "pattern": "HH:mm", "target": "PlainTime",
+      "expect": { "throws": "ParseError" }, "why": "24:00 is an ISO end-of-day spelling, not a wall-clock time." },
+
+    { "id": "invalid-minute-60", "group": "invalid", "op": "parse",
+      "input": "10:60", "pattern": "HH:mm", "target": "PlainTime",
+      "expect": { "throws": "ParseError" }, "why": "Minutes are 0..59." },
+
+    { "id": "invalid-leap-second", "group": "invalid", "op": "parse",
+      "input": "10:00:60", "pattern": "HH:mm:ss", "target": "PlainTime",
+      "expect": { "throws": "ParseError" }, "why": "Temporal has no leap seconds; :60 must be rejected, not clamped to :59." },
+
+    { "id": "invalid-trailing-characters", "group": "invalid", "op": "parse",
+      "input": "2026-07-13x", "pattern": "yyyy-MM-dd", "target": "PlainDate",
+      "expect": { "throws": "ParseError" }, "why": "The whole input must be consumed; no partial match." },
+
+    { "id": "invalid-unpadded-under-padded-token", "group": "invalid", "op": "parse",
+      "input": "2026-7-13", "pattern": "yyyy-MM-dd", "target": "PlainDate",
+      "expect": { "throws": "ParseError" }, "why": "MM means exactly two digits. Strictness is the whole point." },
+
+    { "id": "invalid-missing-required-field", "group": "invalid", "op": "parse",
+      "input": "07/2026", "pattern": "MM/yyyy", "target": "PlainDate",
+      "expect": { "throws": "ParseError" }, "why": "A PlainDate needs a day; it must not default to the 1st." },
+
+    { "id": "extreme-year-0000", "group": "extreme-years", "op": "parse",
+      "input": "0000-01-01", "pattern": "yyyy-MM-dd", "target": "PlainDate",
+      "expect": { "value": "0000-01-01" }, "why": "ISO year 0 exists (1 BCE) and must not be treated as missing." },
+
+    { "id": "extreme-year-0001-roundtrip", "group": "extreme-years", "op": "roundtrip",
+      "from": { "type": "PlainDate", "iso": "0001-01-01" }, "pattern": "yyyy-MM-dd", "target": "PlainDate",
+      "expect": { "output": "0001-01-01", "equals": true }, "why": "yyyy must zero-pad, not print '1'." },
+
+    { "id": "extreme-year-9999-roundtrip", "group": "extreme-years", "op": "roundtrip",
+      "from": { "type": "PlainDate", "iso": "9999-12-31" }, "pattern": "yyyy-MM-dd", "target": "PlainDate",
+      "expect": { "output": "9999-12-31", "equals": true }, "why": "Largest year that fits in four digits." },
+
+    { "id": "extreme-year-max-supported", "group": "extreme-years", "op": "parse",
+      "input": "275760-09-13", "pattern": "y-MM-dd", "target": "PlainDate",
+      "expect": { "value": "+275760-09-13" }, "why": "The last date Temporal supports." },
+
+    { "id": "extreme-year-past-max-rejected", "group": "extreme-years", "op": "parse",
+      "input": "275761-01-01", "pattern": "y-MM-dd", "target": "PlainDate",
+      "expect": { "throws": "ParseError" }, "why": "One year past the supported range must be an error, not a wrap-around." },
+
+    { "id": "extreme-year-negative", "group": "extreme-years", "op": "parse",
+      "input": "-000001-01-01", "pattern": "y-MM-dd", "target": "PlainDate",
+      "expect": { "value": "-000001-01-01" }, "why": "y accepts a leading minus for years before ISO year 0." },
+
+    { "id": "extreme-year-two-digit-pivot-low", "opinionated": true, "opinion": "The 00-68 / 69-99 split is the ECMAScript legacy convention, not a rule about dates. A library may choose a different pivot or refuse yy entirely.", "group": "extreme-years", "op": "parse",
+      "input": "68-01", "pattern": "yy-MM", "target": "PlainYearMonth",
+      "expect": { "value": "2068-01" }, "why": "00..68 maps to 2000..2068 (the ECMAScript legacy pivot)." },
+
+    { "id": "extreme-year-two-digit-pivot-high", "opinionated": true, "opinion": "Same as the low-pivot case: a convention, not a fact.", "group": "extreme-years", "op": "parse",
+      "input": "69-01", "pattern": "yy-MM", "target": "PlainYearMonth",
+      "expect": { "value": "1969-01" }, "why": "69..99 maps to 1969..1999. The boundary is the interesting part." },
+
+    { "id": "offset-ZZ-format-negative", "group": "offsets", "op": "format",
+      "from": { "type": "ZonedDateTime", "iso": "2026-07-13T09:30-04:00[America/New_York]" }, "pattern": "ZZ",
+      "expect": { "output": "-04:00" }, "why": "ZZ is always signed HH:MM and never emits Z." },
+
+    { "id": "offset-ZZ-format-utc-not-Z", "group": "offsets", "op": "format",
+      "from": { "type": "ZonedDateTime", "iso": "2026-07-13T09:30+00:00[UTC]" }, "pattern": "ZZ",
+      "expect": { "output": "+00:00" }, "why": "The difference between ZZ and the X family." },
+
+    { "id": "offset-X-format-utc-is-Z", "group": "offsets", "op": "format",
+      "from": { "type": "ZonedDateTime", "iso": "2026-07-13T09:30+00:00[UTC]" }, "pattern": "X",
+      "expect": { "output": "Z" }, "why": "X renders UTC as the literal Z." },
+
+    { "id": "offset-X-format-whole-hour", "group": "offsets", "op": "format",
+      "from": { "type": "ZonedDateTime", "iso": "2026-07-13T09:30-04:00[America/New_York]" }, "pattern": "X",
+      "expect": { "output": "-04" }, "why": "X is hours-only when the minutes are zero." },
+
+    { "id": "offset-X-widens-for-half-hour-zone", "group": "offsets", "op": "format",
+      "from": { "type": "ZonedDateTime", "iso": "2026-07-13T09:30+05:30[Asia/Kolkata]" }, "pattern": "X",
+      "expect": { "output": "+0530" }, "why": "Hours-only would silently lose India's 30 minutes, so X widens." },
+
+    { "id": "offset-XX-format-half-hour-zone", "group": "offsets", "op": "format",
+      "from": { "type": "ZonedDateTime", "iso": "2026-07-13T09:30+05:30[Asia/Kolkata]" }, "pattern": "XX",
+      "expect": { "output": "+0530" }, "why": "XX is always four digits, no colon." },
+
+    { "id": "offset-XXX-format-half-hour-zone", "group": "offsets", "op": "format",
+      "from": { "type": "ZonedDateTime", "iso": "2026-07-13T09:30+05:30[Asia/Kolkata]" }, "pattern": "XXX",
+      "expect": { "output": "+05:30" }, "why": "XXX is always signed HH:MM." },
+
+    { "id": "offset-X-parse-accepts-Z", "group": "offsets", "op": "parse",
+      "input": "2026-07-13T09:30Z[UTC]", "pattern": "yyyy-MM-dd'T'HH:mmX'['VV']'", "target": "ZonedDateTime",
+      "expect": { "value": "2026-07-13T09:30:00+00:00[UTC]" }, "why": "Z must normalise to +00:00." },
+
+    { "id": "offset-X-parse-accepts-four-digit", "group": "offsets", "op": "parse",
+      "input": "2026-07-13T09:30+0530[Asia/Kolkata]", "pattern": "yyyy-MM-dd'T'HH:mmX'['VV']'", "target": "ZonedDateTime",
+      "expect": { "value": "2026-07-13T09:30:00+05:30[Asia/Kolkata]" }, "why": "Parsing accepts every form the same token can render." },
+
+    { "id": "offset-sub-minute-rejected-by-X", "group": "offsets", "op": "format",
+      "from": { "type": "ZonedDateTime", "iso": "1880-07-13T09:30[America/New_York]" }, "pattern": "X",
+      "expect": { "throws": "FormatError" }, "why": "Pre-1900 local mean time is -04:56:02; X cannot hold seconds, so it must refuse rather than truncate." },
+
+    { "id": "offset-sub-minute-passes-through-ZZ", "group": "offsets", "op": "format",
+      "from": { "type": "ZonedDateTime", "iso": "1880-07-13T09:30[America/New_York]" }, "pattern": "ZZ",
+      "expect": { "output": "-04:56:02" }, "why": "ZZ passes the real offset through, seconds included." },
+
+    { "id": "zone-VV-roundtrip", "group": "zones", "op": "roundtrip",
+      "from": { "type": "ZonedDateTime", "iso": "2026-07-13T09:30-04:00[America/New_York]" },
+      "pattern": "yyyy-MM-dd'T'HH:mmZZ'['VV']'", "target": "ZonedDateTime",
+      "expect": { "output": "2026-07-13T09:30-04:00[America/New_York]", "equals": true },
+      "why": "Zone identity, not just the offset, must survive." },
+
+    { "id": "zone-required-for-zoneddatetime", "group": "zones", "op": "parse",
+      "input": "2026-07-13T09:30-04:00", "pattern": "yyyy-MM-dd'T'HH:mmZZ", "target": "ZonedDateTime",
+      "expect": { "throws": "ParseError" }, "why": "An offset does not identify a zone; without VV there is no ZonedDateTime." },
+
+    { "id": "zone-utc-roundtrip", "group": "zones", "op": "roundtrip",
+      "from": { "type": "ZonedDateTime", "iso": "2026-07-13T09:30+00:00[UTC]" },
+      "pattern": "yyyy-MM-dd'T'HH:mmZZ'['VV']'", "target": "ZonedDateTime",
+      "expect": { "output": "2026-07-13T09:30+00:00[UTC]", "equals": true }, "why": "UTC is a zone like any other here." },
+
+    { "id": "zone-offset-token-rejected-on-plain-type", "group": "zones", "op": "parse",
+      "input": "20260713093000Z", "pattern": "yyyyMMddHHmmssX", "target": "PlainDateTime",
+      "expect": { "throws": "ParseError" }, "why": "A PlainDateTime has no offset field; the token must be refused, not ignored." },
+
+    { "id": "fraction-1-digit", "group": "fraction", "op": "parse", "input": "09:30:00.1", "pattern": "HH:mm:ss.S", "target": "PlainTime", "expect": { "value": "09:30:00.1" } },
+    { "id": "fraction-2-digits", "group": "fraction", "op": "parse", "input": "09:30:00.12", "pattern": "HH:mm:ss.SS", "target": "PlainTime", "expect": { "value": "09:30:00.12" } },
+    { "id": "fraction-3-digits-ms", "group": "fraction", "op": "parse", "input": "09:30:00.123", "pattern": "HH:mm:ss.SSS", "target": "PlainTime", "expect": { "value": "09:30:00.123" } },
+    { "id": "fraction-4-digits", "group": "fraction", "op": "parse", "input": "09:30:00.1234", "pattern": "HH:mm:ss.SSSS", "target": "PlainTime", "expect": { "value": "09:30:00.1234" } },
+    { "id": "fraction-5-digits", "group": "fraction", "op": "parse", "input": "09:30:00.12345", "pattern": "HH:mm:ss.SSSSS", "target": "PlainTime", "expect": { "value": "09:30:00.12345" } },
+    { "id": "fraction-6-digits-us", "group": "fraction", "op": "parse", "input": "09:30:00.123456", "pattern": "HH:mm:ss.SSSSSS", "target": "PlainTime", "expect": { "value": "09:30:00.123456" } },
+    { "id": "fraction-7-digits", "group": "fraction", "op": "parse", "input": "09:30:00.1234567", "pattern": "HH:mm:ss.SSSSSSS", "target": "PlainTime", "expect": { "value": "09:30:00.1234567" } },
+    { "id": "fraction-8-digits", "group": "fraction", "op": "parse", "input": "09:30:00.12345678", "pattern": "HH:mm:ss.SSSSSSSS", "target": "PlainTime", "expect": { "value": "09:30:00.12345678" } },
+    { "id": "fraction-9-digits-ns", "group": "fraction", "op": "parse", "input": "09:30:00.123456789", "pattern": "HH:mm:ss.SSSSSSSSS", "target": "PlainTime", "expect": { "value": "09:30:00.123456789" } },
+
+    { "id": "fraction-truncates-on-format", "group": "fraction", "op": "format",
+      "from": { "type": "PlainTime", "iso": "09:30:00.123456789" }, "pattern": "HH:mm:ss.SSS",
+      "expect": { "output": "09:30:00.123" }, "why": "Asking for 3 digits of a 9-digit value keeps the leading 3." },
+
+    { "id": "fraction-pads-on-format", "group": "fraction", "op": "format",
+      "from": { "type": "PlainTime", "iso": "09:30:00.5" }, "pattern": "HH:mm:ss.SSSSSSSSS",
+      "expect": { "output": "09:30:00.500000000" }, "why": "Half a second is 500000000 nanoseconds, not 5." },
+
+    { "id": "fraction-ns-zoned-roundtrip", "group": "fraction", "op": "roundtrip",
+      "from": { "type": "ZonedDateTime", "iso": "2026-07-13T09:30:00.123456789-04:00[America/New_York]" },
+      "pattern": "yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSSZZ'['VV']'", "target": "ZonedDateTime",
+      "expect": { "output": "2026-07-13T09:30:00.123456789-04:00[America/New_York]", "equals": true },
+      "why": "The full-precision case a JS Date cannot express at all." },
+
+    { "id": "calendar-non-iso-formats-own-fields", "opinionated": true, "opinion": "Documents a LIMITATION of this library. A calendar-aware library will behave differently and is not wrong to.", "group": "calendar", "op": "format",
+      "from": { "type": "PlainDate", "iso": "2026-07-13", "calendar": "hebrew" }, "pattern": "yyyy-MM-dd",
+      "expect": { "output": "5786-10-28" }, "why": "Documented limitation: format prints the value's own calendar fields." },
+
+    { "id": "calendar-parse-always-iso", "opinionated": true, "opinion": "Documents a LIMITATION of this library: there is no calendar token, so a non-ISO round trip is lossy here.", "group": "calendar", "op": "parse",
+      "input": "5786-10-28", "pattern": "yyyy-MM-dd", "target": "PlainDate",
+      "expect": { "value": "5786-10-28", "calendar": "iso8601" },
+      "why": "Documented limitation: there is no calendar token, so a non-ISO round trip is lossy." },
+
+    { "id": "shape-adjacent-padded-tokens", "group": "shape", "op": "roundtrip",
+      "from": { "type": "PlainDate", "iso": "2026-07-13" }, "pattern": "yyyyMMdd", "target": "PlainDate",
+      "expect": { "output": "20260713", "equals": true }, "why": "Fixed widths make separator-less patterns unambiguous." },
+
+    { "id": "shape-adjacent-datetime-tokens", "group": "shape", "op": "roundtrip",
+      "from": { "type": "PlainDateTime", "iso": "2026-07-13T09:30:00" }, "pattern": "yyyyMMddHHmmss", "target": "PlainDateTime",
+      "expect": { "output": "20260713093000", "equals": true }, "why": "The LDAP / mainframe shape." },
+
+    { "id": "shape-quoted-literal-letter", "group": "shape", "op": "parse",
+      "input": "20260713T093000", "pattern": "yyyyMMdd'T'HHmmss", "target": "PlainDateTime",
+      "expect": { "value": "2026-07-13T09:30:00" }, "why": "A quoted letter is a literal, not a token." },
+
+    { "id": "shape-twelve-hour-roundtrip", "group": "shape", "op": "roundtrip",
+      "from": { "type": "PlainTime", "iso": "13:05:00" }, "pattern": "h:mm a", "target": "PlainTime",
+      "expect": { "output": "1:05 PM", "equals": true }, "why": "12-hour clock with the AM/PM marker." },
+
+    { "id": "shape-midnight-is-12-am", "group": "shape", "op": "format",
+      "from": { "type": "PlainTime", "iso": "00:00:00" }, "pattern": "h:mm a",
+      "expect": { "output": "12:00 AM" }, "why": "The classic off-by-twelve bug." },
+
+    { "id": "shape-noon-is-12-pm", "group": "shape", "op": "format",
+      "from": { "type": "PlainTime", "iso": "12:00:00" }, "pattern": "h:mm a",
+      "expect": { "output": "12:00 PM" }, "why": "The other half of the same bug." },
+
+    { "id": "shape-mixing-H-and-a-rejected", "opinionated": true, "opinion": "This library refuses to mix H with h/a outright. temporal-fmt cross-checks them instead and makes the better argument: unambiguous input like \"13:05 PM\" should not be rejected merely for being redundant, and only the contradictory case (\"01:05 PM\") throws. Both ship tests for their choice; neither is wrong.", "group": "shape", "op": "parse",
+      "input": "13:05 PM", "pattern": "HH:mm a", "target": "PlainTime",
+      "expect": { "throws": "InvalidPatternError" }, "why": "H and a describe the same field two ways; the pattern is refused rather than silently resolved." },
+
+    { "id": "shape-lowercase-am-pm-accepted", "group": "shape", "op": "parse",
+      "input": "1:05 pm", "pattern": "h:mm a", "target": "PlainTime",
+      "expect": { "value": "13:05:00" },
+      "why": "Real data is inconsistently cased, and there is no ambiguity to guess wrong on. Cross-checked: temporal-fmt reached the same behaviour independently in 0.8.5." }
+  ]
+}
