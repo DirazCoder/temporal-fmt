@@ -113,6 +113,11 @@ A few things worth knowing:
   - this is an opinionated tradeoff but ensures `yy` is deterministic without an external date reference
 - **`hh`/`h` (12-hour) without an `a` token throws** — same if a format string mixes `HH`/`H` with `hh`/`h`,
   even when both agree on the same hour. `parse` won't guess which one is authoritative; pick one.
+- **`HH`/`H` combined with `a` is allowed, and cross-checked** — `parse('HH:mm a', '13:05 PM')` succeeds since
+  13:05 can only mean PM, but `parse('HH:mm a', '01:05 PM')` throws: the day period contradicts the hour.
+  This is different from mixing `HH` with `hh`/`h` above — there's only one hour token here, `a` just confirms it.
+- **`a` (AM/PM) matches case-insensitively** — `pm`, `Pm`, and `PM` all parse the same way. Month and weekday
+  names (`MMMM`, `EEEE`, etc.) stay case-sensitive; only the day-period marker is case-folded.
 - **`MMMM`/`MMM` name matching assumes a 12-month calendar** — the vocabulary
   it matches against is generated from 12 Gregorian reference dates, so a
   calendar with a leap month (e.g. Hebrew's 13-month leap years) isn't fully
@@ -179,7 +184,7 @@ yourself.
 | ss    | 2-digit second     | 30      |
 | s     | second             | 30      |
 | SSS   | milliseconds       | 000     |
-| a     | AM/PM              | PM      |
+| a     | AM/PM (case-insensitive on parse) | PM |
 | Q     | numeric quarter (1-4) | 3    |
 | QQQ   | quarter with "Q" prefix (Q1, Q2, Q3, Q4) | Q3 |
 | ww    | ISO 8601 week (01-53), format-only | 32 |
