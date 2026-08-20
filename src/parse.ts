@@ -525,18 +525,20 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
   let result: unknown;
   try {
     if (timeZoneId !== undefined) {
-      // zzz wins for the construction-time zone when both zzz and an
-      // offset token are present. Without an explicit offset, Temporal
-      // resolves a repeated wall-clock time (DST fall-back) to the first
-      // occurrence no matter what the offset token says, so an input
-      // naming the second occurrence would falsely look contradictory.
-      // Passing offsetString here with offset: 'reject' makes Temporal
-      // pick the occurrence the input actually specifies, and throw only
-      // when the offset matches neither.
-      const zoneOptions: Temporal.ZonedDateTimeFromOptions = {
-        overflow: 'reject',
-        offset: offsetString !== undefined ? 'reject' : 'prefer',
-      };
+      // offset: 'prefer' never throws on a mismatch — it just falls back to
+      // the zone's real offset at this instant, silently overriding
+      // whatever the offset token said. That's also what resolves a
+      // repeated wall-clock time (DST fall-back): without an explicit
+      // offset, Temporal defaults to the first occurrence, so passing the
+      // token's offset here is what lets a second-occurrence input resolve
+      // to the second occurrence instead of always falling back to the
+      // first. Either way, "prefer" can't be used to detect disagreement —
+      // that's checked explicitly below, once we have a real ZonedDateTime
+      // to compare against, instead of relying on the wording of whatever
+      // error Temporal's active implementation happens to throw (that
+      // wording isn't part of the spec and differs between the native
+      // Temporal global and userland polyfills).
+      const zoneOptions: Temporal.ZonedDateTimeFromOptions = { overflow: 'reject', offset: 'prefer' };
       result = temporal.ZonedDateTime.from(
         {
           year: year!, month: month!, day: day!, ...timeFields, ...calendarField,
@@ -545,6 +547,40 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
         },
         zoneOptions
       );
+      if (offsetString !== undefined) {
+        // 'prefer' silently rewrites the wall-clock time itself when the
+        // input falls in a DST gap (the time never occurred, so there's
+        // no instant to prefer toward) — it doesn't just pick a
+        // different offset for the same clock time, the way it does for
+        // an overlap. Checking offsetString alone can't tell "gap,
+        // silently moved" apart from "overlap, correctly resolved,"
+        // since both can produce an actualOffset that differs from what
+        // was parsed. Comparing the wall-clock fields catches the gap
+        // case: they can only drift from the parsed input if Temporal
+        // moved the clock time to escape the gap.
+        //
+        // Only checked when an offset token was given: with no offset
+        // token to disagree with, a gap shifting forward is the
+        // documented, wanted behavior (there's nothing to reject against).
+        const zdt = result as Temporal.ZonedDateTime;
+        const wallClockShifted =
+          zdt.hour !== timeFields.hour ||
+          zdt.minute !== timeFields.minute ||
+          zdt.second !== timeFields.second;
+        if (wallClockShifted) {
+          throw new Error(
+            `"${timeZoneId}" has no such wall-clock time on this date — it falls in a DST gap, ` +
+            `not an ambiguous or valid instant.`
+          );
+        }
+        const actualOffset = zdt.offset;
+        if (actualOffset !== offsetString) {
+          throw new Error(
+            `has both a "zzz" zone (${timeZoneId}) and an offset token (${offsetString}), ` +
+            `but the zone's actual offset at this date/time is ${actualOffset}, not ${offsetString}.`
+          );
+        }
+      }
     } else if (offsetString !== undefined) {
       // Pattern had an offset token but no zzz. Use the offset string
       // directly as the timeZone — Temporal accepts a fixed-offset
@@ -561,22 +597,6 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
       result = temporal.PlainTime.from(timeFields, reject);
     }
   } catch (err) {
-    // offset: 'reject' throws Temporal's generic "Invalid TimeZone offset"
-    // when zzz and an offset token disagree, which doesn't say what the
-    // zone's actual offset was or what the input claimed. Match on that
-    // specific message rather than the broader zzz+offset branch, since
-    // this same try also throws for unrelated reasons (bad calendar date,
-    // unknown IANA name) that already have their own clear message.
-    const isOffsetMismatch =
-      timeZoneId !== undefined &&
-      offsetString !== undefined &&
-      (err as Error).message.includes('Invalid TimeZone offset');
-    if (isOffsetMismatch) {
-      throw new Error(
-        `temporal-fmt: "${input}" has both a "zzz" zone (${timeZoneId}) and an offset token (${offsetString}), ` +
-        `but the zone's actual offset at this date/time doesn't match ${offsetString}.`
-      );
-    }
     throw new Error(
       `temporal-fmt: "${input}" doesn't describe a valid date/time for format "${formatStr}": ` +
       `${(err as Error).message}`
