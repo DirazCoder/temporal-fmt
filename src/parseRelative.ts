@@ -63,6 +63,122 @@ function normalizeForMatch(s: string): string {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
+// Standard Levenshtein edit distance (insert/delete/substitute, cost 1
+// each). Used only by the opt-in fuzzy layer below — the exact matcher
+// pass never calls this. Iterative DP over two rows, not the full
+// matrix, since only the previous row is ever needed.
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  let prev = new Array(b.length + 1);
+  let curr = new Array(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(
+        prev[j] + 1,      // deletion
+        curr[j - 1] + 1,  // insertion
+        prev[j - 1] + cost, // substitution
+      );
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[b.length];
+}
+
+// Max edit distance a fuzzy correction is allowed to bridge. 2 covers
+// the common single-finger-slip and single-transposed-letter typo cases
+// ("tommorow" is distance 1 from "tomorrow"; "tuesady" is distance 2
+// from "tuesday" — a transposition costs 2 under simple Levenshtein,
+// which doesn't special-case adjacent-swap as a single edit) without
+// opening the door to correcting a word into something only vaguely
+// similar. Deliberately conservative — this is a typo-tolerance layer,
+// not a "guess what they meant" layer; the library's whole design
+// philosophy elsewhere (parse()'s strict-by-default ambiguity handling,
+// the lenient opt-in) is to bound how much guessing is allowed and make
+// the caller ask for it explicitly.
+const FUZZY_MAX_DISTANCE = 2;
+
+// English-only fuzzy vocabulary. Anything a matcher's regex treats as a
+// fixed keyword (not a captured number) belongs here — weekday names,
+// month names (long and short), and the marker words the matchers
+// switch on (today/tomorrow/yesterday/next/last/this/in/ago and the
+// unit words day/week/month/year). Numbers and ordinal suffixes are
+// deliberately excluded: "5th" vs "5tj" isn't a word-shaped typo this
+// layer is trying to solve, and correcting digits is a much easier way
+// to silently produce a wrong date than correcting a weekday name is.
+//
+// Scoped to English only for this pass — the other three grammars have
+// enough positional/multi-word-marker variation (French's "il y a",
+// Spanish's dual pre/post weekday-modifier shapes) that a single
+// word-substitution corrector isn't a good fit for all of them without
+// per-language tuning this change doesn't attempt. parseRelative()
+// throws a clear scope-limited error if { fuzzy: true } is combined
+// with a non-English locale, rather than silently no-op-ing.
+function buildEnglishFuzzyVocabulary(): string[] {
+  return [
+    ...ENGLISH_WEEKDAYS,
+    ...ENGLISH_MONTHS,
+    ...ENGLISH_MONTH_SHORT,
+    'today', 'tomorrow', 'yesterday',
+    'next', 'last', 'this',
+    'in', 'ago',
+    'day', 'days', 'week', 'weeks', 'month', 'months', 'year', 'years',
+  ].map(normalizeForMatch);
+}
+
+// Lazily built and cached — the vocabulary is static per process, no
+// need to rebuild the normalized list on every fuzzy call.
+let englishFuzzyVocabulary: string[] | undefined;
+function getEnglishFuzzyVocabulary(): string[] {
+  if (!englishFuzzyVocabulary) englishFuzzyVocabulary = buildEnglishFuzzyVocabulary();
+  return englishFuzzyVocabulary;
+}
+
+// Attempts a word-level fuzzy correction of `normalized` against the
+// English vocabulary, returning a corrected string or undefined if no
+// correction was needed/possible. Tokenizes on whitespace; each token
+// that isn't already an exact vocabulary word (or a pure number/ordinal,
+// which passes through untouched) gets replaced with its closest
+// vocabulary match, if one exists within FUZZY_MAX_DISTANCE. If a token
+// has no sufficiently-close vocabulary match, it's left as-is — the
+// re-attempted exact match will then fail on that token same as before,
+// which is the correct outcome for "this word isn't a typo of anything
+// we know, it's just not a phrase we support."
+function fuzzyCorrectEnglish(normalized: string): string | undefined {
+  const vocabulary = getEnglishFuzzyVocabulary();
+  const words = normalized.split(' ');
+  let changed = false;
+  const corrected = words.map((word) => {
+    // Pure digits, or digits with an ordinal suffix (st/nd/rd/th) —
+    // never touched by fuzzy correction. See the vocabulary comment
+    // above for why.
+    if (/^\d+(?:st|nd|rd|th)?$/.test(word)) return word;
+    // Already an exact vocabulary word — nothing to correct.
+    if (vocabulary.includes(word)) return word;
+
+    let best: string | undefined;
+    let bestDist = FUZZY_MAX_DISTANCE + 1;
+    for (const candidate of vocabulary) {
+      const dist = levenshtein(word, candidate);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = candidate;
+      }
+    }
+    if (best !== undefined && bestDist <= FUZZY_MAX_DISTANCE) {
+      changed = true;
+      return best;
+    }
+    return word;
+  });
+
+  return changed ? corrected.join(' ') : undefined;
+}
+
 interface TemporalFieldBag {
   year?: number;
   month?: number;
@@ -783,7 +899,26 @@ export const GERMAN_WEEKDAY_NAMES = GERMAN_WEEKDAYS;
 void WEEKDAY_NAMES;
 void MONTH_NAMES;
 
-export interface ParseRelativeOptions extends FormatOptions {}
+export interface ParseRelativeOptions extends FormatOptions {
+  /**
+   * Opt-in typo tolerance. When the input doesn't match any phrase
+   * exactly, retry after correcting individual words (weekday names,
+   * month names, and marker words like "next"/"ago"/"tomorrow") that
+   * are within a small edit distance of a known word — e.g.
+   * "tommorow" → "tomorrow", "next tuesady" → "next tuesday". Numbers
+   * are never touched.
+   *
+   * Off by default, matching this library's throw-rather-than-guess
+   * philosophy elsewhere (parse()'s `lenient` option is the same shape
+   * of opt-in). English only for this option currently — combining
+   * `fuzzy: true` with a non-English `locale` throws rather than
+   * silently skipping the fuzzy pass.
+   *
+   * If no correction produces a recognized phrase, throws the same
+   * "doesn't recognize" error the exact pass would have thrown.
+   */
+  fuzzy?: boolean;
+}
 
 /**
  * Resolve common relative-date phrases against a reference date,
@@ -840,10 +975,40 @@ export function parseRelative(
   const grammar = grammarForLocale(options.locale);
   const ctx: ResolveContext = { temporal, reference };
 
-  for (const matcher of grammar.matchers) {
-    const match = normalized.match(matcher.pattern);
-    if (match) {
-      return matcher.resolve(match, ctx);
+  const tryMatch = (text: string): unknown | typeof NO_MATCH => {
+    for (const matcher of grammar.matchers) {
+      const match = text.match(matcher.pattern);
+      if (match) {
+        return matcher.resolve(match, ctx);
+      }
+    }
+    return NO_MATCH;
+  };
+
+  const exactResult = tryMatch(normalized);
+  if (exactResult !== NO_MATCH) {
+    return exactResult;
+  }
+
+  if (options.fuzzy) {
+    // Fuzzy mode is English-only for this pass — see the vocabulary
+    // comment above fuzzyCorrectEnglish for why the other three
+    // grammars aren't covered. Fail loudly rather than silently
+    // skipping the fuzzy attempt, so a caller relying on fuzzy mode
+    // for, say, French input doesn't get a confusing "doesn't
+    // recognize" error with no indication fuzzy matching never ran.
+    if (grammar !== ENGLISH_GRAMMAR) {
+      throw new Error(
+        `temporal-fmt: parseRelative's { fuzzy: true } option currently only supports English. ` +
+        `Pass no locale (or locale: 'en'), or omit { fuzzy: true } for this locale.`
+      );
+    }
+    const corrected = fuzzyCorrectEnglish(normalized);
+    if (corrected !== undefined) {
+      const fuzzyResult = tryMatch(corrected);
+      if (fuzzyResult !== NO_MATCH) {
+        return fuzzyResult;
+      }
     }
   }
 
@@ -852,6 +1017,13 @@ export function parseRelative(
     grammar.supportedHint
   );
 }
+
+// Sentinel distinguishing "no matcher matched" from a legitimate
+// resolve() return value of `undefined`/`null` (matchers can throw
+// their own errors, e.g. the ambiguous-direction case, but none
+// currently return a nullish PlainDate — this sentinel just makes the
+// "no match" case unambiguous regardless).
+const NO_MATCH = Symbol('temporal-fmt: parseRelative no match');
 
 // DEFAULT_LOCALE is imported for the option's default-value documentation
 // above (no locale → English). The symbol itself isn't read at runtime

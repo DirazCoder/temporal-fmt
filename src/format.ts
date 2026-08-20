@@ -1,6 +1,7 @@
 import { TOKENS, DEFAULT_LOCALE, type TemporalLike, type FormatOptions } from './tokens.js';
 import { tokenize, type Piece } from './tokenize.js';
 import { MAX_FORMAT_LENGTH } from './constants.js';
+import { applyNumbering, type NumberingFormatOptions } from './numbering.js';
 
 const HANDLER_BY_TOKEN = new Map(TOKENS.map(([tok, fn, field]) => [tok, { fn, field }]));
 
@@ -34,7 +35,7 @@ function getPieces(formatStr: string): Piece[] {
  *
  * Throws on a token the input type doesn't support (e.g. 'HH' on a PlainDate).
  */
-export function format(temporal: TemporalLike, formatStr: string, options: FormatOptions = {}): string {
+export function format(temporal: TemporalLike, formatStr: string, options: NumberingFormatOptions = {}): string {
   if (formatStr.length > MAX_FORMAT_LENGTH) {
     throw new Error(
       `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
@@ -69,7 +70,10 @@ export function format(temporal: TemporalLike, formatStr: string, options: Forma
     result += handler.fn(temporal, locale);
   }
 
-  return result;
+  // Numeral transliteration happens last and only on request — every
+  // upstream token handler still emits plain ASCII digits, so this is
+  // the single place output digits can diverge from that default.
+  return applyNumbering(result, options);
 }
 
 // Shape mirrors Intl.DateTimeFormat.formatToParts: each entry is either
@@ -86,7 +90,7 @@ export interface FormattedPart {
   token?: string;
 }
 
-export function formatToParts(temporal: TemporalLike, formatStr: string, options: FormatOptions = {}): FormattedPart[] {
+export function formatToParts(temporal: TemporalLike, formatStr: string, options: NumberingFormatOptions = {}): FormattedPart[] {
   if (formatStr.length > MAX_FORMAT_LENGTH) {
     throw new Error(
       `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
@@ -121,7 +125,11 @@ export function formatToParts(temporal: TemporalLike, formatStr: string, options
         `(e.g. PlainDate has no time fields, PlainTime has no date fields)`
       );
     }
-    result.push({ type: 'token', value: handler.fn(temporal, locale), token: piece.value });
+    // Numeral transliteration applies per-token-part here, rather than
+    // once at the end like format() does, so a caller styling individual
+    // parts (e.g. one <span> per token) still gets correctly-transliterated
+    // digits in each part instead of plain ASCII.
+    result.push({ type: 'token', value: applyNumbering(handler.fn(temporal, locale), options), token: piece.value });
   }
   return result;
 }
@@ -135,8 +143,8 @@ export function formatToParts(temporal: TemporalLike, formatStr: string, options
 // via the .pieces property, or to pass the compiled object around
 // instead of the string).
 export interface CompiledFormat {
-  format(temporal: TemporalLike, options?: FormatOptions): string;
-  formatToParts(temporal: TemporalLike, options?: FormatOptions): FormattedPart[];
+  format(temporal: TemporalLike, options?: NumberingFormatOptions): string;
+  formatToParts(temporal: TemporalLike, options?: NumberingFormatOptions): FormattedPart[];
   readonly pieces: ReadonlyArray<Piece>;
   readonly formatStr: string;
 }
@@ -156,7 +164,7 @@ export function compileFormat(formatStr: string): CompiledFormat {
   return {
     formatStr,
     pieces,
-    format(temporal: TemporalLike, options: FormatOptions = {}) {
+    format(temporal: TemporalLike, options: NumberingFormatOptions = {}) {
       const locale = options.locale ?? DEFAULT_LOCALE;
       let result = '';
       for (const piece of pieces) {
@@ -175,9 +183,9 @@ export function compileFormat(formatStr: string): CompiledFormat {
         }
         result += handler.fn(temporal, locale);
       }
-      return result;
+      return applyNumbering(result, options);
     },
-    formatToParts(temporal: TemporalLike, options: FormatOptions = {}) {
+    formatToParts(temporal: TemporalLike, options: NumberingFormatOptions = {}) {
       const locale = options.locale ?? DEFAULT_LOCALE;
       const out: FormattedPart[] = [];
       for (const piece of pieces) {
@@ -196,7 +204,7 @@ export function compileFormat(formatStr: string): CompiledFormat {
             `(e.g. PlainDate has no time fields, PlainTime has no date fields)`
           );
         }
-        out.push({ type: 'token', value: handler.fn(temporal, locale), token: piece.value });
+        out.push({ type: 'token', value: applyNumbering(handler.fn(temporal, locale), options), token: piece.value });
       }
       return out;
     },

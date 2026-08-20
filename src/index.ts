@@ -2,7 +2,7 @@ export { format, formatToParts, compileFormat, type FormattedPart, type Compiled
 export { parse, safeParse, tryParse, parseToParts, compileParser, type SafeParseResult, type ParsedPart, type CompiledParser } from './parse.js';
 export { setTemporal } from './temporalProvider.js';
 export { formatDuration } from './formatDuration.js';
-export { formatDistance } from './formatDistance.js';
+export { formatDistance, formatDistanceToNow } from './formatDistance.js';
 export { parseRelative } from './parseRelative.js';
 export { registerLocaleVocab } from './localeVocab.js';
 export type { LocaleVocab } from './localeVocab.js';
@@ -47,7 +47,7 @@ export {
   daysInMonth, daysInYear, monthsInYear, isLeapYear, isLeapMonth,
   dayOfYearHelper as dayOfYear, weekOfYear, weekYear,
   getQuarter, getMonth, getWeekday, startOf, endOf, asDateFieldView,
-  type DateFieldView, type StartOfUnit,
+  type DateFieldView, type StartOfUnit, type QuarterOptions,
 } from './calendarUtils.js';
 
 // Section M — date arithmetic

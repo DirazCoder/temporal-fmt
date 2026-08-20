@@ -205,7 +205,7 @@ parse('h:mm a', '3:45 午後', { locale: 'ja-JP' });
 parse('yyyy-MM-dd', '5786-11-21', { locale: 'en-u-ca-hebrew' }); // -u-ca- extension parses into that calendar
 ```
 
-**Numeric fields always come out in Western (0–9) digits**, regardless of locale. On purpose — logs, APIs, and filenames reading this output back in want boring ASCII digits, and locale-native numeral systems (Arabic-Indic, Devanagari) don't play nicely with the zero-padding logic here. Need localized digits on the numeric pieces? See [Numbering systems](#numbering-systems) below, or run the output through `Intl.NumberFormat` yourself.
+**Numeric fields come out in Western (0–9) digits by default**, regardless of locale — passing `{ locale: 'ar-EG' }` alone doesn't switch `yyyy`/`MM`/`dd` to Arabic-Indic digits, only the named-vocabulary tokens above. That's on purpose: logs, APIs, and filenames reading this output back in generally want boring ASCII digits, so locale doesn't silently drag the numeric tokens along with it. If you specifically want localized digits on the numeric pieces, that's a separate, explicit opt-in — see [Numbering systems](#numbering-systems) below.
 
 ### Registering custom vocabulary
 
@@ -407,6 +407,17 @@ formatDistance(in30d, today)                                  // "next month" (r
 
 Accepts `PlainDate`, `PlainDateTime`, or `ZonedDateTime`. A `PlainDate` is treated as midnight when diffed against a `PlainDateTime`. Throws on `PlainTime` (no anchor date to diff against) and on partial-date shapes (e.g. `{ year: 2026 }` with no month/day).
 
+`formatDistanceToNow(date, options?)` is `formatDistance(date, now)`, reading the system clock at call time so you don't have to build the reference value yourself:
+
+```js
+import { formatDistanceToNow } from 'temporal-fmt';
+
+formatDistanceToNow(threeHoursAgo)  // "3 hours ago"
+formatDistanceToNow(tomorrow)       // "in 1 day" (numeric: 'auto' reads "tomorrow")
+```
+
+It reads full wall-clock time (hour through millisecond) off the system clock, not just the calendar date — `formatRelativeToNow` below only needs day resolution, but `formatDistance`'s unit selection is millisecond-resolution, so a date-only reference here would misclassify anything under 24 hours old. The reference is captured fresh on every call, never cached, so back-to-back calls reflect whatever "now" actually is at each call site.
+
 ### `formatRelative` / `formatRelativeToNow` — "yesterday", "last week"
 
 `formatRelative(date1, date2, options?)` returns a calendar-relative label ("yesterday", "tomorrow", "last week") rather than `formatDistance`'s numeric-distance phrasing. `formatRelativeToNow(date, options?)` is `formatRelative(date, now)`.
@@ -469,6 +480,22 @@ The "next X on X = 7 days out, not today" convention holds across all four suppo
 
 `parseRelative` throws a descriptive error for any phrase it doesn't recognize, naming the supported categories. Accepts `PlainDate`, `PlainDateTime`, or `ZonedDateTime` as the reference (needs `dayOfWeek` to compute weekday offsets); throws on `PlainTime`.
 
+### Typo tolerance (`{ fuzzy: true }`)
+
+Strict matching is the default for the same reason `parse()` throws on ambiguous input rather than guessing — a wrong guess that looks plausible is worse than a hard stop. But if you're taking free-text input from a person instead of a controlled phrase set, typos are routine, not exceptional. `{ fuzzy: true }` opts into correcting them:
+
+```js
+parseRelative('tommorow', today, { fuzzy: true }).toString()      // '2026-08-05'
+parseRelative('next tuesady', today, { fuzzy: true }).toString()  // '2026-08-11'
+parseRelative('tommorow', today);                                  // throws — fuzzy is opt-in
+```
+
+It works by tokenizing the input on whitespace and, for any word that isn't already an exact match against the English vocabulary (weekday names, month names, and marker words like "next"/"ago"/"days"), finding the closest vocabulary word within edit distance 2 and substituting it before re-running the exact matcher. Distance 2 covers the common cases — a dropped letter ("tommorow") is distance 1, a transposed pair ("tuesady") is distance 2 under plain Levenshtein — without opening the door to correcting a word into something only vaguely similar.
+
+Numbers are never touched by fuzzy correction, on purpose: `"5 dyas"` fuzzy-corrects to `"5 days"` and then still throws the usual past-or-future ambiguity error, since "in"/"ago" disambiguation is a separate, stricter contract this option doesn't relax. Digit typos are also a much easier way to silently produce a wrong date than a weekday-name typo is, so they stay out of scope here.
+
+Fuzzy mode is English-only for now. The other three grammars have enough positional and multi-word-marker variation — French's "il y a", Spanish's pre/post weekday-modifier forms — that one word-substitution corrector doesn't fit all of them without per-language tuning this doesn't attempt yet. Combining `{ fuzzy: true }` with a non-English `locale` throws a scope-limited error rather than silently skipping the correction pass, so a caller relying on it for, say, French input gets a clear signal instead of a confusing "doesn't recognize" error with no indication fuzzy matching never ran.
+
 **Adding a language**: `registerRelativeGrammar(grammar)` registers a new language's phrase patterns without touching the built-in four. `listRegisteredGrammars()` lists what's currently registered.
 
 ## Date arithmetic, comparison, and rounding
@@ -523,8 +550,20 @@ getQuarter(date);
 - `daysInMonth(value)`, `daysInYear(value)`, `monthsInYear(value)`.
 - `isLeapYear(value)`, `isLeapMonth(value)` (Gregorian: `isLeapMonth` always returns `false`).
 - `dayOfYear(value)`, `weekOfYear(value)`, `weekYear(value)`.
-- `getQuarter(value)`, `getMonth(value)`, `getWeekday(value)`.
+- `getQuarter(value, options?)`, `getMonth(value)`, `getWeekday(value)`.
 - `startOf(value, unit)` / `endOf(value, unit)` — `unit` is `'day' | 'month' | 'year' | 'hour' | 'minute' | 'second'`. Returns a field bag with finer fields zeroed (`startOf`) or extended to their max (`endOf`).
+
+`getQuarter` defaults to calendar quarters (Jan–Mar = Q1, same as the `Q`/`QQQ` format tokens), but a fiscal year rarely starts in January. Pass `{ startMonth }` to shift which month counts as fiscal month 1:
+
+```js
+import { getQuarter } from 'temporal-fmt';
+
+getQuarter({ month: 8 });                     // 3 — calendar quarter (default)
+getQuarter({ month: 8 }, { startMonth: 7 });   // 1 — fiscal year starting July (UK/India-style)
+getQuarter({ month: 8 }, { startMonth: 10 });  // 4 — fiscal year starting October (Apple's FY)
+```
+
+`startMonth` must be an integer 1–12; anything else throws rather than silently defaulting. This is a separate function from the `Q`/`QQQ` tokens, not a shared implementation — those tokens compute quarter inline from month and have no fiscal-offset option, so a fiscal quarter number isn't currently something `format()`/`parse()` can render or round-trip through a token string. Use `getQuarter` directly for fiscal reporting and reach for the tokens only when you actually want calendar quarters in formatted output.
 
 **Gregorian-only, documented limitation**: `daysInMonth`, `daysInYear`, `isLeapYear`, `monthsInYear` (always 12), `isLeapMonth` (always `false`), `dayOfYear`, `weekOfYear`, and `weekYear` all use Gregorian rules and will give wrong answers on non-Gregorian calendars (Hebrew, Islamic, etc.). For those, use the `Temporal` value's own calendar-aware properties directly instead:
 
@@ -751,6 +790,19 @@ assertZonedDateTime(value); // throws descriptively if it isn't one
 
 ## Numbering systems
 
+The [Locales](#locales) section above notes that numeric tokens always render Western digits by default — that's still the default, but it's opt-out rather than fixed, via `{ numberingSystem }` on `format()` and `{ parseNumberingSystem }` on `parse()`:
+
+```js
+import { format, parse } from 'temporal-fmt';
+
+format(date, 'yyyy-MM-dd', { numberingSystem: 'arab' });                       // "٢٠٢٦-٠٨-٠٤"
+parse('yyyy-MM-dd', '٢٠٢٦-٠٨-٠٤', { parseNumberingSystem: 'arab' }).toString(); // '2026-08-04'
+```
+
+The two option names are deliberately different (`numberingSystem` vs. `parseNumberingSystem`), not a naming inconsistency — the two directions aren't always symmetric. You might want Arabic-Indic digits in your UI output without expecting Arabic-Indic digits back on input, or the reverse, so a caller mixing `format()` and `parse()` options in one config object can set each independently. `formatToParts()` applies numbering per-part rather than once at the end, so a caller styling individual token parts (one `<span>` per token, say) still gets correctly-transliterated digits in each part instead of plain ASCII. An unsupported system name throws immediately rather than silently falling back to `'latn'`.
+
+If you'd rather convert digits yourself instead of going through `format()`/`parse()`'s options — say, transliterating a string that came from somewhere else entirely — the underlying conversion is available directly:
+
 ```js
 import { convertDigits, convertDigitsToAscii } from 'temporal-fmt';
 
@@ -760,7 +812,7 @@ convertDigitsToAscii('٢٠٢٦', 'arab'); // "2026"
 
 - `convertDigits(s, system)` — ASCII digits to a locale's native digits.
 - `convertDigitsToAscii(s, system)` — the inverse.
-- `applyNumbering(s, options)` / `applyParseNumbering(s, options)` — the internal helpers `format()`/`parse()` call when you pass `{ numberingSystem }` / `{ parseNumberingSystem }` in `options`, rather than converting a formatted string yourself afterward.
+- `applyNumbering(s, options)` / `applyParseNumbering(s, options)` — the same helpers `format()`/`parse()` call internally for `{ numberingSystem }` / `{ parseNumberingSystem }`, exposed directly for anyone building their own formatting layer on top rather than going through `format()`/`parse()`.
 - `SUPPORTED_NUMBERING_SYSTEMS` — the set of supported system names (`'latn' | 'arab' | 'deva' | 'beng' | 'guru' | 'gujr' | 'orya' | 'tamldec' | 'telu' | 'knda' | 'mlym' | 'fullwide' | 'hanidec'`).
 
 ## Extending with custom tokens
@@ -911,7 +963,7 @@ Migrate file by file, dropping the wrapper once nothing calls the old path anymo
 
 ## Known limitations
 
-- **Numerals are always Western digits** in numeric tokens, regardless of locale — see [Locales](#locales).
+- **Numerals default to Western digits** in numeric tokens, regardless of locale, unless you opt into `{ numberingSystem }` / `{ parseNumberingSystem }` — see [Numbering systems](#numbering-systems).
 - **Locale-aware tokens need Node 20+**, native or polyfilled. Untested below that.
 - **You must provide a Temporal implementation** on anything below Node 26 — see [Providing `Temporal`](#providing-temporal).
 - **Pre-1582 dates and locale-aware tokens don't mix well on native Temporal (Node 26+).** `MMMM`/`MMM`/`EEEE`/`EEE` can render the wrong month or weekday for dates before roughly 1582 CE. This is an ICU limitation, not a bug here: ICU's default Gregorian calendar cutover is October 15, 1582, so `Intl.DateTimeFormat.formatToParts()` silently reinterprets earlier dates under the Julian calendar even though `Temporal` itself uses a proleptic Gregorian calendar throughout — see [tc39/ecma402#1003](https://github.com/tc39/ecma402/issues/1003). Numeric tokens never touch `Intl` and aren't affected.

@@ -95,6 +95,15 @@ export interface NumberingFormatOptions extends FormatOptions {
   numberingSystem?: string;
 }
 
+// Parse-side counterpart. Named parseNumberingSystem (not numberingSystem)
+// so a caller mixing format() and parse() options in the same config
+// object can set both independently — the two directions aren't always
+// symmetric (e.g. converting *to* native digits on output without
+// expecting native digits back on input, or vice versa).
+export interface NumberingParseOptions extends FormatOptions {
+  parseNumberingSystem?: string;
+}
+
 // Helper for the format path: takes the formatted ASCII output of
 // format() and converts digits if a numberingSystem was requested.
 // Kept here so format.ts doesn't need to know about numbering systems.

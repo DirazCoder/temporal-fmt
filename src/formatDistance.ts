@@ -285,6 +285,45 @@ export function formatDistance(
   return rtf.format(rounded, unit);
 }
 
+/**
+ * Same as formatDistance(date, now), where "now" is read from the system
+ * clock at call time. Convenience wrapper for the common "how long ago
+ * was this" case, so the caller doesn't have to construct a reference
+ * value themselves.
+ *
+ * Unlike formatRelativeToNow() (in relativeTime.ts), which only needs
+ * calendar-day resolution, this reads the full wall-clock time (hour
+ * through millisecond) off the system clock — formatDistance's unit
+ * selection is ms-resolution, so a date-only "now" would misclassify
+ * anything under 24 hours old (e.g. "1 hour ago" reading as "in 23
+ * hours" against a midnight-truncated reference). See the test file
+ * for a regression case covering exactly that.
+ *
+ * The reference is captured fresh on every call, not memoized — each
+ * call reflects "now" at the moment it runs, same expectation
+ * formatRelativeToNow() already sets.
+ *
+ * @example
+ * formatDistanceToNow(threeHoursAgo)  // "3 hours ago"
+ * formatDistanceToNow(tomorrow)       // "in 1 day" (auto: "tomorrow")
+ */
+export function formatDistanceToNow(
+  date: unknown,
+  options: FormatDistanceOptions = {},
+): string {
+  const now = new Date();
+  const nowFields = {
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+    day: now.getDate(),
+    hour: now.getHours(),
+    minute: now.getMinutes(),
+    second: now.getSeconds(),
+    millisecond: now.getMilliseconds(),
+  };
+  return formatDistance(date, nowFields, options);
+}
+
 function unitToMs(unit: Intl.RelativeTimeFormatUnit): number {
   switch (unit) {
     case 'second': return MS_PER_SECOND;

@@ -104,10 +104,42 @@ export function weekYear(view: DateFieldView): number {
   return isoWeekYearAndWeek(view.year!, view.month!, view.day!, view.dayOfWeek!).isoYear;
 }
 
-export function getQuarter(view: DateFieldView): number {
+/**
+ * Fiscal-quarter options. `startMonth` is the calendar month (1-12) the
+ * fiscal year begins on — e.g. `7` for a fiscal year starting in July.
+ * Omitted or `1` gives the calendar-quarter behavior getQuarter() has
+ * always had (Jan-Mar = Q1, etc.), so existing callers passing nothing
+ * see no change.
+ */
+export interface QuarterOptions {
+  startMonth?: number;
+}
+
+function validateStartMonth(startMonth: number): void {
+  if (!Number.isInteger(startMonth) || startMonth < 1 || startMonth > 12) {
+    throw new Error(
+      `temporal-fmt: getQuarter's startMonth must be an integer from 1 to 12 (got ${startMonth}).`
+    );
+  }
+}
+
+export function getQuarter(view: DateFieldView, options: QuarterOptions = {}): number {
   requireFields(view, ['month']);
-  // Mirrors the Q token: months 1-3 → Q1, 4-6 → Q2, 7-9 → Q3, 10-12 → Q4.
-  return Math.ceil(view.month! / 3);
+  const startMonth = options.startMonth ?? 1;
+  validateStartMonth(startMonth);
+  if (startMonth === 1) {
+    // Mirrors the Q token: months 1-3 → Q1, 4-6 → Q2, 7-9 → Q3, 10-12 → Q4.
+    return Math.ceil(view.month! / 3);
+  }
+  // Fiscal case: shift the month so startMonth becomes month 1 of the
+  // fiscal year (mod 12, 1-indexed), then apply the same ceil(/3) rule.
+  // E.g. startMonth=7 (fiscal year starts July): July→1, Aug→2, ...,
+  // Dec→6, Jan→7, ..., June→12. Then Q1 = fiscal months 1-3 (Jul-Sep),
+  // matching the common "FY starts in July" convention where Q1 is the
+  // first quarter of the fiscal year, not a quarter numbered by which
+  // calendar quarter it falls in.
+  const shifted = ((view.month! - startMonth + 12) % 12) + 1;
+  return Math.ceil(shifted / 3);
 }
 
 // `getMonth` / `getWeekday` look trivial (just read the field) but the

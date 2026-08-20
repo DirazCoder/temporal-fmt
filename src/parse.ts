@@ -6,6 +6,7 @@ import { getLocaleVocab, canonicalCacheKey } from './localeVocab.js';
 import { getTemporal } from './temporalProvider.js';
 import { MAX_FORMAT_LENGTH, MAX_INPUT_LENGTH } from './constants.js';
 import { TemporalFmtError, wrapUntypedError } from './errors.js';
+import { applyParseNumbering, type NumberingParseOptions } from './numbering.js';
 
 // format strings are short hand-written literals reused across many calls —
 // cache the compiled capturing pattern per (formatStr, locale) pair instead
@@ -363,7 +364,7 @@ function resolveHour(fields: Fields, formatStr: string, locale: string): number 
  * parse('yyyy-MM', '2026-08-04T15:45:30') // throws — shape doesn't match
  * parse('yyyy-MM-dd', '2026-02-30') // throws — not a real date
  */
-export function parse(formatStr: string, input: string, options: FormatOptions = {}): unknown | undefined {
+export function parse(formatStr: string, input: string, options: NumberingParseOptions = {}): unknown | undefined {
   if (formatStr.length > MAX_FORMAT_LENGTH) {
     throw new Error(
       `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
@@ -375,6 +376,14 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
     throw new Error(
       `temporal-fmt: input exceeds maximum length of ${MAX_INPUT_LENGTH} characters (got ${input.length}).`
     );
+  }
+
+  // Transliterate non-ASCII numerals to ASCII before any matching happens,
+  // when the caller opts in via parseNumberingSystem. Every regex this
+  // module builds expects 0-9; this is the one place that assumption
+  // could otherwise be violated by locale-native input digits.
+  if (options.parseNumberingSystem) {
+    input = applyParseNumbering(input, options);
   }
 
   const locale = options.locale ?? DEFAULT_LOCALE;
@@ -648,7 +657,7 @@ export type SafeParseResult =
   | { ok: true; value: unknown }
   | { ok: false; error: TemporalFmtError };
 
-export function safeParse(formatStr: string, input: string, options: FormatOptions = {}): SafeParseResult {
+export function safeParse(formatStr: string, input: string, options: NumberingParseOptions = {}): SafeParseResult {
   try {
     return { ok: true, value: parse(formatStr, input, options) };
   } catch (err) {
@@ -667,7 +676,7 @@ export function safeParse(formatStr: string, input: string, options: FormatOptio
 // a failure, they should use safeParse(). Intentionally loose on the
 // return type (unknown) since this package has no ambient Temporal
 // types to return a real one against.
-export function tryParse(formatStr: string, input: string, options: FormatOptions = {}): unknown | undefined {
+export function tryParse(formatStr: string, input: string, options: NumberingParseOptions = {}): unknown | undefined {
   try {
     return parse(formatStr, input, options);
   } catch {
@@ -699,7 +708,7 @@ export interface ParsedPart {
   position: number;
 }
 
-export function parseToParts(formatStr: string, input: string, options: FormatOptions = {}): ParsedPart[] {
+export function parseToParts(formatStr: string, input: string, options: NumberingParseOptions = {}): ParsedPart[] {
   if (formatStr.length > MAX_FORMAT_LENGTH) {
     throw new Error(
       `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
@@ -710,6 +719,11 @@ export function parseToParts(formatStr: string, input: string, options: FormatOp
     throw new Error(
       `temporal-fmt: input exceeds maximum length of ${MAX_INPUT_LENGTH} characters (got ${input.length}).`
     );
+  }
+
+  // Same numeral transliteration parse() does — see the comment there.
+  if (options.parseNumberingSystem) {
+    input = applyParseNumbering(input, options);
   }
 
   const locale = options.locale ?? DEFAULT_LOCALE;
@@ -794,15 +808,15 @@ export function parseToParts(formatStr: string, input: string, options: FormatOp
 // for callers who want to hold the compiled parser explicitly (e.g. to
 // inspect the pattern via the .pattern property).
 export interface CompiledParser {
-  parse(input: string, options?: FormatOptions): unknown;
-  safeParse(input: string, options?: FormatOptions): SafeParseResult;
-  tryParse(input: string, options?: FormatOptions): unknown | undefined;
-  parseToParts(input: string, options?: FormatOptions): ParsedPart[];
+  parse(input: string, options?: NumberingParseOptions): unknown;
+  safeParse(input: string, options?: NumberingParseOptions): SafeParseResult;
+  tryParse(input: string, options?: NumberingParseOptions): unknown | undefined;
+  parseToParts(input: string, options?: NumberingParseOptions): ParsedPart[];
   readonly formatStr: string;
   readonly pattern: CapturingPattern;
 }
 
-export function compileParser(formatStr: string, options: FormatOptions = {}): CompiledParser {
+export function compileParser(formatStr: string, options: NumberingParseOptions = {}): CompiledParser {
   if (formatStr.length > MAX_FORMAT_LENGTH) {
     throw new Error(
       `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
@@ -818,16 +832,16 @@ export function compileParser(formatStr: string, options: FormatOptions = {}): C
   return {
     formatStr,
     pattern,
-    parse(input: string, opts: FormatOptions = {}) {
+    parse(input: string, opts: NumberingParseOptions = {}) {
       return parse(formatStr, input, { locale, ...opts });
     },
-    safeParse(input: string, opts: FormatOptions = {}) {
+    safeParse(input: string, opts: NumberingParseOptions = {}) {
       return safeParse(formatStr, input, { locale, ...opts });
     },
-    tryParse(input: string, opts: FormatOptions = {}) {
+    tryParse(input: string, opts: NumberingParseOptions = {}) {
       return tryParse(formatStr, input, { locale, ...opts });
     },
-    parseToParts(input: string, opts: FormatOptions = {}) {
+    parseToParts(input: string, opts: NumberingParseOptions = {}) {
       return parseToParts(formatStr, input, { locale, ...opts });
     },
   };
