@@ -24,6 +24,8 @@ npm install temporal-fmt
 
 [View on npm](https://www.npmjs.com/package/temporal-fmt)
 
+This library is genuinely large — locales, recurrence, business calendars, timezone disambiguation, an analyzer, config layers, custom token extensibility, a CLI. A substantial amount of configuration and customization is packed in here. But none of that is required reading. The reason this library exists in the first place is formatting and parsing dates with token strings, and that part stays simple: `format(temporal, formatStr)` and `parse(formatStr, input)`, the same shape as date-fns or Day.js. Read [Providing `Temporal`](#providing-temporal) and [Formatting](#formatting)/[Parsing](#parsing), and you're covered for the common case — everything past that is there for when you actually need it, not before.
+
 ## Contents
 
 - [Providing `Temporal`](#providing-temporal)
@@ -51,6 +53,7 @@ npm install temporal-fmt
 - [Migrating from Day.js or date-fns](#migrating-from-dayjs-or-date-fns)
 - [Known limitations](#known-limitations)
 - [Related tools](#related-tools)
+- [Testing](#testing)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -921,6 +924,10 @@ Neither of these ships as part of this repository — separate packages, install
 
 - [`eslint-plugin-temporal-fmt`](https://www.npmjs.com/package/eslint-plugin-temporal-fmt) — lints format strings for common mistakes (e.g. `hh` without `a`). This is what backs the `analyzeFormat(formatStr).warnings` check mentioned in [Introspection and the analyzer](#introspection-and-the-analyzer) — same underlying metadata, surfaced as a lint diagnostic instead of a runtime call.
 - [`temporal-fmt-codemod`](https://www.npmjs.com/package/temporal-fmt-codemod) — one-time migration tool that rewrites Day.js/date-fns calls to `temporal-fmt`. The CLI's `translate` subcommand (see [CLI](#cli)) imports this package at runtime, so `translate` needs it installed to work.
+
+## Testing
+
+This library is heavily tested. The `node:test` suite (`test/*.test.js`) runs 800+ cases covering hand-picked scenarios, fuzzing, and adversarial input, alongside a separate `vitest/` suite unit-testing internals directly. On top of that there's a dedicated conformance suite, smoke tests that check the package actually resolves correctly under CJS/ESM/bundler/nodenext, and type tests. If it's mentioned in this README, it's backed by a test — not just a docstring.
 
 ## Contributing
 
