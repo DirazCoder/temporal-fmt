@@ -31,7 +31,7 @@ const npxCmd = 'npx';
 // unescaped array-join (Node flags that as DEP0190) costs nothing.
 function quoteForWindows(arg) {
   if (!/[\s"]/.test(arg)) return arg;
-  return `"${arg.replace(/"/g, '\\"')}"`;
+  return `"${arg.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
 function run(cmd, args, opts = {}) {
