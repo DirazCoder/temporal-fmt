@@ -526,12 +526,25 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
   try {
     if (timeZoneId !== undefined) {
       // zzz wins for the construction-time zone when both zzz and an
-      // offset token are present — the IANA name is the meaningful
-      // label, the offset is a derived fact about that zone at this
-      // instant. The offset cross-check below validates that the
-      // parsed offset matches the zone's actual offset; if it
-      // doesn't, parse() throws rather than silently disagreeing.
-      result = temporal.ZonedDateTime.from({ year: year!, month: month!, day: day!, ...timeFields, ...calendarField, timeZone: timeZoneId }, reject);
+      // offset token are present. Without an explicit offset, Temporal
+      // resolves a repeated wall-clock time (DST fall-back) to the first
+      // occurrence no matter what the offset token says, so an input
+      // naming the second occurrence would falsely look contradictory.
+      // Passing offsetString here with offset: 'reject' makes Temporal
+      // pick the occurrence the input actually specifies, and throw only
+      // when the offset matches neither.
+      const zoneOptions: Temporal.ZonedDateTimeFromOptions = {
+        overflow: 'reject',
+        offset: offsetString !== undefined ? 'reject' : 'prefer',
+      };
+      result = temporal.ZonedDateTime.from(
+        {
+          year: year!, month: month!, day: day!, ...timeFields, ...calendarField,
+          timeZone: timeZoneId,
+          ...(offsetString !== undefined ? { offset: offsetString } : {}),
+        },
+        zoneOptions
+      );
     } else if (offsetString !== undefined) {
       // Pattern had an offset token but no zzz. Use the offset string
       // directly as the timeZone — Temporal accepts a fixed-offset
@@ -548,30 +561,26 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
       result = temporal.PlainTime.from(timeFields, reject);
     }
   } catch (err) {
+    // offset: 'reject' throws Temporal's generic "Invalid TimeZone offset"
+    // when zzz and an offset token disagree, which doesn't say what the
+    // zone's actual offset was or what the input claimed. Match on that
+    // specific message rather than the broader zzz+offset branch, since
+    // this same try also throws for unrelated reasons (bad calendar date,
+    // unknown IANA name) that already have their own clear message.
+    const isOffsetMismatch =
+      timeZoneId !== undefined &&
+      offsetString !== undefined &&
+      (err as Error).message.includes('Invalid TimeZone offset');
+    if (isOffsetMismatch) {
+      throw new Error(
+        `temporal-fmt: "${input}" has both a "zzz" zone (${timeZoneId}) and an offset token (${offsetString}), ` +
+        `but the zone's actual offset at this date/time doesn't match ${offsetString}.`
+      );
+    }
     throw new Error(
       `temporal-fmt: "${input}" doesn't describe a valid date/time for format "${formatStr}": ` +
       `${(err as Error).message}`
     );
-  }
-
-  // Cross-check the offset token (if any) against the constructed
-  // ZonedDateTime's actual offset. When both zzz and an offset token are
-  // present, zzz's zone is what we built with — so if the parsed offset
-  // disagrees with the zone's real offset at this instant, the input is
-  // internally contradictory. Same pattern as EEEE-vs-date and Q-vs-month
-  // cross-checks: derived fields validate against the primary, never
-  // silently agree-to-disagree. When only the offset token is present
-  // (no zzz), the constructed ZonedDateTime's offset is by construction
-  // equal to offsetString, so this check is a no-op.
-  if (offsetString !== undefined && timeZoneId !== undefined) {
-    const actualOffset = (result as { offset: string }).offset;
-    if (actualOffset !== offsetString) {
-      throw new Error(
-        `temporal-fmt: format string "${formatStr}" has both a "zzz" zone ("${timeZoneId}") and an offset token ` +
-        `("${offsetString}"), but the zone's actual offset at this instant is "${actualOffset}". ` +
-        `The offset and the zone disagree — fix one or the other.`
-      );
-    }
   }
 
   if (weekdayExpected !== undefined) {

@@ -176,7 +176,9 @@ test('format string that is only a quoted literal', () => {
 
 test('format string at exactly the max length succeeds', () => {
   const date = Temporal.PlainDate.from('2026-08-04');
-  const formatStr = 'd'.repeat(1000);
+  // alternating token + separator so the length cap is what's under
+  // test, not the tokenizer's overlong-same-letter-run guard
+  const formatStr = 'd-'.repeat(500);
   assert.doesNotThrow(() => format(date, formatStr));
 });
 
@@ -394,9 +396,9 @@ test('exactly MMM (3 Ms) resolves to short month, not M+MM or MM+M', () => {
   assert.equal(format(date, 'MMM'), 'Aug');
 });
 
-test('five Ms in a row: greedy MMMM then leftover M', () => {
+test('five Ms in a row: throws instead of splicing MMMM + the leftover M onto each other', () => {
   const date = Temporal.PlainDate.from('2026-08-04');
-  assert.equal(format(date, 'MMMMM'), 'August8');
+  assert.throws(() => format(date, 'MMMMM'), /isn't a recognized token/);
 });
 
 test('adjacent same-field tokens with no separator: yyyyMMdd', () => {

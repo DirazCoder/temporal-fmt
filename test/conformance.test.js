@@ -38,17 +38,6 @@ const KNOWN_FAILURES = new Set([
   // with a different message. Not currently failing, but not testing
   // what it claims to either. See conformance/README.md.
 
-  // parse()'s offset-vs-zone cross-check (src/parse.ts, ~line 566) is
-  // stricter than the fixture assumes. When a pattern captures both a
-  // zone (zzz) and an offset token, temporal-fmt requires the offset to
-  // match the zone's real offset at that instant and throws otherwise.
-  // The fixture's source library goes the other way — it lets the zone
-  // win and resolves the conflict silently. Neither approach is wrong,
-  // but only one is implemented here:
-  'dst-gap-offset-after-rejected',
-  'dst-overlap-offset-selects-second',
-  'dst-overlap-roundtrip-second-instant',
-
   // parse() can build a ZonedDateTime from an offset token with no zone
   // at all (the offsetString-only branch in src/parse.ts). That's by
   // design. The fixture assumes VV/zzz is always required.

@@ -57,6 +57,22 @@ export function tokenize(format: string): Piece[] {
 
     const match = SORTED_TOKEN_STRINGS.find((tok) => format.startsWith(tok, i));
     if (match) {
+      // match is already the longest registered token starting at i, so
+      // one more of its last character can't be a token of its own —
+      // it'd fall through to whatever token or literal rule handles that
+      // character next, silently splicing an unrelated field onto this
+      // one (e.g. "zzzz" used to read as zzz + literal "z", "MMMMM" as
+      // MMMM + the numeric-month token M). Treat the whole overlong run
+      // as one unrecognized token instead.
+      const runChar = match[match.length - 1];
+      if (format[i + match.length] === runChar) {
+        let end = i + match.length;
+        while (format[end] === runChar) end += 1;
+        throw new Error(
+          `temporal-fmt: "${format.slice(i, end)}" in format string "${format}" isn't a recognized token — ` +
+          `did you mean "${match}"?`
+        );
+      }
       pieces.push({ kind: 'token', value: match });
       i += match.length;
       continue;

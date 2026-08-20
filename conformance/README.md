@@ -77,17 +77,6 @@ seconds component. Same root cause, two symptoms:
 - `offset-sub-minute-passes-through-ZZ` — `xxx` should pass the full
   `-04:56:02` through; it truncates to `-04:56`.
 
-**Design difference: the offset/zone cross-check is stricter here.**
-When a pattern has both `zzz` and an offset token, `parse()`'s
-cross-check (`src/parse.ts`, ~line 566) requires the captured offset
-to equal the zone's real offset at that instant, and throws on
-disagreement. The fixture's source library takes the opposite
-approach — it lets the zone win and resolves the ambiguity silently.
-Neither is wrong, but the fixture wasn't marked `opinionated` for it:
-- `dst-gap-offset-after-rejected`
-- `dst-overlap-offset-selects-second`
-- `dst-overlap-roundtrip-second-instant`
-
 **Design difference: offset-only `ZonedDateTime` construction is
 supported on purpose.** `parse()` can build a `ZonedDateTime` from an
 offset token alone, no `zzz` zone required — that's the
