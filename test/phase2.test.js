@@ -94,16 +94,21 @@ test('getMonth / getWeekday: read the field off the value', () => {
 test('startOf: zeroes finer fields', () => {
   const dt = Temporal.PlainDateTime.from('2026-08-04T15:45:30.123');
   assert.deepEqual(startOf(dt, 'day'), { year: 2026, month: 8, day: 4, hour: 0, minute: 0, second: 0, millisecond: 0, dayOfWeek: 2, calendarId: 'iso8601' });
-  assert.deepEqual(startOf(dt, 'month'), { year: 2026, month: 8, day: 1, hour: 0, minute: 0, second: 0, millisecond: 0, dayOfWeek: 2, calendarId: 'iso8601' });
-  assert.deepEqual(startOf(dt, 'year'), { year: 2026, month: 1, day: 1, hour: 0, minute: 0, second: 0, millisecond: 0, dayOfWeek: 2, calendarId: 'iso8601' });
+  // Aug 1 2026 is a Saturday (dayOfWeek 6), Jan 1 2026 is a Thursday
+  // (dayOfWeek 4) — startOf recomputes dayOfWeek for the new date
+  // rather than carrying over the input's Tuesday (2).
+  assert.deepEqual(startOf(dt, 'month'), { year: 2026, month: 8, day: 1, hour: 0, minute: 0, second: 0, millisecond: 0, dayOfWeek: 6, calendarId: 'iso8601' });
+  assert.deepEqual(startOf(dt, 'year'), { year: 2026, month: 1, day: 1, hour: 0, minute: 0, second: 0, millisecond: 0, dayOfWeek: 4, calendarId: 'iso8601' });
   assert.deepEqual(startOf(dt, 'hour'), { year: 2026, month: 8, day: 4, hour: 15, minute: 0, second: 0, millisecond: 0, dayOfWeek: 2, calendarId: 'iso8601' });
 });
 
 test('endOf: maxes finer fields', () => {
   const dt = Temporal.PlainDateTime.from('2026-08-04T15:45:30.123');
   assert.deepEqual(endOf(dt, 'day'), { year: 2026, month: 8, day: 4, hour: 23, minute: 59, second: 59, millisecond: 999, dayOfWeek: 2, calendarId: 'iso8601' });
-  assert.deepEqual(endOf(dt, 'month'), { year: 2026, month: 8, day: 31, hour: 23, minute: 59, second: 59, millisecond: 999, dayOfWeek: 2, calendarId: 'iso8601' });
-  assert.deepEqual(endOf(dt, 'year'), { year: 2026, month: 12, day: 31, hour: 23, minute: 59, second: 59, millisecond: 999, dayOfWeek: 2, calendarId: 'iso8601' });
+  // Aug 31 2026 is a Monday (dayOfWeek 1), Dec 31 2026 is a Thursday
+  // (dayOfWeek 4) — same recompute as startOf above.
+  assert.deepEqual(endOf(dt, 'month'), { year: 2026, month: 8, day: 31, hour: 23, minute: 59, second: 59, millisecond: 999, dayOfWeek: 1, calendarId: 'iso8601' });
+  assert.deepEqual(endOf(dt, 'year'), { year: 2026, month: 12, day: 31, hour: 23, minute: 59, second: 59, millisecond: 999, dayOfWeek: 4, calendarId: 'iso8601' });
 });
 
 // Date arithmetic (Section M)
