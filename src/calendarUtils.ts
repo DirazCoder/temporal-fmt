@@ -172,6 +172,18 @@ function touchesTime(unit: StartOfUnit): boolean {
   return unit === 'day' || unit === 'month' || unit === 'year';
 }
 
+// startOf/endOf reassign year/month/day, which invalidates any
+// dayOfWeek carried over from the input — a plain { ...view } spread
+// leaves the old value sitting there unchanged. Same failure mode
+// businessCalendar.ts's isBusinessDay() works around for add(); we
+// recompute here rather than trust the copied field.
+function recomputeDayOfWeek(view: DateFieldView): void {
+  if (typeof view.dayOfWeek !== 'number') return;
+  if (typeof view.year !== 'number' || typeof view.month !== 'number' || typeof view.day !== 'number') return;
+  const jsDow = new Date(Date.UTC(view.year, view.month - 1, view.day)).getUTCDay(); // 0=Sun..6=Sat
+  view.dayOfWeek = jsDow === 0 ? 7 : jsDow; // 1=Mon..7=Sun
+}
+
 export function startOf(value: unknown, unit: StartOfUnit): DateFieldView {
   const view = asDateFieldView(value);
   const result: DateFieldView = { ...view };
@@ -181,6 +193,7 @@ export function startOf(value: unknown, unit: StartOfUnit): DateFieldView {
   } else if (unit === 'month') {
     result.day = 1;
   }
+  recomputeDayOfWeek(result);
   if (touchesTime(unit)) {
     result.hour = 0;
     result.minute = 0;
@@ -208,6 +221,7 @@ export function endOf(value: unknown, unit: StartOfUnit): DateFieldView {
   } else if (unit === 'month') {
     result.day = daysInMonth({ year: result.year!, month: result.month! });
   }
+  recomputeDayOfWeek(result);
   if (touchesTime(unit)) {
     result.hour = 23;
     result.minute = 59;
