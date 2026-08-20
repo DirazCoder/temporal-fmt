@@ -482,8 +482,8 @@ test` locally will pass even with a broken `vitest/` suite.
 
 ## Related tools
 
-- [`eslint-plugin-temporal-fmt`](https://github.com/DirazCoder/eslint-plugin-temporal-fmt) — lints format strings for common mistakes (e.g. `hh` without `a`)
-- [`temporal-fmt-codemod`](https://github.com/DirazCoder/temporal-fmt-codemod) — one-time migration tool that rewrites dayjs/date-fns calls to temporal-fmt
+- [`eslint-plugin-temporal-fmt`](https://www.npmjs.com/package/eslint-plugin-temporal-fmt) — lints format strings for common mistakes (e.g. `hh` without `a`)
+- [`temporal-fmt-codemod`](https://www.npmjs.com/package/temporal-fmt-codemod) — one-time migration tool that rewrites dayjs/date-fns calls to temporal-fmt
 
 ## License
 
