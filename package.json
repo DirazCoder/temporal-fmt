@@ -1,6 +1,6 @@
 {
   "name": "temporal-fmt",
-  "version": "0.8.9",
+  "version": "0.8.91",
   "description": "Format Temporal.PlainDate/PlainDateTime/PlainTime/ZonedDateTime objects using date-fns-style token strings.",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -110,6 +110,7 @@
   },
   "files": [
     "dist",
+    "scripts/cli.mjs",
     "format.d.ts",
     "format.d.cts",
     "parse.d.ts",
