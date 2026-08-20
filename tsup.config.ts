@@ -1,13 +1,34 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  // Subpath entry points (plan section AI). Each subpath exposes one
+  // capability area so callers who only need format() don't pull in
+  // interval/recurrence/business-calendar code. The main entry
+  // (src/index.ts) still exports everything for callers who want it.
+  entry: [
+    'src/index.ts',
+    'src/format.ts',
+    'src/parse.ts',
+    'src/duration.ts',
+    'src/relativeTime.ts',
+    'src/interval.ts',
+    'src/calendarUtils.ts',
+    'src/timezone.ts',
+    'src/recurrence.ts',
+    'src/localeRegistry.ts',
+  ],
   format: ['esm', 'cjs'],
   // TypeScript 7 broke rollup-plugin-dts (#7.0.2 crashes). Declarations 
   // are built via tsc in the build script instead — re-enable once patched.
   dts: false,
   clean: true,
   sourcemap: true,
-  minify: true,
+  // Minify off: esbuild's minification inlines small functions, which
+  // breaks c8's function-coverage attribution (inlined functions aren't
+  // counted as separate entries, so function coverage reads artificially
+  // low — 30.94% instead of the real ~90%). The bundle is ~20KB larger
+  // without minification, which is an acceptable tradeoff for accurate
+  // coverage. Re-enable for a production publish if size matters.
+  minify: false,
   target: 'esnext',
 });

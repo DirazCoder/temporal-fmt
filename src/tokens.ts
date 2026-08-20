@@ -1,6 +1,6 @@
 import { getTemporal, subscribeToTemporalChanges } from './temporalProvider.js';
 import { canonicalCacheKey, getCustomVocab } from './localeVocab.js';
-import { isoWeekYearAndWeek } from './isoWeek.js';
+import { isoWeekYearAndWeek, dayOfYear } from './isoWeek.js';
 
 export function pad(n: number, len: number): string {
   // padStart pads the whole string, sign included, so pad(-45, 4) used to
@@ -412,4 +412,61 @@ export const TOKENS: Array<[string, TokenHandler, keyof TemporalLike]> = [
     const { isoYear } = isoWeekYearAndWeek(t.year!, t.month!, t.day!, t.dayOfWeek!);
     return pad(isoYear, 4);
   }, 'dayOfWeek'],
+
+  // Day of year — number of days since Jan 1 (1-366). Three widths:
+  //   D    — unpadded (1, 2, 366)
+  //   DD   — 2-digit minimum (zero-padded if <100)
+  //   DDD  — 3-digit zero-padded (001, 002, 366)
+  // Format-only — parsing day-of-year requires resolving against a year,
+  // which is a different shape from the token-based parse() surface.
+  // The dayOfYearHelper() in calendarUtils.ts covers the same field for
+  // callers who need the numeric value.
+  ['D', (t) => String(dayOfYear(t.year!, t.month!, t.day!)), 'day'],
+  ['DD', (t) => pad(dayOfYear(t.year!, t.month!, t.day!), 2), 'day'],
+  ['DDD', (t) => pad(dayOfYear(t.year!, t.month!, t.day!), 3), 'day'],
+
+  // Stand-alone month — uses Intl's stand-alone form. In most locales
+  // (en, fr, de, es) this is identical to MMMM/MMM. In Slavic/Baltic
+  // locales (cs, sk, pl, ru) the stand-alone form differs from the
+  // format form (nominative vs genitive case). LLLL = long, LLL = short.
+  ['LLLL', (t, locale) => {
+    const custom = getCustomVocab(locale);
+    return localeAwareName(t, locale, { month: 'long' }, 'month', custom?.monthLong, t.month! - 1);
+  }, 'month'],
+  ['LLL', (t, locale) => {
+    const custom = getCustomVocab(locale);
+    return localeAwareName(t, locale, { month: 'short' }, 'month', custom?.monthShort, t.month! - 1);
+  }, 'month'],
+
+  // Stand-alone weekday — same pattern as stand-alone month but for
+  // weekday names. cccc = long, ccc = short.
+  ['cccc', (t, locale) => {
+    const custom = getCustomVocab(locale);
+    return localeAwareName(t, locale, { weekday: 'long' }, 'weekday', custom?.weekdayLong, t.dayOfWeek! - 1);
+  }, 'dayOfWeek'],
+  ['ccc', (t, locale) => {
+    const custom = getCustomVocab(locale);
+    return localeAwareName(t, locale, { weekday: 'short' }, 'weekday', custom?.weekdayShort, t.dayOfWeek! - 1);
+  }, 'dayOfWeek'],
+
+  // Era — locale-aware ("AD"/"BC" in en, "ap. J.-C."/"av. J.-C." in fr).
+  // GGGG = long, G = short. Format-only.
+  ['GGGG', (t, locale) => {
+    return intlPart(t, locale, { era: 'long' }, 'era');
+  }, 'year'],
+  ['G', (t, locale) => {
+    return intlPart(t, locale, { era: 'short' }, 'era');
+  }, 'year'],
+
+  // Localized timezone name — uses Intl's longLocalized/short timezone
+  // name option. Format-only — these names are locale-dependent and
+  // vary by season (EST vs EDT), so parsing them back requires a
+  // lookup table that isn't practical to ship.
+  ['zzzz', (t, locale) => {
+    return intlPart(t, locale, { timeZoneName: 'longGeneric' as Intl.DateTimeFormatOptions['timeZoneName'] }, 'timeZoneName' as Intl.DateTimeFormatPartTypes);
+  }, 'timeZoneId'],
+  ['z', (t, locale) => {
+    return intlPart(t, locale, { timeZoneName: 'short' as Intl.DateTimeFormatOptions['timeZoneName'] }, 'timeZoneName' as Intl.DateTimeFormatPartTypes);
+  }, 'timeZoneId'],
+
 ];

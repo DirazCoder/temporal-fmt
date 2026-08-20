@@ -7,18 +7,40 @@
 // Intl<->Temporal support. Consumers can hand us an implementation via
 // setTemporal(), or we fall back to globalThis.Temporal
 interface TemporalFactory {
-  from(fields: Record<string, number | string | undefined>, options?: { overflow?: 'constrain' | 'reject' }): unknown;
+  from(fields: Record<string, number | string | undefined>, options?: { overflow?: 'constrain' | 'reject'; disambiguation?: 'compatible' | 'earlier' | 'later' | 'reject'; offset?: 'use' | 'ignore' | 'prefer' | 'reject' }): unknown;
   // compare() lives on the namespace (Temporal.PlainDate.compare), not on
   // instances. Optional here since a consumer might be passing a
   // stripped-down Temporal shim that doesn't expose it.
   compare?(one: unknown, two: unknown): number;
 }
 
+// Instant is constructed via fromEpochMilliseconds / fromEpochNanoseconds
+// rather than from(fields). Separate interface.
+interface InstantFactory {
+  from(iso: string): unknown;
+  fromEpochMilliseconds(ms: number): unknown;
+  fromEpochMicroseconds(µs: number): unknown;
+  fromEpochNanoseconds(ns: bigint): unknown;
+}
+
+// Duration is constructed via from(fields). Carries round() and compare().
+interface DurationFactory extends TemporalFactory {
+  compare?(one: unknown, two: unknown): number;
+  prototype?: { round(options: unknown): unknown };
+}
+
+// PlainYearMonth / PlainMonthDay are also constructed via from(fields).
+// Same factory shape, kept separate for type clarity in callers that
+// want to narrow.
 export interface TemporalNamespace {
   PlainDate: TemporalFactory;
   PlainTime: TemporalFactory;
   PlainDateTime: TemporalFactory;
   ZonedDateTime: TemporalFactory;
+  Instant?: InstantFactory;
+  Duration?: DurationFactory;
+  PlainYearMonth?: TemporalFactory;
+  PlainMonthDay?: TemporalFactory;
 }
 
 let injectedTemporal: TemporalNamespace | undefined;
@@ -39,7 +61,7 @@ export function subscribeToTemporalChanges(listener: () => void): void {
 /**
  * Explicitly hand temporal-fmt the Temporal implementation to use, instead
  * of relying on a global `Temporal`. Call this once, before your first
- * `format()`/`parse()`
+ * `format()`/`parse()`/`parseISO()`/etc.
  *
  * Call with no argument (or `undefined`) to clear the override and fall
  * back to `globalThis.Temporal` again.

@@ -1,8 +1,27 @@
 import { TOKENS, DEFAULT_LOCALE, type TemporalLike, type FormatOptions } from './tokens.js';
-import { tokenize } from './tokenize.js';
+import { tokenize, type Piece } from './tokenize.js';
 import { MAX_FORMAT_LENGTH } from './constants.js';
 
 const HANDLER_BY_TOKEN = new Map(TOKENS.map(([tok, fn, field]) => [tok, { fn, field }]));
+
+// Pre-tokenized format strings, keyed by (formatStr) — locale doesn't
+// change the tokenization step, only the per-token rendering, so the
+// piece list is shared across locales. Same eviction shape as the
+// other caches in this library.
+const tokenizeCache = new Map<string, Piece[]>();
+const MAX_TOKENIZE_CACHE_SIZE = 500;
+
+function getPieces(formatStr: string): Piece[] {
+  let pieces = tokenizeCache.get(formatStr);
+  if (pieces) return pieces;
+  if (tokenizeCache.size >= MAX_TOKENIZE_CACHE_SIZE) {
+    const oldestKey = tokenizeCache.keys().next().value;
+    if (oldestKey !== undefined) tokenizeCache.delete(oldestKey);
+  }
+  pieces = tokenize(formatStr);
+  tokenizeCache.set(formatStr, pieces);
+  return pieces;
+}
 
 /**
  * Format a Temporal.PlainDate, PlainTime, PlainDateTime, or ZonedDateTime
@@ -24,7 +43,7 @@ export function format(temporal: TemporalLike, formatStr: string, options: Forma
   }
 
   const locale = options.locale ?? DEFAULT_LOCALE;
-  const pieces = tokenize(formatStr);
+  const pieces = getPieces(formatStr);
   let result = '';
 
   for (const piece of pieces) {
@@ -51,4 +70,149 @@ export function format(temporal: TemporalLike, formatStr: string, options: Forma
   }
 
   return result;
+}
+
+// Shape mirrors Intl.DateTimeFormat.formatToParts: each entry is either
+// a literal (carrying no token info) or a token piece (carrying the
+// token string and the formatted value). Letting callers iterate parts
+// means they can build custom output — strip a token, swap a separator,
+// render each token to its own DOM node — without re-implementing the
+// tokenizer or the field-check logic.
+export interface FormattedPart {
+  type: 'literal' | 'token';
+  value: string;
+  // Present when `type === 'token'`. Carries the token string (e.g. "yyyy")
+  // so a caller can look up its metadata via tokenInfo() from analyze.ts.
+  token?: string;
+}
+
+export function formatToParts(temporal: TemporalLike, formatStr: string, options: FormatOptions = {}): FormattedPart[] {
+  if (formatStr.length > MAX_FORMAT_LENGTH) {
+    throw new Error(
+      `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
+      `(got ${formatStr.length}).`
+    );
+  }
+  const locale = options.locale ?? DEFAULT_LOCALE;
+  const pieces = getPieces(formatStr);
+  const result: FormattedPart[] = [];
+  for (const piece of pieces) {
+    if (piece.kind === 'literal') {
+      // Collapse adjacent literals so formatToParts stays consistent with
+      // how format() walks pieces — a multi-char literal "at " is one
+      // entry, not one per character. Same merge logic as appendLiteral
+      // in tokenize.ts.
+      const last = result[result.length - 1];
+      if (last && last.type === 'literal') {
+        last.value += piece.value;
+      } else {
+        result.push({ type: 'literal', value: piece.value });
+      }
+      continue;
+    }
+    const handler = HANDLER_BY_TOKEN.get(piece.value);
+    if (!handler) {
+      throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
+    }
+    if (temporal[handler.field] === undefined) {
+      throw new Error(
+        `temporal-fmt: token "${piece.value}" requires "${handler.field}", ` +
+        `which this Temporal object doesn't have. ` +
+        `(e.g. PlainDate has no time fields, PlainTime has no date fields)`
+      );
+    }
+    result.push({ type: 'token', value: handler.fn(temporal, locale), token: piece.value });
+  }
+  return result;
+}
+
+// Pre-compiles a format string into an object whose format()/formatToParts()
+// methods skip the tokenization step on every call. The tokenizeCache in
+// this module means a plain format(temporal, fmt) call already pays only
+// a Map lookup for tokenization after the first call, so compileFormat()
+// is mostly a typing/ergonomics affordance — useful for callers who want
+// to hold onto a compiled form explicitly (e.g. to inspect the pieces
+// via the .pieces property, or to pass the compiled object around
+// instead of the string).
+export interface CompiledFormat {
+  format(temporal: TemporalLike, options?: FormatOptions): string;
+  formatToParts(temporal: TemporalLike, options?: FormatOptions): FormattedPart[];
+  readonly pieces: ReadonlyArray<Piece>;
+  readonly formatStr: string;
+}
+
+export function compileFormat(formatStr: string): CompiledFormat {
+  if (formatStr.length > MAX_FORMAT_LENGTH) {
+    throw new Error(
+      `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
+      `(got ${formatStr.length}).`
+    );
+  }
+  // Pre-tokenize once. Validation (unknown tokens, unterminated quotes)
+  // happens here, not lazily on first format() call — surfaces a bad
+  // format string at compile time rather than at first use, which is
+  // the point of compiling up front.
+  const pieces = getPieces(formatStr);
+  return {
+    formatStr,
+    pieces,
+    format(temporal: TemporalLike, options: FormatOptions = {}) {
+      const locale = options.locale ?? DEFAULT_LOCALE;
+      let result = '';
+      for (const piece of pieces) {
+        if (piece.kind === 'literal') {
+          result += piece.value;
+          continue;
+        }
+        const handler = HANDLER_BY_TOKEN.get(piece.value);
+        if (!handler) throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
+        if (temporal[handler.field] === undefined) {
+          throw new Error(
+            `temporal-fmt: token "${piece.value}" requires "${handler.field}", ` +
+            `which this Temporal object doesn't have. ` +
+            `(e.g. PlainDate has no time fields, PlainTime has no date fields)`
+          );
+        }
+        result += handler.fn(temporal, locale);
+      }
+      return result;
+    },
+    formatToParts(temporal: TemporalLike, options: FormatOptions = {}) {
+      const locale = options.locale ?? DEFAULT_LOCALE;
+      const out: FormattedPart[] = [];
+      for (const piece of pieces) {
+        if (piece.kind === 'literal') {
+          const last = out[out.length - 1];
+          if (last && last.type === 'literal') last.value += piece.value;
+          else out.push({ type: 'literal', value: piece.value });
+          continue;
+        }
+        const handler = HANDLER_BY_TOKEN.get(piece.value);
+        if (!handler) throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
+        if (temporal[handler.field] === undefined) {
+          throw new Error(
+            `temporal-fmt: token "${piece.value}" requires "${handler.field}", ` +
+            `which this Temporal object doesn't have. ` +
+            `(e.g. PlainDate has no time fields, PlainTime has no date fields)`
+          );
+        }
+        out.push({ type: 'token', value: handler.fn(temporal, locale), token: piece.value });
+      }
+      return out;
+    },
+  };
+}
+
+// Exported so analyze.ts can reuse the same tokenization cache rather
+// than re-tokenizing when a caller asks for both a format() and an
+// analyzeFormat() on the same string.
+export function _getPieces(formatStr: string): Piece[] {
+  return getPieces(formatStr);
+}
+
+// Exported for analyze.ts — same reason as above. The handler map is
+// the source of truth for "what field does this token need" — analyze
+// consumes it to compute requiredFields and compatibleTypes.
+export function _handlerFor(token: string): { fn: (t: TemporalLike, locale: string) => string; field: keyof TemporalLike } | undefined {
+  return HANDLER_BY_TOKEN.get(token);
 }

@@ -5,6 +5,7 @@ import { enumerateValidSplits, isValidTimeZone } from './pattern.js';
 import { getLocaleVocab, canonicalCacheKey } from './localeVocab.js';
 import { getTemporal } from './temporalProvider.js';
 import { MAX_FORMAT_LENGTH, MAX_INPUT_LENGTH } from './constants.js';
+import { TemporalFmtError, wrapUntypedError } from './errors.js';
 
 // format strings are short hand-written literals reused across many calls —
 // cache the compiled capturing pattern per (formatStr, locale) pair instead
@@ -632,4 +633,202 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
   }
 
   return result;
+}
+
+// safeParse: returns a discriminated union instead of throwing. The
+// happy path returns `{ ok: true, value }` with the Temporal instance
+// (typed as `unknown` since this package has no ambient Temporal types).
+// The error path returns `{ ok: false, error }` where `error` is a
+// `TemporalFmtError` subclass when the failure is one the typed-error
+// surface in errors.ts knows how to classify (most of them), or a
+// wrapped plain `Error` (still inside a TemporalFmtError shell) when
+// the throw site hasn't been migrated yet. Callers needing the original
+// thrown object for backward compatibility should use parse() directly.
+export type SafeParseResult =
+  | { ok: true; value: unknown }
+  | { ok: false; error: TemporalFmtError };
+
+export function safeParse(formatStr: string, input: string, options: FormatOptions = {}): SafeParseResult {
+  try {
+    return { ok: true, value: parse(formatStr, input, options) };
+  } catch (err) {
+    // Pass through typed errors unchanged — preserves the structured
+    // fields (code/token/position/etc.) the existing typed-error
+    // surface already populated.
+    if (err instanceof TemporalFmtError) {
+      return { ok: false, error: err };
+    }
+    return { ok: false, error: wrapUntypedError(err as Error, { input, format: formatStr }) };
+  }
+}
+
+// tryParse: best-effort variant. Returns the parsed value or undefined.
+// Suppresses diagnostics entirely — when callers need the reason for
+// a failure, they should use safeParse(). Intentionally loose on the
+// return type (unknown) since this package has no ambient Temporal
+// types to return a real one against.
+export function tryParse(formatStr: string, input: string, options: FormatOptions = {}): unknown | undefined {
+  try {
+    return parse(formatStr, input, options);
+  } catch {
+    return undefined;
+  }
+}
+
+// parseToParts: returns the matched groups with token labels, before
+// any Temporal construction. Useful for callers that want to inspect
+// what each token captured (e.g. to build a non-Temporal result, or to
+// cross-check fields themselves) without committing to the inferred
+// Temporal type parse() would build.
+//
+// Throws the same errors parse() throws for early validation (unknown
+// token, unterminated quote, no-match, ambiguity in strict mode) since
+// those failures happen before any group assignment. Construction-time
+// errors (Feb 30, weekday mismatch, etc.) do not happen here —
+// parseToParts doesn't construct anything, so it can't fail at that step.
+export interface ParsedPart {
+  token: string;
+  raw: string;
+  // Field name (year/month/day/...) this token would assign if handed
+  // to parse()'s applyGroup loop. undefined for tokens that don't map
+  // to a single field (none today, but kept here so future additions
+  // don't have to widen the type).
+  field?: string;
+  // Position of `raw` in `input`, 0-indexed. Lets a caller highlight
+  // the matched span in an editor/CLI.
+  position: number;
+}
+
+export function parseToParts(formatStr: string, input: string, options: FormatOptions = {}): ParsedPart[] {
+  if (formatStr.length > MAX_FORMAT_LENGTH) {
+    throw new Error(
+      `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
+      `(got ${formatStr.length}).`
+    );
+  }
+  if (input.length > MAX_INPUT_LENGTH) {
+    throw new Error(
+      `temporal-fmt: input exceeds maximum length of ${MAX_INPUT_LENGTH} characters (got ${input.length}).`
+    );
+  }
+
+  const locale = options.locale ?? DEFAULT_LOCALE;
+  const pattern = getPattern(formatStr, locale);
+  const match = pattern.regex.exec(input);
+  if (!match) {
+    throw new Error(`temporal-fmt: no valid pattern matches the format string and input shape`);
+  }
+  if (pattern.groups.length === 0) {
+    throw new Error(`temporal-fmt: format string "${formatStr}" has no tokens — nothing to parse into a value.`);
+  }
+  // Same zzz shape-validation parse() does — kept here for parity, so
+  // a caller using parseToParts sees the same "no valid pattern" error
+  // shape for a bogus zone id, not a silently-accepted bogus zone.
+  for (const { name, token } of pattern.groups) {
+    if (token === 'zzz' && !isValidTimeZone(match.groups![name]!)) {
+      throw new Error(`temporal-fmt: no valid pattern matches the format string and input shape`);
+    }
+  }
+
+  // Lenient-split handling: same as parse(). Strict mode throws on
+  // ambiguity, lenient picks one split via the documented heuristic.
+  // parseToParts mirrors this so callers switching between parse()
+  // and parseToParts on the same input get consistent results.
+  const runPicks: Array<{ groupNames: string[]; values: number[] }> = [];
+  for (const run of pattern.ambiguousRuns) {
+    const runDigits = run.groupNames.map((name) => match.groups![name]!).join('');
+    const splits = enumerateValidSplits(runDigits, run.tokens);
+    if (splits.length > 1) {
+      if (!options.lenient) {
+        throw new Error(
+          `temporal-fmt: "${runDigits}" in format string "${formatStr}" is ambiguous — ` +
+          `${splits.length} different ways to read tokens "${run.tokens.join('')}" (with no separator ` +
+          `between them) are all individually valid (e.g. ${JSON.stringify(splits[0])} vs ${JSON.stringify(splits[1])}). ` +
+          `parse() won't guess; add a separator between these tokens, or use their padded form ` +
+          `(e.g. "MM" instead of "M") so each one has a fixed width. ` +
+          `Pass { lenient: true } to opt into a documented heuristic that picks one.`
+        );
+      }
+      runPicks.push({ groupNames: run.groupNames, values: pickLenientSplit(splits, run.tokens) });
+    }
+  }
+  const lenientValues = new Map<string, string>();
+  for (const { groupNames, values } of runPicks) {
+    groupNames.forEach((name, i) => lenientValues.set(name, String(values[i])));
+  }
+
+  const parts: ParsedPart[] = [];
+  // match.indices.groups (provided by the regex 'd' flag) gives the
+  // [start, end] of each named group in the input. Used here so positions
+  // are accurate even when literals separate tokens — summing raw
+  // lengths alone wouldn't account for the literal characters between
+  // groups. Falls back to the cumulative-raw-length heuristic on engines
+  // without 'd' support (none we target, but the fallback keeps the
+  // code robust if the flag is ever removed).
+  const indices = (match as RegExpMatchArray & { indices?: { groups?: Record<string, [number, number]> } }).indices;
+  const groupIndices = indices?.groups;
+  let consumed = 0;
+  for (const { name, token } of pattern.groups) {
+    const raw = lenientValues.get(name) ?? match.groups![name]!;
+    // When a lenient-mode override is in play, the regex's recorded
+    // indices point at the run's overall span, not the individual
+    // token's slice within it — fall back to cumulative-raw-length for
+    // the overridden values so positions stay monotonic but may not be
+    // exact for tokens inside a lenient-resolved run. Documented as a
+    // known limitation; the alternative (re-running the regex with the
+    // chosen split baked in) would mean a second match pass for a
+    // corner case the lenient mode caller explicitly opted into.
+    const fromIndices = !lenientValues.has(name) && groupIndices?.[name];
+    const position = fromIndices ? fromIndices[0] : (match.index ?? 0) + consumed;
+    parts.push({ token, raw, position });
+    consumed += raw.length;
+  }
+  return parts;
+}
+
+// compileParser: pre-compiles a format string into an object whose
+// parse()/safeParse()/parseToParts() methods skip the per-call
+// pattern-cache lookup. The patternCache in this module means a plain
+// parse(fmt, input) call already pays only a Map lookup after the first
+// call, so compileParser is mostly an ergonomics affordance — useful
+// for callers who want to hold the compiled parser explicitly (e.g. to
+// inspect the pattern via the .pattern property).
+export interface CompiledParser {
+  parse(input: string, options?: FormatOptions): unknown;
+  safeParse(input: string, options?: FormatOptions): SafeParseResult;
+  tryParse(input: string, options?: FormatOptions): unknown | undefined;
+  parseToParts(input: string, options?: FormatOptions): ParsedPart[];
+  readonly formatStr: string;
+  readonly pattern: CapturingPattern;
+}
+
+export function compileParser(formatStr: string, options: FormatOptions = {}): CompiledParser {
+  if (formatStr.length > MAX_FORMAT_LENGTH) {
+    throw new Error(
+      `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
+      `(got ${formatStr.length}).`
+    );
+  }
+  // Pre-compile against the default locale; per-call locales will
+  // re-resolve via getPattern() if they differ. Most callers use one
+  // locale consistently, so pre-compiling against the default keeps
+  // the fast path fast.
+  const locale = options.locale ?? DEFAULT_LOCALE;
+  const pattern = getPattern(formatStr, locale);
+  return {
+    formatStr,
+    pattern,
+    parse(input: string, opts: FormatOptions = {}) {
+      return parse(formatStr, input, { locale, ...opts });
+    },
+    safeParse(input: string, opts: FormatOptions = {}) {
+      return safeParse(formatStr, input, { locale, ...opts });
+    },
+    tryParse(input: string, opts: FormatOptions = {}) {
+      return tryParse(formatStr, input, { locale, ...opts });
+    },
+    parseToParts(input: string, opts: FormatOptions = {}) {
+      return parseToParts(formatStr, input, { locale, ...opts });
+    },
+  };
 }

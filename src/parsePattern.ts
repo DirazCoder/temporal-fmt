@@ -59,5 +59,11 @@ export function buildCapturingPattern(pieces: Piece[], locale: string): Capturin
   }
   flushRun();
 
-  return { regex: new RegExp(`^(?:${source})$`, 'u'), groups, ambiguousRuns };
+  // 'd' flag enables match.indices.groups — used by parseToParts to
+  // report each token's actual position in the input. Without it,
+  // computing per-group positions would require a separate walk of the
+  // piece list against the input, duplicating logic the regex already
+  // has. Backward-compatible: 'd' only adds an `indices` property to
+  // the match result, no behavioral change to the match itself.
+  return { regex: new RegExp(`^(?:${source})$`, 'ud'), groups, ambiguousRuns };
 }

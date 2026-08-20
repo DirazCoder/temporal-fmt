@@ -31,11 +31,19 @@ describe('buildCapturingPattern', () => {
     expect(result.groups).toEqual([]);
   });
 
-  it('anchors the regex to a full match with the unicode flag set', () => {
+  it('anchors the regex to a full match with the unicode + indices flags set', () => {
     const result = buildCapturingPattern(tokenize('yyyy'), 'en-US');
     expect(result.regex.source.startsWith('^(?:')).toBe(true);
     expect(result.regex.source.endsWith(')$')).toBe(true);
-    expect(result.regex.flags).toBe('u');
+    // 'u' (unicode) was the original flag; 'd' (indices) was added in
+    // Phase 1 so parseToParts() can report each token's exact position
+    // in the input via match.indices.groups. Backward-compatible —
+    // existing consumers of the match result see no behavioral change,
+    // only an additional `indices` property.
+    // V8 normalizes regex flag order alphabetically when constructing,
+    // so 'ud' comes back as 'du'. Both flags are present — that's what
+    // the test is really asserting.
+    expect(result.regex.flags).toBe('du');
   });
 
   describe('ambiguousRuns', () => {

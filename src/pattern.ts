@@ -148,7 +148,8 @@ const QQQ_FRAGMENT = 'Q[1-4]';
 // recognizes them (so format() can use them), but parse()'s regex builder
 // rejects them with a clear error rather than silently dropping the token
 // or falling through to the generic "unknown token" message.
-const FORMAT_ONLY_TOKENS = new Set(['do', 'ww', 'RRRR']);
+// Exported so analyze.ts can include them in the public analyzer surface.
+export const FORMAT_ONLY_TOKENS = new Set(['do', 'ww', 'RRRR', 'D', 'DD', 'DDD', 'LLLL', 'LLL', 'cccc', 'ccc', 'GGGG', 'G', 'zzzz', 'z']);
 
 // pad()'s year formatter (tokens.ts) never truncates: it preserves the sign
 // for BCE years and doesn't cap width past 9999, so a formatted "yyyy" can

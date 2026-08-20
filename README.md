@@ -412,6 +412,556 @@ parseRelative('5. März', today, { locale: 'de-DE' }).toString()              //
 
 Throws a descriptive error for any phrase it doesn't recognize, naming the supported categories in the message. Accepts `PlainDate`, `PlainDateTime`, or `ZonedDateTime` as the reference (needs `dayOfWeek` to compute weekday offsets). Throws on `PlainTime`.
 
+## Subpath imports
+
+Each capability area is also available as a subpath import, if you only need a slice and want a smaller bundle:
+
+```js
+import { format } from 'temporal-fmt/format';
+import { parse } from 'temporal-fmt/parse';
+import { formatDuration } from 'temporal-fmt/duration';
+import { formatRelative } from 'temporal-fmt/relative';
+import { interval, formatRange } from 'temporal-fmt/interval';
+import { daysInMonth, startOf } from 'temporal-fmt/calendar';
+import { resolveZoned, isDST } from 'temporal-fmt/timezone';
+import { recurrence } from 'temporal-fmt/recurrence';
+import { registerLocale } from 'temporal-fmt/locale';
+```
+
+## API reference
+
+The core surface stays zero-runtime-dependency; everything below is exported from the main entry point (and, per the subpath list above, from its matching slice).
+
+### Formatting
+
+- `format(temporal, formatStr, options?)` — format a Temporal value using a date-fns-style token string.
+- `formatToParts(temporal, formatStr, options?)` — same, but returns an array of `{type, value, token?}` parts.
+- `compileFormat(formatStr)` — pre-compile a format string for repeated use.
+
+### Parsing
+
+- `parse(formatStr, input, options?)` — strict parse; throws on ambiguity, contradiction, or invalid date.
+- `safeParse(formatStr, input, options?)` — returns `{ ok: true, value }` or `{ ok: false, error: TemporalFmtError }`.
+- `tryParse(formatStr, input, options?)` — best-effort; returns the value or `undefined`.
+- `parseToParts(formatStr, input, options?)` — return matched token groups with positions.
+- `compileParser(formatStr, options?)` — pre-compile a parser.
+
+### Introspection
+
+- `analyzeFormat(formatStr)` — returns `{ tokens, requiredFields, compatibleTypes, parseable, localeSensitive, calendarSensitive, timezoneSensitive, ambiguous, roundTripSafe, warnings }`.
+- `explainFormat(formatStr)` — human-readable rendering of `analyzeFormat`.
+- `tokenInfo(name)` — metadata for one token, or undefined.
+- `listTokens()` — every recognized token with metadata.
+- `isValidFormat(formatStr)` — true iff tokenize() accepts the string.
+- `validateFormat(formatStr)` — throws on invalid; returns the analysis.
+
+### Type guards
+
+- `isTemporal(value)`, `isInstant(value)`, `isPlainDate(value)`, `isPlainTime(value)`, `isPlainDateTime(value)`, `isZonedDateTime(value)`, `isPlainYearMonth(value)`, `isPlainMonthDay(value)`, `isDuration(value)`.
+- `assertX(value)` variants throw descriptively on type mismatch.
+
+### Typed errors
+
+- `TemporalFmtError` — base class with `code`, `input`, `format`, `token`, `position`, `expected`, `actual`, `reason`.
+- Subclasses: `FormatSyntaxError`, `UnknownTokenError`, `ParseMismatchError`, `InvalidDateError`, `InvalidTimeError`, `InvalidOffsetError`, `InvalidTimeZoneError`, `InvalidCalendarError`, `AmbiguousInputError`, `InvalidLocaleError`, `InvalidDurationError`.
+- See [Error reference](#error-reference) below for what triggers each one.
+
+### Duration APIs
+
+- `formatDuration(duration, formatStr, options?)` — duration-specific token grammar (see [Duration formatting](#duration-formatting) above).
+- `formatDurationToParts(duration, formatStr, options?)` — same, as parts.
+- `parseDuration(input, formatStr, options?)` — inverse of `formatDuration`.
+- `parseISODuration(input)` — parse `P[n]Y[n]M[n]W[n]DT[n]H[n]M[n]S` ISO 8601 duration.
+- `formatISODuration(duration)` — inverse of `parseISODuration`.
+- `balanceDuration(duration)` — normalize fields to their natural ranges.
+- `roundDuration(duration, options)` — round to a unit; throws for calendar-bound units without a relativeTo.
+- `totalDuration(duration, unit)` — sum absolute fields into the target unit.
+- `compareDuration(a, b)` — `-1/0/1` by total absolute length.
+- `addDuration(a, b)`, `subtractDuration(a, b)` — field-by-field sum/difference.
+
+### Relative time
+
+- `formatDistance(date1, date2, options?)` — "3 days ago", "in 2 hours" (see [Relative time](#relative-time-formatdistance) above).
+- `formatRelative(date1, date2, options?)` — calendar-relative ("yesterday", "tomorrow", "last week").
+- `formatRelativeToNow(date, options?)` — `formatRelative(date, now)`.
+
+### Calendar utilities
+
+- `daysInMonth(value)`, `daysInYear(value)`, `monthsInYear(value)`.
+- `isLeapYear(value)`, `isLeapMonth(value)` (Gregorian returns false).
+- `dayOfYear(value)`, `weekOfYear(value)`, `weekYear(value)`.
+- `getQuarter(value)`, `getMonth(value)`, `getWeekday(value)`.
+- `startOf(value, unit)`, `endOf(value, unit)` — returns a new field bag with finer fields zeroed/extended.
+- See [Calendar guide](#calendar-guide) below for Gregorian-only caveats.
+
+### Date arithmetic
+
+- `add(value, amount, unit)`, `subtract(value, amount, unit)`.
+- Per-unit wrappers: `addYears`, `addMonths`, `addWeeks`, `addDays`, `addHours`, `addMinutes`, `addSeconds`, `addMilliseconds` (and `subtract*` variants).
+- `difference(a, b, unit)` — integer count of unit boundaries.
+- Per-unit wrappers: `differenceInYears`, …, `differenceInMilliseconds`.
+
+### Rounding
+
+- `round(value, options)` — round to a unit with a mode.
+- `floor(value, unit, increment?)`, `ceil(value, unit, increment?)`, `truncate(value, unit, increment?)`.
+
+### Comparison
+
+- `compare(a, b)` → `-1/0/1`.
+- `isEqual`, `isBefore`, `isAfter`.
+- `min(values)`, `max(values)`, `clamp(value, lo, hi)`, `isBetween(value, lo, hi)`.
+- Semantic helpers: `isToday`, `isTomorrow`, `isYesterday`, `isSameDay`, `isSameWeek`, `isSameMonth`, `isSameQuarter`, `isSameYear`, `isWeekend`, `isWeekday`.
+
+### Intervals
+
+- `interval(start, end, bounds?)` — bounds: `'closed'` | `'open'` | `'half-open-start'` | `'half-open-end'`.
+- `intervalContains(iv, value)`, `overlaps(a, b)`, `intersects(a, b)`, `intervalIsBefore(a, b)`, `intervalIsAfter(a, b)`.
+- `intersection(a, b)`, `union(a, b)`, `intervalDifference(a, b)`, `intervalSubtract(a, b)`.
+- `mergeIntervals(intervals)` — combine overlapping.
+- `splitInterval(iv, n)` — N equal sub-intervals.
+- `formatRange(iv, formatStr, options?)`, `formatRangeToParts(iv, formatStr, options?)` — uses `Intl.DateTimeFormat.formatRange` when available.
+
+### Timezone subsystem
+
+- `resolveZoned(fields, timeZone, options?)` — construct a `ZonedDateTime` with disambiguation mode (`compatible` | `earlier` | `later` | `reject`).
+- `getTimeZone(value)`, `getOffset(value)`, `getOffsetNanoseconds(value)`.
+- `isDST(value)` — heuristic, compares current offset to January offset.
+- `getNextTransition(value)`, `getPreviousTransition(value)`, `getTransitions(start, end)`.
+- `possibleInstantsFor(fields, timeZone)` — returns the list of possible instants (0 for gaps, 2 for overlaps, 1 otherwise).
+
+### Recurrence
+
+- `recurrence(start, rule)` — returns an iterator with `next()` and `previous()`.
+- `take(iter, n)` — collect N occurrences.
+- `skip(iter, n)` — skip N occurrences.
+- `between(start, rule, rangeStart, rangeEnd)` — occurrences in range.
+- `parseRRule(str)`, `formatRRule(rule)` — RFC 5545 interop.
+
+### Business calendar
+
+- `createBusinessCalendar(options?)` — customize weekend, holidays, working hours, half days.
+- `isBusinessDay(cal, value)`, `addBusinessDays(cal, value, n)`, `subtractBusinessDays(cal, value, n)`.
+- `differenceInBusinessDays(cal, a, b)`, `nextBusinessDay(cal, value)`, `previousBusinessDay(cal, value)`.
+
+### Holiday framework
+
+- `createHolidayCalendar(specs)` — fixed-date and computed holidays.
+- `isHoliday(cal, value)`, `nextHoliday(cal, value)`, `previousHoliday(cal, value)`, `holidaysBetween(cal, start, end)`.
+
+### Serialization
+
+- `parseISO(input)`, `formatISO(value)`.
+- `parseRFC3339(input)`, `formatRFC3339(value)`.
+- `parseRFC2822(input)`, `formatRFC2822(value)`.
+- `parseHTTPDate(input)`, `formatHTTPDate(value)`.
+- `parseSQL(input)`, `formatSQL(value)`.
+- Epoch: `fromUnixSeconds`, `fromUnixMilliseconds`, `fromUnixMicroseconds`, `fromUnixNanoseconds`, `toUnixSeconds`, `toUnixMilliseconds`, `toUnixMicroseconds`, `toUnixNanoseconds`.
+
+### Locale
+
+- `registerLocale(locale, vocab)` — register extended vocabulary (months, weekdays, day periods, quarters, eras, ordinals, duration units, relative-time language).
+- `getLocale(locale)`, `hasLocale(locale)`.
+- `registerLocaleVocab(locale, vocab)` — base vocabulary (months/weekdays/day periods) only. See [Locale guide](#locale-guide) below.
+
+### Numbering systems
+
+- `convertDigits(s, system)` — ASCII digits to a locale's native digits.
+- `convertDigitsToAscii(s, system)` — inverse.
+- `SUPPORTED_NUMBERING_SYSTEMS` — set of supported system names.
+
+### Configuration
+
+- `createConfig(overrides?)` — frozen config with locale/calendar/timezone/numberingSystem/weekRules/rounding/disambiguation/overflow/parseLenient/durationShowZeroValues.
+- `mergeWithConfig(config, perCall)` — fold config defaults into per-call options.
+
+### Extensibility
+
+- `createFormatter(options?)` — create a formatter with custom tokens (overrides built-ins of the same name).
+
+### Natural-language parsing
+
+- `parseRelative(input, reference, options?)` — built-in EN/ES/FR/DE grammars (see [parseRelative](#parserelative-natural-language-date-parsing) above).
+- `registerRelativeGrammar(grammar)` — add a new language.
+
+### IDE tooling data
+
+- `getAutocompleteData()` — token autocomplete entries with family grouping.
+- `getHoverDocs()` — per-token hover documentation.
+- `getInlineDiagnostics(formatStr)` — diagnostics with position + suggested fixes.
+- `previewFormat(formatStr, sample?)` — live preview string.
+- `getDocUrl(tokenName)` — anchor link into this README's [Token reference](#token-reference) section. (Pre-consolidation, this pointed into a standalone `docs/` folder — if you're on an older version, update accordingly.)
+- `DAYJS_TO_TEMPORAL_FMT`, `DATE_FNS_TO_TEMPORAL_FMT` — token conversion hints.
+
+### CLI
+
+Run via `npm run cli` or `node scripts/cli.mjs`:
+
+```sh
+temporal-fmt format "2026-08-04T15:45:30" "yyyy-MM-dd HH:mm:ss"
+temporal-fmt parse "yyyy-MM-dd" "2026-08-04"
+temporal-fmt inspect "MMMM d, yyyy 'at' h:mm a"
+temporal-fmt validate "yyyy-MM-dd HH:mm:ss"
+temporal-fmt translate dayjs "YYYY-MM-DD HH:mm:ss"
+```
+
+## Token reference
+
+Beyond the format/parse/example columns in the [Tokens](#tokens) table above, every token carries structured metadata — round-trip safety, locale sensitivity, which Temporal types it works on — accessible via `tokenInfo(name)` or `TOKEN_METADATA`.
+
+### Round-trip safety by family
+
+| Family | Tokens | Round-trip safe | Notes |
+|--------|--------|------------------|-------|
+| Year | `yyyy` | yes | Preserves sign for BCE. |
+| Year | `yy` | no | Century is lost — `parse` re-derives it via the `00–68`/`69–99` rule documented above, which isn't guaranteed to match the original century. |
+| Month | `MMMM`, `MMM`, `MM`, `M` | yes | Numeric and name forms all round-trip; only `MMMM`/`MMM` are locale-sensitive. |
+| Day | `dd`, `d` | yes | |
+| Day | `do` | no | Format-only — the "st"/"nd"/"rd"/"th" suffix isn't parseable back out. |
+| Weekday | `EEEE`, `EEE` | yes | Cross-checked against the parsed date, so a mismatched weekday throws rather than silently round-tripping wrong. |
+| ISO week | `ww`, `RRRR` | n/a | Format-only — a week number alone can't reconstruct a specific date. |
+
+### Format-only tokens (parse rejects)
+
+`format()` accepts these; `parse()` throws a clear, descriptive error if you try to use them for parsing:
+
+- `do` — ordinal suffix isn't structurally distinguishable from adjacent literal text.
+- `ww`, `RRRR` — week alone can't reconstruct a date without a disambiguator (a weekday, or the year+month+day).
+
+Run `analyzeFormat(formatStr).warnings` to catch these statically before you hit the runtime error. The ESLint plugin (see [Related tools](#related-tools)) surfaces the same check as a `formatOnlyToken` diagnostic.
+
+### Inspecting metadata at runtime
+
+```js
+import { TOKEN_METADATA, tokenInfo, listTokens } from 'temporal-fmt';
+
+tokenInfo('yyyy');
+// {
+//   meaning: 'Four-digit year (preserves sign for BCE; no truncation).',
+//   formatCapable: true,
+//   parseCapable: true,
+//   localeSensitive: false,
+//   calendarSensitive: true,
+//   timezoneSensitive: false,
+//   supportedTypes: ['PlainDate', 'PlainDateTime', 'ZonedDateTime', 'PlainYearMonth'],
+//   roundTripSafe: true,
+// }
+```
+
+This metadata is the same source of truth the ESLint plugin and the codemod consume, so `tokenInfo()`/`listTokens()` output won't drift from what those tools actually enforce.
+
+## Parsing: additional detail
+
+The [Parsing a string](#parsing-a-string) section above covers the core contract. A few more things that come up in practice:
+
+**Return type depends on which tokens are present:**
+
+| Tokens present | Result type |
+|---|---|
+| year + month + day only | `Temporal.PlainDate` |
+| time fields only (hour, minute, second) | `Temporal.PlainTime` |
+| full date + time, no zone | `Temporal.PlainDateTime` |
+| any of the above + `zzz` or an offset token | `Temporal.ZonedDateTime` |
+
+**`safeParse` and `tryParse`** — for input you don't trust and don't want to wrap in try/catch:
+
+```js
+import { safeParse, tryParse } from 'temporal-fmt';
+
+const r = safeParse('yyyy-MM-dd', userInput);
+if (r.ok) {
+  console.log(r.value.toString());
+} else {
+  console.log(r.error.code); // 'INVALID_DATE' / 'PARSE_MISMATCH' / ...
+}
+
+const v = tryParse('yyyy-MM-dd', userInput);
+if (v) { /* ... */ }
+```
+
+**`parseToParts`** returns matched token groups and positions before any Temporal value gets constructed — useful for building a custom result type or doing your own cross-checks:
+
+```js
+parseToParts('yyyy-MM-dd HH:mm', '2026-08-04 15:45');
+// → [
+//   { token: 'yyyy', raw: '2026', position: 0 },
+//   { token: 'MM', raw: '08', position: 5 },
+//   { token: 'dd', raw: '04', position: 8 },
+//   { token: 'HH', raw: '15', position: 11 },
+//   { token: 'mm', raw: '45', position: 14 },
+// ]
+```
+
+**Calendar-aware parsing** — a locale with a `-u-ca-` extension parses into that calendar directly:
+
+```js
+parse('yyyy-MM-dd', '5784-05-10', { locale: 'en-u-ca-hebrew' });
+// → Temporal.PlainDate with calendarId 'hebrew'
+```
+
+## Error reference
+
+Every error thrown by `temporal-fmt` is either a plain `Error` with a descriptive message (the legacy throw sites in `parse()` and `format()`) or a `TemporalFmtError` subclass (the typed-error surface exposed via `safeParse()` and `tryParse()`).
+
+### Typed error classes
+
+All inherit from `TemporalFmtError`, which carries structured fields: `code`, `input`, `format`, `token`, `position`, `expected`, `actual`, `reason`.
+
+| Class | Code | When it fires |
+|-------|------|---------------|
+| `FormatSyntaxError` | `FORMAT_SYNTAX_ERROR` | Unterminated quote, format string exceeds length cap, other syntax issues. |
+| `UnknownTokenError` | `UNKNOWN_TOKEN` | An unrecognized letter run was encountered. |
+| `ParseMismatchError` | `PARSE_MISMATCH` | Input doesn't match the format's shape; generic catch-all. |
+| `InvalidDateError` | `INVALID_DATE` | Date is structurally valid but doesn't exist (Feb 30), weekday/quarter contradicts date, etc. |
+| `InvalidTimeError` | `INVALID_TIME` | Time is out of range (hour 25, etc.). |
+| `InvalidOffsetError` | `INVALID_OFFSET` | Offset is malformed or out of IANA range (-12:00 to +14:00). |
+| `InvalidTimeZoneError` | `INVALID_TIME_ZONE` | Time zone isn't a recognized IANA name or fixed offset. |
+| `InvalidCalendarError` | `INVALID_CALENDAR` | Calendar isn't supported. |
+| `AmbiguousInputError` | `AMBIGUOUS_INPUT` | Input has more than one valid reading (e.g. "Md" against "121"). |
+| `InvalidLocaleError` | `INVALID_LOCALE` | Locale isn't a valid BCP-47 tag, or the numbering system isn't supported. |
+| `InvalidDurationError` | `INVALID_DURATION` | Duration string doesn't match the ISO 8601 grammar, or a field value is non-finite. |
+
+`safeParse()` classifies the underlying throw into the matching `TemporalFmtError` subclass internally — see `src/errors.ts` if you need the exact classification logic.
+
+### Common error patterns
+
+**"no valid pattern matches the format string and input shape"** — the input doesn't match the format string at all. Usually a missing separator, wrong digit count for a fixed-width token, or a `zzz` token that captured something that isn't a real IANA zone id.
+
+**"token X requires Y, which this Temporal object doesn't have"** — you used a token that reads a field the value doesn't carry. Common case: `format(plainDate, 'HH:mm')` — `PlainDate` has no hour field. Switch to `PlainDateTime` or use a date-only format string.
+
+**"format string mixes 'yyyy' and 'yy' year representations"** — don't mix the two year tokens in the same format string. Pick one.
+
+**"format string has an incomplete date — year, month, and day tokens must all be present together"** — a partial date (year-only, say) isn't constructible as a Temporal value. Add the missing tokens, or use a different format.
+
+**"X is ambiguous — N different ways to read tokens Y are all individually valid"** — adjacent unpadded numeric tokens with no separator (e.g. `Md` against `121`) can split multiple ways. Add a separator (`M-d`), use padded forms (`MM-dd`), or opt into `{ lenient: true }`.
+
+**"offset hours X in 'Y' out of range (max 14 — Kiritimati, Line Islands is +14:00)"** — the offset's hour component exceeds the IANA-supported range of -12 to +14.
+
+**"X has no such wall-clock time on this date — it falls in a DST gap"** — the input describes a wall-clock time that doesn't exist (a spring-forward gap). Pick a different time, or pass `{ disambiguation: 'compatible' }` to let Temporal choose an instant.
+
+**"has both a 'zzz' zone (X) and an offset token (Y), but the zone's actual offset at this date/time is Z, not Y"** — the format string asks for both a zone name and an explicit offset, and the parsed offset disagrees with the zone's actual offset at that instant. Keep them consistent in the input.
+
+## Locale guide
+
+The [Locale support](#locale-support) section above covers the common case — passing a `locale` option to `format`/`parse`. This section covers registering your own vocabulary.
+
+`temporal-fmt` uses `Intl.DateTimeFormat` as the default source for locale-aware token output (`MMMM`, `MMM`, `EEEE`, `EEE`, `a`). For locales Intl doesn't cover well — or where you want different vocabulary — register a custom one.
+
+**`registerLocaleVocab` (base)** — months, weekdays, and day periods only:
+
+```js
+import { registerLocaleVocab } from 'temporal-fmt';
+
+registerLocaleVocab('en-u-ca-hebrew-leap', {
+  monthLong: ['Nisan', 'Iyar', 'Sivan', 'Tammuz', 'Av', 'Elul', 'Tishrei', 'Marcheshvan', 'Kislev', 'Tevet', 'Shevat', 'Adar I', 'Adar II'],
+  monthShort: ['Nis', 'Iyy', 'Siv', 'Tam', 'Av', 'Elu', 'Tish', 'Chesh', 'Kis', 'Tev', 'Shv', 'Ad1', 'Ad2'],
+  weekdayLong: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+  weekdayShort: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+  dayPeriod: ['AM', 'PM'],
+});
+```
+
+After registration, `format()` and `parse()` use the registered vocab for that locale key.
+
+**`registerLocale` (extended)** — for vocabulary beyond months/weekdays/day-periods: quarters, eras, ordinals, duration units, relative-time language:
+
+```js
+import { registerLocale } from 'temporal-fmt';
+
+registerLocale('test-locale-1', {
+  // base vocab (required)
+  monthLong: [/* 12 entries */],
+  monthShort: [/* 12 entries */],
+  weekdayLong: [/* 7 entries */],
+  weekdayShort: [/* 7 entries */],
+  dayPeriod: ['AM', 'PM'],
+  // extended vocab (optional)
+  quartersLong: ['First', 'Second', 'Third', 'Fourth'],
+  quartersShort: ['Q1', 'Q2', 'Q3', 'Q4'],
+  erasLong: ['BCE', 'CE'],
+  erasShort: ['BC', 'AD'],
+  ordinals: ['st', 'nd', 'rd', 'th'],
+  durationUnits: { years: ['year', 'years'] /* , ... */ },
+  relativeTime: { past: 'ago', future: 'in', now: 'now' },
+});
+```
+
+**Locale fallback** — `getLocale(locale)` returns the extended vocab if one's registered, otherwise the Intl-derived base vocab. Fallback is deterministic: the canonical locale key (lowercased via `Intl.Locale`) is looked up, and Intl is used if there's no entry.
+
+**Deterministic output** — all locale options are per-call. `registerLocaleVocab` and `registerLocale` are the only global mutation points, and they invalidate the cache entry for the affected locale so subsequent calls pick up the new vocab immediately. Built-in behavior stays deterministic regardless of what's registered elsewhere in your app.
+
+## Calendar guide
+
+`temporal-fmt`'s calendar utilities operate on Temporal's calendar-aware types. By default, the helpers assume the `iso8601` (Gregorian) calendar — that's what `TemporalLike` fields carry for the overwhelming majority of callers.
+
+**Gregorian-only helpers (documented limitation).** The following use Gregorian arithmetic and will produce wrong results on non-Gregorian calendars (Hebrew, Islamic, etc.):
+
+- `daysInMonth`, `daysInYear`, `isLeapYear` — Gregorian month lengths and leap year rules.
+- `monthsInYear` — returns 12 unconditionally.
+- `isLeapMonth` — returns false unconditionally.
+- `dayOfYear` — Gregorian day-of-year.
+- `weekOfYear`, `weekYear` — ISO 8601 week numbering.
+
+For non-Gregorian calendars, pass the value to `Temporal.PlainDate` directly and use its own calendar-aware methods instead:
+
+```js
+const pd = Temporal.PlainDate.from('5784-05-10[u-ca=hebrew]');
+console.log(pd.daysInMonth);  // 30 (Sivan)
+console.log(pd.monthsInYear); // 13 (leap year)
+```
+
+**Locale-aware tokens ARE calendar-aware**, unlike the helpers above. `MMMM`, `MMM`, `EEEE`, `EEE`, `a` go through `Intl.DateTimeFormat`, which respects the value's `calendarId`:
+
+```js
+const hebrewDate = Temporal.PlainDate.from('5784-05-10[u-ca=hebrew]');
+format(hebrewDate, 'MMMM d, yyyy');
+// → "Sivan 10, 5784"
+```
+
+Numeric tokens (`yyyy`, `MM`, `dd`) read straight off the object's ISO fields — calendar-specific in the sense that the underlying Temporal value carries calendar-specific field values, but the formatting logic itself is calendar-agnostic.
+
+**Custom calendar vocabulary.** For calendars Intl doesn't cover (Hebrew leap months, for instance), register one via `registerLocaleVocab` — see [Locale guide](#locale-guide) above for the full vocab surface and validation rules.
+
+## Migration guide
+
+`temporal-fmt` is designed to make migration from Day.js and date-fns straightforward. The token grammar is largely compatible, and the codemod automates the bulk of the work.
+
+### Automated migration
+
+The `temporal-fmt-codemod` package includes AST transforms for Day.js and date-fns:
+
+```sh
+npx temporal-fmt-codemod --source=dayjs path/to/src
+npx temporal-fmt-codemod --source=date-fns path/to/src
+```
+
+It's conservative: it only transforms call sites where the format string is a plain string literal, and only rewrites tokens with known-safe mappings. Unmappable tokens leave a `TODO(temporal-fmt-codemod)` comment.
+
+For a one-off translation without running the full codemod, use the CLI:
+
+```sh
+npx temporal-fmt translate dayjs "YYYY-MM-DD HH:mm:ss"
+# → "yyyy-MM-dd HH:mm:ss"
+```
+
+### Manual migration: token mapping
+
+Most date-fns/Day.js tokens are identical to `temporal-fmt` tokens. The differences:
+
+| Source (Day.js / date-fns) | temporal-fmt | Notes |
+|---|---|---|
+| `YYYY` | `yyyy` | Lowercase in temporal-fmt |
+| `YY` | `yy` | Same |
+| `MMMM`, `MMM`, `MM`, `M` | same | Identical |
+| `DD`, `D` | `dd`, `d` | Lowercase in temporal-fmt |
+| `dddd` | `EEEE` | Long weekday |
+| `ddd` | `EEE` | Short weekday |
+| `HH`, `H`, `mm`, `m`, `ss`, `s` | same | Identical |
+| `A`, `a` | `a` | Always lowercase in temporal-fmt |
+| `Z` | `XXX` | Numeric UTC offset with colon, Z for UTC |
+| `ZZ` | `XX` | Numeric UTC offset no colon |
+| `X` | (not supported) | Unix timestamp — convert via `fromUnixSeconds` instead |
+| `x` | (not supported) | Unix ms timestamp — convert via `fromUnixMilliseconds` |
+| `P` | (not supported) | Localized long format — write the format string explicitly |
+
+### Manual migration: API mapping
+
+| Day.js | date-fns | temporal-fmt |
+|---|---|---|
+| `dayjs(str).format(fmt)` | `format(date, fmt)` | `format(temporal, fmt)` |
+| `dayjs(str)` (parse) | `parseISO(str)` | `parseISO(str)` |
+| `dayjs().add(n, 'day')` | `addDays(date, n)` | `add(date, n, 'days')` or `addDays(date, n)` |
+| `dayjs().diff(other, 'day')` | `differenceInDays(a, b)` | `differenceInDays(a, b)` |
+| `dayjs().isBefore(other)` | `isBefore(date, other)` | `isBefore(date, other)` |
+| `dayjs().isAfter(other)` | `isAfter(date, other)` | `isAfter(date, other)` |
+| `dayjs.duration(...)` | `intervalToDuration(...)` | `Temporal.Duration.from(...)` |
+| `dayjs().isToday()` | `isToday(date)` | `isToday(date)` |
+| `dayjs().isYesterday()` | `isYesterday(date)` | `isYesterday(date)` |
+| `dayjs().isTomorrow()` | `isTomorrow(date)` | `isTomorrow(date)` |
+
+### Key behavioral differences
+
+1. **Strict parsing.** `temporal-fmt` throws on ambiguous input by default. Day.js silently picks one reading. For ambiguous glued numeric tokens (`Md` against `121`, say), either add separators or use `{ lenient: true }`.
+2. **Cross-field validation.** `temporal-fmt` cross-checks weekday, quarter, and offset against the parsed date. Day.js doesn't — a `Monday` label that disagrees with the actual date will throw here.
+3. **No silent defaults.** `temporal-fmt` doesn't fall back to "now" when input is missing. Pass an explicit value.
+4. **Type-preserving.** `format(plainDate, 'HH:mm')` throws — `PlainDate` has no hour field. Day.js silently uses 0. Pass a `PlainDateTime`, or use a date-only format.
+5. **Temporal-native.** The library operates on Temporal types (`PlainDate`, `PlainDateTime`, `ZonedDateTime`, etc.), not on JS `Date`. Convert at the boundary:
+
+```js
+import { Temporal } from 'temporal-polyfill';
+const pd = Temporal.PlainDate.from(jsDate.toISOString().slice(0, 10));
+const formatted = format(pd, 'yyyy-MM-dd');
+```
+
+### Common migration patterns
+
+**CSV/log timestamp parsing:**
+
+```js
+// Before (Day.js)
+const d = dayjs(line, 'YYYY-MM-DD HH:mm:ss');
+// After
+const d = parse('yyyy-MM-dd HH:mm:ss', line);
+```
+
+**Locale-aware formatting:**
+
+```js
+// Before
+dayjs(date).locale('fr').format('MMMM D, YYYY');
+// After
+format(date, 'MMMM d, yyyy', { locale: 'fr-FR' });
+// → "août 4, 2026"
+```
+
+**Relative time:**
+
+```js
+// Before
+dayjs(date).fromNow(); // "3 days ago"
+// After
+formatRelativeToNow(date); // "3 days ago"
+```
+
+**Date arithmetic:**
+
+```js
+// Before
+dayjs(date).add(7, 'day');
+// After
+add(date, 7, 'days');
+// or: addDays(date, 7)
+```
+
+### Things that don't migrate cleanly
+
+- Day.js's `dayjs.extend(customParseFormat)` plugin behavior — `temporal-fmt`'s parse is strict, the plugin is lenient. Audit any callers relying on lenient parsing.
+- Day.js's mutable locale registration (`dayjs.locale('fr')`) — `temporal-fmt` uses per-call `locale` options, no global mutation.
+- date-fns's `format` with a locale object parameter — `temporal-fmt` uses BCP-47 strings, not locale objects.
+- Timezone-aware formatting via `dayjs-timezone` — use `Temporal.ZonedDateTime` and the `zzz`/`XXX` tokens instead.
+
+### Running both during migration
+
+Both libraries can coexist. Wrap migration in a feature flag:
+
+```js
+import dayjs from 'dayjs';
+import { format as fmtTemporal } from 'temporal-fmt';
+
+function formatDate(date, formatStr, opts) {
+  if (opts?.useTemporal) {
+    return fmtTemporal(date, formatStr, opts);
+  }
+  return dayjs(date).format(formatStr);
+}
+```
+
+Run the codemod per-file when ready, then drop the wrapper.
+
+## Other guides
+
+A few narrower topics — business calendars, intervals, recurrence, durations, timezones, serialization, performance, security, and the ESLint plugin/codemod internals — don't have write-ups of their own yet beyond what's covered above and in the [API reference](#api-reference). The test files (`test/*.test.js`) are the best source for concrete usage of any of these; each one is effectively a usage guide for its corresponding module.
+
 ## Known limitations
 
 - Numeral systems are always Western digits — see [Locale support](#locale-support).

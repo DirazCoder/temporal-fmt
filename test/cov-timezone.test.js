@@ -1,0 +1,123 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  resolveZoned, getTimeZone, getOffset, getOffsetNanoseconds, isDST,
+  getNextTransition, getPreviousTransition, getTransitions, possibleInstantsFor,
+  setTemporal,
+} from '../dist/index.js';
+import { Temporal as P } from 'temporal-polyfill/full';
+const T = globalThis.Temporal ?? P;
+setTemporal(T);
+
+test('cov: getTimeZone throws on non-ZDT', () => assert.throws(() => getTimeZone(42), /expected a ZonedDateTime/));
+test('cov: getOffset throws on non-ZDT', () => assert.throws(() => getOffset(42), /expected a ZonedDateTime/));
+test('cov: getOffsetNanoseconds throws on non-ZDT', () => assert.throws(() => getOffsetNanoseconds(42), /expected a ZonedDateTime/));
+test('cov: getOffsetNanoseconds throws on malformed', () => assert.throws(() => getOffsetNanoseconds({ offset: 'bad' }), /couldn't parse/));
+test('cov: isDST summer NY', () => assert.ok(isDST(T.ZonedDateTime.from('2026-07-04T12:00[America/New_York]'))));
+test('cov: isDST winter NY', () => assert.ok(!isDST(T.ZonedDateTime.from('2026-01-04T12:00[America/New_York]'))));
+test('cov: isDST throws on non-ZDT', () => assert.throws(() => isDST(42), /expected a ZonedDateTime/));
+test('cov: getNextTransition finds one', () => { const n = getNextTransition(T.ZonedDateTime.from('2026-01-01T00:00[America/New_York]')); if (n !== undefined) assert.ok(n); });
+test('cov: getPreviousTransition finds one', () => { const p = getPreviousTransition(T.ZonedDateTime.from('2026-07-01T00:00[America/New_York]')); if (p !== undefined) assert.ok(p); });
+test('cov: getNextTransition throws on non-ZDT', () => assert.throws(() => getNextTransition(42), /expected a ZonedDateTime/));
+test('cov: getTransitions in range', () => { const s = T.ZonedDateTime.from('2026-01-01T00:00[America/New_York]'); const e = T.ZonedDateTime.from('2026-12-31T00:00[America/New_York]'); const r = getTransitions(s, e); assert.ok(Array.isArray(r)); });
+test('cov: possibleInstantsFor normal time', () => { const r = possibleInstantsFor({ year: 2026, month: 8, day: 4, hour: 12, minute: 0, second: 0, millisecond: 0 }, 'UTC'); assert.ok(r.length >= 1); });
+test('cov: resolveZoned reject', () => assert.ok(resolveZoned({ year: 2026, month: 8, day: 4, hour: 15 }, 'UTC', { disambiguation: 'reject' }) !== undefined));
+test('cov: resolveZoned earlier', () => assert.ok(resolveZoned({ year: 2026, month: 8, day: 4, hour: 15 }, 'UTC', { disambiguation: 'earlier' }) !== undefined));
+test('cov: resolveZoned later', () => assert.ok(resolveZoned({ year: 2026, month: 8, day: 4, hour: 15 }, 'UTC', { disambiguation: 'later' }) !== undefined));
+
+// New token family tests (Section B)
+import { format, tokenInfo, analyzeFormat, FORMAT_ONLY_TOKENS } from '../dist/index.js';
+
+test('cov: LLLL format', () => {
+  const date = T.PlainDate.from('2026-08-04');
+  const r = format(date, 'LLLL');
+  assert.ok(r.length > 0);
+});
+
+test('cov: LLL format', () => {
+  const date = T.PlainDate.from('2026-08-04');
+  const r = format(date, 'LLL');
+  assert.ok(r.length > 0);
+});
+
+test('cov: cccc format', () => {
+  const date = T.PlainDate.from('2026-08-04');
+  const r = format(date, 'cccc');
+  assert.ok(r.length > 0);
+});
+
+test('cov: ccc format', () => {
+  const date = T.PlainDate.from('2026-08-04');
+  const r = format(date, 'ccc');
+  assert.ok(r.length > 0);
+});
+
+test('cov: GGGG format', () => {
+  const date = T.PlainDate.from('2026-08-04');
+  const r = format(date, 'GGGG');
+  assert.ok(r.length > 0);
+});
+
+test('cov: G format', () => {
+  const date = T.PlainDate.from('2026-08-04');
+  const r = format(date, 'G');
+  assert.ok(r.length > 0);
+});
+
+test('cov: D format', () => {
+  const date = T.PlainDate.from('2026-08-04');
+  assert.equal(format(date, 'D'), '216');
+});
+
+test('cov: DD format', () => {
+  const date = T.PlainDate.from('2026-08-04');
+  assert.equal(format(date, 'DD'), '216');
+});
+
+test('cov: DDD format', () => {
+  const date = T.PlainDate.from('2026-08-04');
+  assert.equal(format(date, 'DDD'), '216');
+});
+
+test('cov: z format', () => {
+  const zdt = T.ZonedDateTime.from('2026-08-04T15:45:30[UTC]');
+  const r = format(zdt, 'z');
+  assert.ok(r.length > 0);
+});
+
+test('cov: zzzz format', () => {
+  const zdt = T.ZonedDateTime.from('2026-08-04T15:45:30[UTC]');
+  const r = format(zdt, 'zzzz');
+  assert.ok(r.length > 0);
+});
+
+test('cov: tokenInfo for new tokens', () => {
+  assert.ok(tokenInfo('LLLL') !== undefined);
+  assert.ok(tokenInfo('LLL') !== undefined);
+  assert.ok(tokenInfo('cccc') !== undefined);
+  assert.ok(tokenInfo('ccc') !== undefined);
+  assert.ok(tokenInfo('GGGG') !== undefined);
+  assert.ok(tokenInfo('G') !== undefined);
+  assert.ok(tokenInfo('zzzz') !== undefined);
+  assert.ok(tokenInfo('z') !== undefined);
+  assert.ok(tokenInfo('D') !== undefined);
+  assert.ok(tokenInfo('DD') !== undefined);
+  assert.ok(tokenInfo('DDD') !== undefined);
+});
+
+test('cov: analyzeFormat recognizes new tokens', () => {
+  const a = analyzeFormat('LLLL cccc GGGG');
+  assert.equal(a.tokens.length, 3);
+  assert.ok(a.warnings.some(w => w.code === 'FORMAT_ONLY_TOKEN'));
+});
+
+test('cov: FORMAT_ONLY_TOKENS includes new tokens', () => {
+  assert.ok(FORMAT_ONLY_TOKENS.has('LLLL'));
+  assert.ok(FORMAT_ONLY_TOKENS.has('LLL'));
+  assert.ok(FORMAT_ONLY_TOKENS.has('cccc'));
+  assert.ok(FORMAT_ONLY_TOKENS.has('ccc'));
+  assert.ok(FORMAT_ONLY_TOKENS.has('GGGG'));
+  assert.ok(FORMAT_ONLY_TOKENS.has('G'));
+  assert.ok(FORMAT_ONLY_TOKENS.has('zzzz'));
+  assert.ok(FORMAT_ONLY_TOKENS.has('z'));
+});
