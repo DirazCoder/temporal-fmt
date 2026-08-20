@@ -244,7 +244,12 @@ export function wrapUntypedError(err: Error, context: { input?: string; format?:
   if (/doesn't describe a valid date\/time|incomplete date|weekday token|quarter token/.test(msg)) {
     return new InvalidDateError({ input: context.input, format: context.format, reason: msg });
   }
-  if (/locale.*produced no|locale.*not a valid|cutoffs must be/i.test(msg)) {
+  const lowerMsg = msg.toLowerCase();
+  const mentionsLocale = lowerMsg.includes('locale');
+  if (
+    (mentionsLocale && (lowerMsg.includes('produced no') || lowerMsg.includes('not a valid'))) ||
+    lowerMsg.includes('cutoffs must be')
+  ) {
     return new InvalidLocaleError({ input: context.input, format: context.format, reason: msg });
   }
   if (/format string exceeds maximum length|input exceeds maximum length|unterminated quote|isn't a recognized token/i.test(msg)) {
