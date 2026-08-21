@@ -219,12 +219,15 @@ function fromMs(ms: number, base: DateFieldView & { hour?: number; minute?: numb
   const minute = Math.floor((withinDay % 3_600_000) / 60_000);
   const second = Math.floor((withinDay % 60_000) / 1_000);
   const millisecond = withinDay % 1_000;
-  // Use Date arithmetic for the day-shift; simpler than re-implementing
-  // Howard Hinnant's algorithm twice in this module. Non-null assertions
-  // are safe here because toMs/fromMs are only called with values that
-  // passed asDateFieldView (which validates year/month/day presence).
-  const baseMs = Date.UTC(base.year!, base.month! - 1, base.day!, base.hour ?? 0, base.minute ?? 0, base.second ?? 0, base.millisecond ?? 0);
-  const newMs = baseMs + dayOverflow * MS_PER_DAY;
+  // `ms` (and therefore `dayOverflow`) is already an absolute epoch-ms /
+  // epoch-day value — toMs() computed it via Howard Hinnant's algorithm
+  // from scratch, not as an offset from `base`. So the date only needs
+  // reconstructing from the Unix epoch itself; `base` is just a template
+  // for whatever extra (non-date) fields get spread into the result.
+  // (Previously this added dayOverflow on top of base's own epoch-ms,
+  // double-counting base's offset and landing tens of thousands of days
+  // away from the intended date for any non-epoch base.)
+  const newMs = dayOverflow * MS_PER_DAY;
   const d = new Date(newMs);
   return {
     ...base,

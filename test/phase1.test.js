@@ -8,9 +8,10 @@ import {
   TOKEN_METADATA, ALL_TOKEN_NAMES, FORMAT_ONLY_TOKENS,
   isTemporal, isInstant, isPlainDate, isPlainTime, isPlainDateTime,
   isZonedDateTime, isPlainYearMonth, isPlainMonthDay, isDuration,
-  assertTemporal, assertPlainDate,
+  assertTemporal, assertPlainDate, assertInstant, assertPlainTime, assertPlainDateTime,
+  assertZonedDateTime, assertPlainYearMonth, assertPlainMonthDay, assertDuration,
   TemporalFmtError, FormatSyntaxError, UnknownTokenError, ParseMismatchError,
-  InvalidDateError, InvalidOffsetError, AmbiguousInputError,
+  InvalidDateError, InvalidOffsetError, AmbiguousInputError, InvalidTimeZoneError,
   setTemporal,
 } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
@@ -89,6 +90,26 @@ test('compileFormat: validates the format string at compile time, not lazily', (
   assert.throws(() => compileFormat('x'.repeat(1001)), /exceeds maximum length/);
 });
 
+test('formatToParts: format string over the max length throws', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.throws(() => formatToParts(date, 'y'.repeat(1001)), /exceeds maximum length/);
+});
+
+test('compileFormat: format() throws on missing field the same way format() does', () => {
+  const time = Temporal.PlainTime.from('10:30:00');
+  const compiled = compileFormat('yyyy-MM-dd');
+  // PlainTime has no year/month/day fields — compileFormat's own format()
+  // closure duplicates the field check rather than delegating to the
+  // top-level format(), so it needs its own coverage of the same throw.
+  assert.throws(() => compiled.format(time), /token "yyyy" requires "year"/);
+});
+
+test('compileFormat: formatToParts() throws on missing field the same way formatToParts() does', () => {
+  const time = Temporal.PlainTime.from('10:30:00');
+  const compiled = compileFormat('yyyy-MM-dd');
+  assert.throws(() => compiled.formatToParts(time), /token "yyyy" requires "year"/);
+});
+
 // safeParse: returns a discriminated union instead of throwing. Lets
 // callers handle parse failures without try/catch — useful in
 // functional-style code where exceptions break the flow.
@@ -129,6 +150,20 @@ test('safeParse: classifies ambiguous-input throws as AmbiguousInputError', () =
   assert.equal(result.ok, false);
   if (!result.ok) {
     assert.ok(result.error instanceof AmbiguousInputError);
+  }
+});
+
+test('safeParse: passes through an already-typed error unchanged (invalid time zone)', () => {
+  // parse() throws InvalidTimeZoneError directly (not via
+  // wrapUntypedError) for a zzz group whose captured text isn't a real
+  // IANA zone id — this is the "err instanceof TemporalFmtError" pass-
+  // through branch, distinct from every other safeParse test above,
+  // which all exercise the wrapUntypedError fallback instead.
+  const result = safeParse('yyyy-MM-dd HH:mm zzz', '2026-08-04 15:45 Not/A_Zone');
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.ok(result.error instanceof InvalidTimeZoneError);
+    assert.match(result.error.reason ?? '', /not a recognized IANA time zone/);
   }
 });
 
@@ -188,6 +223,37 @@ test('parseToParts: does NOT throw on construction-time errors (Feb 30)', () => 
   assert.deepEqual(parts.map((p) => p.raw), ['2026', '02', '30']);
 });
 
+test('parseToParts: parseNumberingSystem transliterates non-ASCII digits before matching', () => {
+  // Same transliteration parse() applies (see numberingSystem.wiring.test.js)
+  // — parseToParts has its own call site for this, since it never goes
+  // through parse()'s code path.
+  const parts = parseToParts('yyyy-MM-dd', '٢٠٢٦-٠٨-٠٤', { parseNumberingSystem: 'arab' });
+  assert.deepEqual(parts.map((p) => p.raw), ['2026', '08', '04']);
+});
+
+test('parseToParts: format string exceeding max length throws (own copy of the same check parse() has)', () => {
+  assert.throws(() => parseToParts('x'.repeat(1001), 'irrelevant'), /exceeds maximum length/);
+});
+
+test('parseToParts: input exceeding max length throws (own copy of the same check parse() has)', () => {
+  assert.throws(
+    () => parseToParts('yyyy-MM-dd', '9'.repeat(100_001)),
+    /input exceeds maximum length/,
+  );
+});
+
+test('parseToParts: empty/literal-only format string throws "no tokens" (own copy of the same check parse() has)', () => {
+  assert.throws(() => parseToParts('', ''), /no tokens/);
+  assert.throws(() => parseToParts("'just literal'", 'just literal'), /no tokens/);
+});
+
+test('parseToParts: throws InvalidTimeZoneError for a bogus zzz zone (own copy of the same check parse() has)', () => {
+  assert.throws(
+    () => parseToParts('yyyy-MM-dd HH:mm zzz', '2026-08-04 15:45 Not/A_Zone'),
+    /not a recognized IANA time zone/,
+  );
+});
+
 // compileParser: pre-compiles a format string into an object with
 // parse/safeParse/tryParse/parseToParts methods.
 test('compileParser: returned object exposes parse, safeParse, tryParse, parseToParts, pattern, formatStr', () => {
@@ -208,6 +274,25 @@ test('compileParser: parse() output matches parse() directly', () => {
     compiled.parse('2026-08-04').toString(),
     parse('yyyy-MM-dd', '2026-08-04').toString(),
   );
+});
+
+test('compileParser: safeParse()/tryParse()/parseToParts() methods actually delegate to the module-level functions', () => {
+  // The previous test only checks these are functions; this calls each
+  // one and checks the output matches calling the top-level export
+  // directly with the same pre-baked formatStr/locale.
+  const compiled = compileParser('yyyy-MM-dd');
+
+  const safe = compiled.safeParse('2026-08-04');
+  assert.equal(safe.ok, true);
+  if (safe.ok) assert.equal(safe.value.toString(), '2026-08-04');
+  const safeFail = compiled.safeParse('not-a-date');
+  assert.equal(safeFail.ok, false);
+
+  assert.equal(compiled.tryParse('2026-08-04').toString(), '2026-08-04');
+  assert.equal(compiled.tryParse('not-a-date'), undefined);
+
+  const parts = compiled.parseToParts('2026-08-04');
+  assert.deepEqual(parts.map((p) => p.raw), ['2026', '08', '04']);
 });
 
 test('compileParser: validates the format string at compile time', () => {
@@ -309,6 +394,50 @@ test('explainFormat: produces a multi-line string with all the analysis fields',
   // requiredFields are sorted alphabetically (see analyze.ts).
   assert.match(explained, /Required fields: day, hour, minute, month, year/);
   assert.match(explained, /Parseable: yes/);
+});
+
+test('explainFormat: renders "no" for locale/calendar/timezone/ambiguous flags and omits the Warnings section when there are none', () => {
+  // "MM" alone is parseable, calendar-sensitive, round-trip safe, and
+  // produces no warnings — but locale-sensitive, timezone-sensitive, and
+  // ambiguous are all false. The baseline test above only ever hits the
+  // "yes"/has-warnings sides of these lines.
+  const explainedMM = explainFormat('MM');
+  assert.match(explainedMM, /Locale-sensitive: no/);
+  assert.match(explainedMM, /Timezone-sensitive: no/);
+  assert.match(explainedMM, /Ambiguous: no/);
+  assert.match(explainedMM, /Round-trip safe: yes/);
+  assert.doesNotMatch(explainedMM, /Warnings:/);
+
+  // "zzz" is the mirror case for calendar-sensitive: it's timezone-
+  // sensitive but NOT calendar-sensitive, closing the one flag "MM"
+  // above can't (MM is always calendar-sensitive).
+  const explainedZzz = explainFormat('zzz');
+  assert.match(explainedZzz, /Calendar-sensitive: no/);
+});
+
+test('explainFormat: renders "yes" for locale-sensitive and ambiguous flags', () => {
+  // "EEEE" (locale-aware weekday name) is locale-sensitive; every other
+  // format string in this file's explainFormat tests is not, so this
+  // closes out the true side of that line.
+  const explainedEEEE = explainFormat('EEEE');
+  assert.match(explainedEEEE, /Locale-sensitive: yes/);
+
+  // "Mdyyyy" has an unpadded M/d run with no separator, which
+  // analyzeFormat flags as ambiguous — closing the true side of that
+  // line too.
+  const explainedAmbiguous = explainFormat('Mdyyyy');
+  assert.match(explainedAmbiguous, /Ambiguous: yes/);
+});
+
+test('explainFormat: renders "no" for parseable/round-trip-safe and includes the Warnings section when a warning fires', () => {
+  // "do" is format-only (not parseable, not round-trip safe) and
+  // triggers a FORMAT_ONLY_TOKEN warning, closing out the flip side of
+  // the ternaries above plus the warnings.length > 0 branch.
+  const explained = explainFormat('do');
+  assert.match(explained, /Parseable: no/);
+  assert.match(explained, /Round-trip safe: no/);
+  assert.match(explained, /Warnings:/);
+  assert.match(explained, /\[FORMAT_ONLY_TOKEN\]/);
 });
 
 // tokenizeFormat: exposed tokenizer.
@@ -481,6 +610,157 @@ test('assertPlainDate: throws descriptively on PlainTime (wrong type)', () => {
   assert.throws(
     () => assertPlainDate(Temporal.PlainTime.from('15:45:30')),
     /expected a Temporal\.PlainDate, got instance of PlainTime/,
+  );
+});
+
+// Structural fallback — hand-built objects with no Symbol.toStringTag,
+// so hasTag() can't short-circuit and each guard has to fall through to
+// its duck-typed field/method checks instead.
+test('isPlainDate: structural fallback matches a tag-less PlainDate shape', () => {
+  const fake = {
+    year: 2026, month: 8, day: 4,
+    toPlainDateTime: () => {}, withCalendar: () => {},
+  };
+  assert.equal(isPlainDate(fake), true);
+  assert.equal(isPlainDate({ ...fake, hour: 12 }), false); // has hour -> not PlainDate
+  assert.equal(isPlainDate({ ...fake, toPlainDateTime: undefined }), false); // missing method
+  assert.equal(isPlainDate({ ...fake, withCalendar: undefined }), false); // missing method
+});
+
+test('isPlainTime: structural fallback matches a tag-less PlainTime shape', () => {
+  const fake = { hour: 15 };
+  assert.equal(isPlainTime(fake), true);
+  assert.equal(isPlainTime({ ...fake, year: 2026 }), false); // has year -> not PlainTime
+  assert.equal(isPlainTime({ ...fake, withCalendar: () => {} }), false);
+  assert.equal(isPlainTime({ ...fake, toPlainDate: () => {} }), false);
+  assert.equal(isPlainTime({ ...fake, toPlainDateTime: () => {} }), false);
+});
+
+test('isPlainDateTime: structural fallback matches a tag-less PlainDateTime shape', () => {
+  const fake = {
+    year: 2026, month: 8, day: 4, hour: 15,
+    withPlainTime: () => {},
+  };
+  assert.equal(isPlainDateTime(fake), true);
+  assert.equal(isPlainDateTime({ ...fake, withPlainTime: undefined }), false);
+  assert.equal(isPlainDateTime({ ...fake, toInstant: () => {} }), false); // ZonedDateTime has this too
+});
+
+test('isZonedDateTime: structural fallback matches a tag-less ZonedDateTime shape', () => {
+  const fake = {
+    year: 2026, month: 8, day: 4, hour: 15,
+    withTimeZone: () => {}, toInstant: () => {},
+  };
+  assert.equal(isZonedDateTime(fake), true);
+  assert.equal(isZonedDateTime({ ...fake, withTimeZone: undefined }), false);
+  assert.equal(isZonedDateTime({ ...fake, toInstant: undefined }), false);
+});
+
+test('isInstant: structural fallback matches a tag-less Instant shape', () => {
+  const fake = { toZonedDateTimeISO: () => {} };
+  assert.equal(isInstant(fake), true);
+  assert.equal(isInstant({ ...fake, toInstant: () => {} }), false); // ZonedDateTime also has this
+  assert.equal(isInstant({ ...fake, year: 2026 }), false); // Instant has no date fields
+});
+
+test('isPlainYearMonth: structural fallback matches a tag-less PlainYearMonth shape', () => {
+  const fake = { year: 2026, month: 8, toPlainDate: () => {} };
+  assert.equal(isPlainYearMonth(fake), true);
+  assert.equal(isPlainYearMonth({ ...fake, day: 4 }), false); // has day -> not PlainYearMonth
+  assert.equal(isPlainYearMonth({ ...fake, toPlainDate: undefined }), false);
+});
+
+test('isPlainMonthDay: structural fallback matches a tag-less PlainMonthDay shape', () => {
+  const fake = { day: 4, monthCode: 'M08', toPlainDate: () => {} };
+  assert.equal(isPlainMonthDay(fake), true);
+  assert.equal(isPlainMonthDay({ ...fake, year: 2026 }), false); // has year -> not PlainMonthDay
+  assert.equal(isPlainMonthDay({ ...fake, month: 8 }), false); // has numeric month -> not PlainMonthDay
+  assert.equal(isPlainMonthDay({ ...fake, monthCode: undefined }), false);
+  assert.equal(isPlainMonthDay({ ...fake, toPlainDate: undefined }), false);
+});
+
+test('isDuration: structural fallback matches a tag-less Duration shape', () => {
+  assert.equal(isDuration({ total: () => 0 }), true);
+});
+
+test('type guards: false for non-object input (primitives, null)', () => {
+  for (const bad of [42, 'x', undefined, null]) {
+    assert.equal(isPlainTime(bad), false);
+    assert.equal(isPlainDateTime(bad), false);
+    assert.equal(isZonedDateTime(bad), false);
+    assert.equal(isInstant(bad), false);
+    assert.equal(isPlainYearMonth(bad), false);
+    assert.equal(isPlainMonthDay(bad), false);
+    assert.equal(isDuration(bad), false);
+  }
+});
+
+test('isTemporal: structural fallback matches any tag-less Temporal-shaped object', () => {
+  assert.equal(isTemporal({ withPlainTime: () => {} }), true);
+  assert.equal(isTemporal({ total: () => 0 }), true);
+  assert.equal(isTemporal({ toZonedDateTimeISO: () => {} }), true);
+});
+
+test('describeValue (via assertTemporal): describes null and array distinctly', () => {
+  assert.throws(() => assertTemporal(null), /expected a Temporal\.object.*got null/);
+  assert.throws(() => assertTemporal([1, 2, 3]), /expected a Temporal\.object.*got array/);
+});
+
+// Every assert* wrapper: one passing call, one throwing call, so both
+// assertImpl branches and the wrapper function itself get exercised.
+test('assertInstant: passes for Instant, throws descriptively otherwise', () => {
+  assert.doesNotThrow(() => assertInstant(Temporal.Instant.from('2026-08-04T15:45:30Z')));
+  assert.throws(
+    () => assertInstant(Temporal.PlainDate.from('2026-08-04')),
+    /expected a Temporal\.Instant, got instance of PlainDate/,
+  );
+});
+
+test('assertPlainTime: passes for PlainTime, throws descriptively otherwise', () => {
+  assert.doesNotThrow(() => assertPlainTime(Temporal.PlainTime.from('15:45:30')));
+  assert.throws(
+    () => assertPlainTime(Temporal.PlainDate.from('2026-08-04')),
+    /expected a Temporal\.PlainTime, got instance of PlainDate/,
+  );
+});
+
+test('assertPlainDateTime: passes for PlainDateTime, throws descriptively otherwise', () => {
+  assert.doesNotThrow(() => assertPlainDateTime(Temporal.PlainDateTime.from('2026-08-04T15:45:30')));
+  assert.throws(
+    () => assertPlainDateTime(Temporal.PlainDate.from('2026-08-04')),
+    /expected a Temporal\.PlainDateTime, got instance of PlainDate/,
+  );
+});
+
+test('assertZonedDateTime: passes for ZonedDateTime, throws descriptively otherwise', () => {
+  assert.doesNotThrow(() => assertZonedDateTime(Temporal.ZonedDateTime.from('2026-08-04T15:45:30[UTC]')));
+  assert.throws(
+    () => assertZonedDateTime(Temporal.PlainDate.from('2026-08-04')),
+    /expected a Temporal\.ZonedDateTime, got instance of PlainDate/,
+  );
+});
+
+test('assertPlainYearMonth: passes for PlainYearMonth, throws descriptively otherwise', () => {
+  assert.doesNotThrow(() => assertPlainYearMonth(Temporal.PlainYearMonth.from('2026-08')));
+  assert.throws(
+    () => assertPlainYearMonth(Temporal.PlainDate.from('2026-08-04')),
+    /expected a Temporal\.PlainYearMonth, got instance of PlainDate/,
+  );
+});
+
+test('assertPlainMonthDay: passes for PlainMonthDay, throws descriptively otherwise', () => {
+  assert.doesNotThrow(() => assertPlainMonthDay(Temporal.PlainMonthDay.from('08-04')));
+  assert.throws(
+    () => assertPlainMonthDay(Temporal.PlainDate.from('2026-08-04')),
+    /expected a Temporal\.PlainMonthDay, got instance of PlainDate/,
+  );
+});
+
+test('assertDuration: passes for Duration, throws descriptively otherwise', () => {
+  assert.doesNotThrow(() => assertDuration(Temporal.Duration.from({ hours: 2 })));
+  assert.throws(
+    () => assertDuration(Temporal.PlainDate.from('2026-08-04')),
+    /expected a Temporal\.Duration, got instance of PlainDate/,
   );
 });
 

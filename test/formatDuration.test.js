@@ -143,6 +143,32 @@ test('non-finite values throw descriptively', () => {
   );
 });
 
+test('a numeric string field value is coerced rather than thrown on', () => {
+  // readUnit's Number(value) coercion path only fires for values that
+  // aren't already a plain finite number — a hand-built field bag with a
+  // string like '5' should still format correctly instead of hitting the
+  // "not a finite number" throw the test above exercises.
+  assert.equal(formatDuration({ hours: '5' }, 'hhh'), '5 hours');
+});
+
+test('a null field value is treated as 0, same as undefined', () => {
+  // readUnit checks `value === undefined || value === null` — the tests
+  // elsewhere in this file only ever omit a field entirely (undefined),
+  // never pass it as an explicit null.
+  assert.equal(formatDuration({ hours: null, minutes: 30 }, 'hhh mmm'), ' 30 minutes');
+});
+
+test('tokenizeDuration throws on an unterminated quote', () => {
+  // formatDuration has its own tokenizer (tokenizeDuration), separate
+  // from the date/time tokenizer in tokenize.ts — this format string's
+  // unterminated quote needs to trip formatDuration's own copy of the
+  // same check, not the date/time one already covered elsewhere.
+  assert.throws(
+    () => formatDuration({ hours: 1 }, "h 'unterminated"),
+    /unterminated quote/
+  );
+});
+
 test('locale option localizes unit names via Intl.NumberFormat', () => {
   // Word-form tokens (yy/yyy, etc.) delegate to Intl.NumberFormat's
   // style:'unit' mode when a locale is supplied. Numeric tokens

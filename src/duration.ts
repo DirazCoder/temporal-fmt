@@ -67,10 +67,18 @@ export function formatDurationToParts(
       if (full.slice(pos, pos + lit.length) === lit) {
         parts.push({ type: 'literal', value: lit });
         pos += lit.length;
+      /* c8 ignore start @preserve -- unreachable given current formatDuration(): every
+         literal is appended to `full` unconditionally regardless of adjacent
+         zero-value tokens, and pos tracking never desyncs from the true
+         literal position (verified via adversarial testing: duplicate
+         literals, skipped tokens before/after, ambiguous text — all still
+         found via indexOf as expected). Kept as a guard against a future
+         formatDuration() change that conditionally drops literals. */
       } else {
         // Literal missing from output (e.g. zero-value unit was
         // skipped). Don't emit a part for it.
       }
+      /* c8 ignore stop @preserve */
     } else {
       // Token: find the next non-literal chunk of `full` starting at
       // `pos`. Use the next literal piece (if any) as the bound.
@@ -239,6 +247,12 @@ export function parseDuration(input: string, formatStr: string, options: { local
       const unit = tok.unit!;
       const form = tok.value.length === 1 ? 'numeric' : tok.value.length === 2 ? 'short' : 'long';
       // Map token letter to DurationFields key.
+      /* c8 ignore start @preserve -- the final `: null` branch, and the
+         `if (key === null)` throw it feeds, are both unreachable: tok.unit
+         is always one of the 8 letters in DURATION_TOKEN_STRINGS (the same
+         source set this ternary checks against), so `null` can't be
+         produced by any token the tokenizer emits. Kept as a guard against
+         a future letter being added to one set without the other. */
       const key: keyof DurationFields | null = (
         unit === 'y' ? 'years'
         : unit === 'o' ? 'months'
@@ -253,6 +267,7 @@ export function parseDuration(input: string, formatStr: string, options: { local
       if (key === null) {
         throw new FormatSyntaxError({ format: formatStr, token: tok.value, reason: 'unknown duration token' });
       }
+      /* c8 ignore stop @preserve */
       // Numeric form: capture digits (and optional sign).
       // Short/long form: capture digits followed by optional unit text.
       // We'll handle unit-text stripping after the match.

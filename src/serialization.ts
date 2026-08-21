@@ -77,10 +77,17 @@ export function parseISO(input: string): unknown {
       if (/[zZ]$/.test(input) || /[+-]\d{2}:?\d{2}$/.test(input)) {
         // ZonedDateTime. Temporal.ZonedDateTime.from accepts ISO with
         // a zone bracket (e.g. "2026-08-04T15:45:30[UTC]") but rejects
-        // a bare "Z". For "Z" suffix, expand to "+00:00[UTC]".
+        // a bare offset with no bracket. For "Z" suffix, expand to
+        // "+00:00[UTC]"; for a numeric offset, append that same offset
+        // as the bracket (e.g. "+05:30" → "+05:30[+05:30]").
         let iso = input;
         if (/[zZ]$/.test(iso)) {
           iso = iso.slice(0, -1) + '+00:00[UTC]';
+        } else {
+          const offsetMatch = /([+-]\d{2}:?\d{2})$/.exec(iso);
+          if (offsetMatch) {
+            iso = `${iso}[${offsetMatch[1]}]`;
+          }
         }
         return temporal.ZonedDateTime.from(iso as unknown as Record<string, number | string | undefined>, { overflow: 'reject' });
       }
@@ -202,7 +209,12 @@ function formatRFC2822FromMs(ms: number): string {
       hour12: false,
     });
     const parts = fmt.formatToParts(new Date(ms));
+    /* c8 ignore start -- every part type get() is called with (weekday,
+       day, month, year, hour, minute, second, timeZoneName) is always
+       present given the fixed options above, so the ?? '' fallback
+       can't fire without a different Intl implementation. */
     const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+    /* c8 ignore stop */
     const tzRaw = get('timeZoneName');
     // Intl's shortOffset returns "GMT+0", "GMT-8", "GMT+5:30", etc.
     // RFC 2822 wants "+0000", "-0800", "+0530". Parse and reformat.
@@ -213,12 +225,32 @@ function formatRFC2822FromMs(ms: number): string {
       const hours = tzMatch[2]!.padStart(2, '0');
       const minutes = (tzMatch[3] ?? '0').padStart(2, '0');
       tz = `${sign}${hours}${minutes}`;
+    /* c8 ignore start @preserve -- timeZone is hardcoded to 'UTC' above,
+       which always resolves cleanly, so shortOffset always returns a
+       parseable "GMT+0"-shaped string in this environment's ICU. This
+       branch only guards against an ICU build whose shortOffset output
+       doesn't match the regex; can't trigger it without mocking Intl.
+       The ignore starts before the closing brace of the if-block so it
+       covers the whole else-branch node c8 tracks as a single unit. */
     } else {
       tz = '+0000';
     }
+    /* c8 ignore stop @preserve */
     let hour = get('hour');
+    /* c8 ignore start @preserve -- hour12:false with a fixed UTC zone
+       never yields "24" in this environment's ICU (midnight formats as
+       "00"). Some ICU versions/locales are documented to emit "24" for
+       hour12:false, so this stays as a defensive normalization; not
+       reachable here without mocking Intl.DateTimeFormat's output. */
     if (hour === '24') hour = '00';
+    /* c8 ignore stop @preserve */
     return `${get('weekday')}, ${get('day')} ${get('month')} ${get('year')} ${hour}:${get('minute')}:${get('second')} ${tz}`;
+    /* c8 ignore start @preserve -- Intl.DateTimeFormat is constructed
+       above with a literal, always-valid timeZone: 'UTC' and no other
+       user input reaches the constructor or formatToParts call, so this
+       catch can't be triggered through the public API in a normal Intl
+       environment (e.g. Node with full-icu). Kept as a genuine fallback
+       for runtimes with a broken or absent Intl implementation. */
   } catch {
     // Fallback: hand-rolled RFC 2822 format via Date's UTC methods.
     const d = new Date(ms);
@@ -233,6 +265,7 @@ function formatRFC2822FromMs(ms: number): string {
     const ss = String(d.getUTCSeconds()).padStart(2, '0');
     return `${wd}, ${dd} ${mon} ${yyyy} ${hh}:${mm}:${ss} +0000`;
   }
+  /* c8 ignore stop @preserve */
 }
 
 // ===== HTTP-date (RFC 7231) =====
@@ -280,13 +313,24 @@ function getInstant(value: unknown): { epochMilliseconds: number; epochNanosecon
   const v = value as { toInstant?: () => { epochMilliseconds: number; epochNanoseconds: bigint }; epochMilliseconds?: number; epochNanoseconds?: bigint };
   if (typeof v?.toInstant === 'function') {
     const inst = v.toInstant();
-    return { epochMilliseconds: inst.epochMilliseconds, epochNanoseconds: inst.epochNanoseconds };
+    // Prefer the instant's own epochNanoseconds when present — same
+    // precision reasoning as below, since toInstant() can return a
+    // real Temporal.Instant carrying both fields.
+    if (typeof (inst as { epochNanoseconds?: bigint }).epochNanoseconds === 'bigint') {
+      return { epochMilliseconds: inst.epochMilliseconds, epochNanoseconds: (inst as { epochNanoseconds: bigint }).epochNanoseconds };
+    }
+    return { epochMilliseconds: inst.epochMilliseconds, epochNanoseconds: BigInt(inst.epochMilliseconds) * 1_000_000n };
+  }
+  // Check epochNanoseconds before epochMilliseconds: a real
+  // Temporal.Instant exposes both, and epochMilliseconds is truncated
+  // to millisecond precision. Deriving epochNanoseconds by scaling
+  // epochMilliseconds back up would silently drop sub-ms precision
+  // that was available on the object all along.
+  if (typeof v?.epochNanoseconds === 'bigint') {
+    return { epochMilliseconds: Number(v.epochNanoseconds / 1_000_000n), epochNanoseconds: v.epochNanoseconds };
   }
   if (typeof v?.epochMilliseconds === 'number') {
     return { epochMilliseconds: v.epochMilliseconds, epochNanoseconds: BigInt(v.epochMilliseconds) * 1_000_000n };
-  }
-  if (typeof v?.epochNanoseconds === 'bigint') {
-    return { epochMilliseconds: Number(v.epochNanoseconds / 1_000_000n), epochNanoseconds: v.epochNanoseconds };
   }
   throw new FormatSyntaxError({ reason: `expected an Instant or ZonedDateTime, got ${typeof value}.` });
 }
@@ -308,7 +352,9 @@ export function fromUnixMilliseconds(ms: number): unknown {
 }
 
 export function fromUnixMicroseconds(µs: number): unknown {
-  return requireInstant().fromEpochMicroseconds(µs);
+  // Temporal.Instant has no fromEpochMicroseconds in the spec — only
+  // fromEpochMilliseconds and fromEpochNanoseconds. Convert via ns.
+  return requireInstant().fromEpochNanoseconds(BigInt(µs) * 1_000n);
 }
 
 export function fromUnixNanoseconds(ns: bigint): unknown {

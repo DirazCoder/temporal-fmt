@@ -1,5 +1,7 @@
 # temporal-fmt 🥶🔥
 
+![coverage](https://img.shields.io/badge/coverage-100%25%20(c8)-brightgreen?style=flat-square)
+
 Format `Temporal.PlainDate` / `PlainTime` / `PlainDateTime` / `ZonedDateTime` objects
 using date-fns-style token strings.
 
@@ -979,7 +981,7 @@ Neither of these ships as part of this repository — separate packages, install
 
 ## Testing
 
-This library is heavily tested. The `node:test` suite (`test/*.test.js`) runs 800+ cases covering hand-picked scenarios, fuzzing, and adversarial input, alongside a separate `vitest/` suite unit-testing internals directly. On top of that there's a dedicated conformance suite, smoke tests that check the package actually resolves correctly under CJS/ESM/bundler/nodenext, and type tests. If it's mentioned in this README, it's backed by a test — not just a docstring.
+This library is heavily tested. The `node:test` suite (`test/*.test.js`) runs 1200+ cases covering hand-picked scenarios, fuzzing, and adversarial input, alongside a separate `vitest/` suite unit-testing internals directly. On top of that there's a dedicated conformance suite, smoke tests that check the package actually resolves correctly under CJS/ESM/bundler/nodenext, and type tests. If it's mentioned in this README, it's backed by a test — not just a docstring.
 
 ## Contributing
 

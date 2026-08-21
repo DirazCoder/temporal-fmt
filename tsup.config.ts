@@ -31,4 +31,12 @@ export default defineConfig({
   // coverage. Re-enable for a production publish if size matters.
   minify: false,
   target: 'esnext',
+  // Preserve /* c8 ignore */ comments through the build so c8's coverage
+  // report actually respects them. esbuild strips all comments except
+  // ones tagged @license/@preserve or starting with //!//*! by default;
+  // 'inline' keeps those in place instead of stripping them. Marking
+  // each c8 ignore comment with @preserve is what makes this apply.
+  esbuildOptions(options) {
+    options.legalComments = 'inline';
+  },
 });

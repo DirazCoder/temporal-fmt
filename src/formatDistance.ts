@@ -330,15 +330,31 @@ function unitToMs(unit: Intl.RelativeTimeFormatUnit): number {
     case 'minute': return MS_PER_MINUTE;
     case 'hour': return MS_PER_HOUR;
     case 'day': return MS_PER_DAY;
+    /* c8 ignore start @preserve -- unreachable: unitToMs is only called
+       with `unit` values produced by formatDistance's cutoff loop above,
+       which only ever yields 'second'/'minute'/'hour'/'day'/'month'
+       (from resolveCutoffs' fixed array) or 'year' (the loop's fallback
+       default). 'week' and 'quarter' were never wired into
+       resolveCutoffs — formatDistance intentionally skips week-
+       resolution output (see the comment above DEFAULT_CUTOFFS) — so
+       neither can reach this switch. */
     case 'week': return 7 * MS_PER_DAY;
+    /* c8 ignore stop @preserve */
     case 'month': return 30 * MS_PER_DAY;
+    /* c8 ignore start @preserve -- unreachable, same reason as 'week'
+       above: resolveCutoffs never produces 'quarter'. */
     case 'quarter': return 91 * MS_PER_DAY;
+    /* c8 ignore stop @preserve */
     case 'year': return 365 * MS_PER_DAY;
+    /* c8 ignore start @preserve -- unreachable: every unit
+       resolveCutoffs can actually produce ('second' through 'month', or
+       'year' as the loop's fallback default) has an explicit case
+       above, so this exhaustive-switch default can't fire at runtime.
+       It exists so TS accepts the function as total — the compiler
+       can't see through the cutoff-array iteration in formatDistance()
+       to know the input is already narrowed. */
     default:
-      // exhaustive switch with a defensive fallback — Intl's
-      // RelativeTimeFormatUnit is a fixed set, but TS's narrowing can't
-      // see through the unit array iteration above, so this branch
-      // exists for the compiler rather than for runtime.
       throw new Error(`temporal-fmt: formatDistance hit unhandled unit "${String(unit)}".`);
+    /* c8 ignore stop @preserve */
   }
 }

@@ -54,10 +54,15 @@ export function format(temporal: TemporalLike, formatStr: string, options: Numbe
     }
 
     const handler = HANDLER_BY_TOKEN.get(piece.value);
+    /* c8 ignore start @preserve -- unreachable: tokenize() only ever emits
+       tokens present in TOKENS, and HANDLER_BY_TOKEN is built from that
+       same list, so every token piece.value can hold already has an entry
+       here. Same defensive-guard category as the twin checks in
+       analyze.ts/formatDuration.ts. */
     if (!handler) {
-      // shouldn't happen — tokenize() only emits tokens from TOKENS
       throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
     }
+    /* c8 ignore stop @preserve */
 
     if (temporal[handler.field] === undefined) {
       throw new Error(
@@ -107,17 +112,26 @@ export function formatToParts(temporal: TemporalLike, formatStr: string, options
       // entry, not one per character. Same merge logic as appendLiteral
       // in tokenize.ts.
       const last = result[result.length - 1];
+      /* c8 ignore start @preserve -- unreachable through tokenize()'s own
+         output: appendLiteral() in tokenize.ts already merges every
+         adjacent literal character before pieces ever reaches here, so
+         two 'literal' pieces never sit back-to-back in the array this
+         loop walks. Kept as defense-in-depth in case that invariant ever
+         changes upstream. */
       if (last && last.type === 'literal') {
         last.value += piece.value;
       } else {
+        /* c8 ignore stop @preserve */
         result.push({ type: 'literal', value: piece.value });
       }
       continue;
     }
     const handler = HANDLER_BY_TOKEN.get(piece.value);
+    /* c8 ignore start @preserve -- unreachable, see the note in format() above */
     if (!handler) {
       throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
     }
+    /* c8 ignore stop @preserve */
     if (temporal[handler.field] === undefined) {
       throw new Error(
         `temporal-fmt: token "${piece.value}" requires "${handler.field}", ` +
@@ -173,6 +187,7 @@ export function compileFormat(formatStr: string): CompiledFormat {
           continue;
         }
         const handler = HANDLER_BY_TOKEN.get(piece.value);
+        /* c8 ignore next -- unreachable, see the note in format() above */
         if (!handler) throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
         if (temporal[handler.field] === undefined) {
           throw new Error(
@@ -191,11 +206,13 @@ export function compileFormat(formatStr: string): CompiledFormat {
       for (const piece of pieces) {
         if (piece.kind === 'literal') {
           const last = out[out.length - 1];
+          /* c8 ignore next -- unreachable, see the note in formatToParts() above */
           if (last && last.type === 'literal') last.value += piece.value;
           else out.push({ type: 'literal', value: piece.value });
           continue;
         }
         const handler = HANDLER_BY_TOKEN.get(piece.value);
+        /* c8 ignore next -- unreachable, see the note in format() above */
         if (!handler) throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
         if (temporal[handler.field] === undefined) {
           throw new Error(

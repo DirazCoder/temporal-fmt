@@ -94,16 +94,59 @@ test('getMonth / getWeekday: read the field off the value', () => {
 test('startOf: zeroes finer fields', () => {
   const dt = Temporal.PlainDateTime.from('2026-08-04T15:45:30.123');
   assert.deepEqual(startOf(dt, 'day'), { year: 2026, month: 8, day: 4, hour: 0, minute: 0, second: 0, millisecond: 0, dayOfWeek: 2, calendarId: 'iso8601' });
-  assert.deepEqual(startOf(dt, 'month'), { year: 2026, month: 8, day: 1, hour: 0, minute: 0, second: 0, millisecond: 0, dayOfWeek: 2, calendarId: 'iso8601' });
-  assert.deepEqual(startOf(dt, 'year'), { year: 2026, month: 1, day: 1, hour: 0, minute: 0, second: 0, millisecond: 0, dayOfWeek: 2, calendarId: 'iso8601' });
+  // Aug 1 2026 is a Saturday (dayOfWeek 6), Jan 1 2026 is a Thursday
+  // (dayOfWeek 4) — startOf recomputes dayOfWeek for the new date
+  // rather than carrying over the input's Tuesday (2).
+  assert.deepEqual(startOf(dt, 'month'), { year: 2026, month: 8, day: 1, hour: 0, minute: 0, second: 0, millisecond: 0, dayOfWeek: 6, calendarId: 'iso8601' });
+  assert.deepEqual(startOf(dt, 'year'), { year: 2026, month: 1, day: 1, hour: 0, minute: 0, second: 0, millisecond: 0, dayOfWeek: 4, calendarId: 'iso8601' });
   assert.deepEqual(startOf(dt, 'hour'), { year: 2026, month: 8, day: 4, hour: 15, minute: 0, second: 0, millisecond: 0, dayOfWeek: 2, calendarId: 'iso8601' });
+});
+
+test('startOf: minute and second units zero only the fields finer than themselves', () => {
+  const dt = Temporal.PlainDateTime.from('2026-08-04T15:45:30.123');
+  assert.deepEqual(startOf(dt, 'minute'), { year: 2026, month: 8, day: 4, hour: 15, minute: 45, second: 0, millisecond: 0, dayOfWeek: 2, calendarId: 'iso8601' });
+  assert.deepEqual(startOf(dt, 'second'), { year: 2026, month: 8, day: 4, hour: 15, minute: 45, second: 30, millisecond: 0, dayOfWeek: 2, calendarId: 'iso8601' });
 });
 
 test('endOf: maxes finer fields', () => {
   const dt = Temporal.PlainDateTime.from('2026-08-04T15:45:30.123');
   assert.deepEqual(endOf(dt, 'day'), { year: 2026, month: 8, day: 4, hour: 23, minute: 59, second: 59, millisecond: 999, dayOfWeek: 2, calendarId: 'iso8601' });
-  assert.deepEqual(endOf(dt, 'month'), { year: 2026, month: 8, day: 31, hour: 23, minute: 59, second: 59, millisecond: 999, dayOfWeek: 2, calendarId: 'iso8601' });
-  assert.deepEqual(endOf(dt, 'year'), { year: 2026, month: 12, day: 31, hour: 23, minute: 59, second: 59, millisecond: 999, dayOfWeek: 2, calendarId: 'iso8601' });
+  // Aug 31 2026 is a Monday (dayOfWeek 1), Dec 31 2026 is a Thursday
+  // (dayOfWeek 4) — same recompute as startOf above.
+  assert.deepEqual(endOf(dt, 'month'), { year: 2026, month: 8, day: 31, hour: 23, minute: 59, second: 59, millisecond: 999, dayOfWeek: 1, calendarId: 'iso8601' });
+  assert.deepEqual(endOf(dt, 'year'), { year: 2026, month: 12, day: 31, hour: 23, minute: 59, second: 59, millisecond: 999, dayOfWeek: 4, calendarId: 'iso8601' });
+});
+
+test('endOf: hour, minute, and second units max only the fields finer than themselves', () => {
+  const dt = Temporal.PlainDateTime.from('2026-08-04T15:45:30.123');
+  assert.deepEqual(endOf(dt, 'hour'), { year: 2026, month: 8, day: 4, hour: 15, minute: 59, second: 59, millisecond: 999, dayOfWeek: 2, calendarId: 'iso8601' });
+  assert.deepEqual(endOf(dt, 'minute'), { year: 2026, month: 8, day: 4, hour: 15, minute: 45, second: 59, millisecond: 999, dayOfWeek: 2, calendarId: 'iso8601' });
+  assert.deepEqual(endOf(dt, 'second'), { year: 2026, month: 8, day: 4, hour: 15, minute: 45, second: 30, millisecond: 999, dayOfWeek: 2, calendarId: 'iso8601' });
+});
+
+test('startOf/endOf: recomputed dayOfWeek on a Sunday resolves to 7, not 0 (the jsDow===0 fold-in)', () => {
+  // Aug 9 2026 is a Sunday. getUTCDay() reports Sunday as 0 — recomputeDayOfWeek
+  // folds that into Temporal's 1=Mon..7=Sun numbering, so this is the only way
+  // to exercise that specific ternary side.
+  const dt = Temporal.PlainDateTime.from('2026-08-09T10:00:00');
+  assert.equal(startOf(dt, 'day').dayOfWeek, 7);
+  assert.equal(endOf(dt, 'day').dayOfWeek, 7);
+});
+
+test('startOf: a plain field bag with no dayOfWeek field stays without one (recomputeDayOfWeek skips silently)', () => {
+  const result = startOf({ year: 2026, month: 8, day: 4 }, 'day');
+  assert.deepEqual(result, { year: 2026, month: 8, day: 4, hour: 0, minute: 0, second: 0, millisecond: 0 });
+  assert.ok(!('dayOfWeek' in result));
+});
+
+test('asDateFieldView: throws when year/month/day are not all present', () => {
+  assert.throws(() => startOf({ hour: 5 }, 'day'), /missing year\/month\/day fields/);
+});
+
+test('asDateFieldView: throws on a non-object value (null, primitive)', () => {
+  assert.throws(() => startOf(null, 'day'), /expected a date-carrying Temporal value, got null/);
+  assert.throws(() => startOf('not a date', 'day'), /expected a date-carrying Temporal value/);
+  assert.throws(() => startOf(42, 'day'), /expected a date-carrying Temporal value/);
 });
 
 // Date arithmetic (Section M)
@@ -299,6 +342,41 @@ test('isSameWeek: same Mon-Sun span', () => {
   assert.equal(isSameWeek(tue, nextMon), false); // crosses week boundary
 });
 
+test('compare: leap-year day-of-year offset (March onward in a leap year)', () => {
+  // toComparableMs's leap-year +1 day adjustment only applies for
+  // month > 2 in a leap year — every other compare test in this file
+  // uses non-leap-year dates, so this exercises that specific branch.
+  const mar1 = Temporal.PlainDate.from('2024-03-01');
+  const feb28 = Temporal.PlainDate.from('2024-02-28');
+  assert.equal(compare(mar1, feb28), 1);
+  assert.equal(compare(feb28, mar1), -1);
+});
+
+test("isSameWeek: Jan/Feb dates (sameWeek's month<=2 day-count branch)", () => {
+  // sameWeek's internal day-count helper treats Jan/Feb specially (shifts
+  // them into the previous "civil year" for the day-count formula) — every
+  // other isSameWeek test in this file uses an August date.
+  const tue = Temporal.PlainDate.from('2026-01-06');
+  const mon = Temporal.PlainDate.from('2026-01-05');
+  assert.equal(isSameWeek(tue, mon), true);
+});
+
+test('isSameWeek: dates 7+ days apart are never the same week', () => {
+  const aug1 = Temporal.PlainDate.from('2026-08-01');
+  const sep1 = Temporal.PlainDate.from('2026-09-01');
+  assert.equal(isSameWeek(aug1, sep1), false);
+});
+
+test('isSameWeek: negative (BCE-range) years', () => {
+  // sameWeek's day-count helper has a distinct branch for years before
+  // its era boundary (proleptic Gregorian, negative ISO year) — Temporal
+  // supports these years directly, so this is real, reachable input, not
+  // a synthetic edge case.
+  const thu = Temporal.PlainDate.from('-000100-03-15');
+  const fri = Temporal.PlainDate.from('-000100-03-16');
+  assert.equal(isSameWeek(thu, fri), true);
+});
+
 test('isWeekend: Sat/Sun (Temporal dayOfWeek 6/7)', () => {
   // 2026-08-04 is a Tuesday
   assert.equal(isWeekend(Temporal.PlainDate.from('2026-08-04')), false); // Tue
@@ -311,4 +389,13 @@ test('isWeekend: Sat/Sun (Temporal dayOfWeek 6/7)', () => {
 test('isWeekend: throws descriptively on PlainTime (no dayOfWeek field)', () => {
   const t = Temporal.PlainTime.from('15:45:30');
   assert.throws(() => isWeekend(t), /needs a value with a dayOfWeek field/);
+});
+
+test('isWeekend: throws descriptively on null', () => {
+  assert.throws(() => isWeekend(null), /expected a Temporal value, got null/);
+});
+
+test('isWeekend: throws descriptively on a non-object primitive', () => {
+  assert.throws(() => isWeekend('not a date'), /expected a Temporal value, got not a date/);
+  assert.throws(() => isWeekend(42), /expected a Temporal value, got 42/);
 });

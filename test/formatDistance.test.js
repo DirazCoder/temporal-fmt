@@ -159,3 +159,53 @@ test('seconds: <60s resolves to seconds', () => {
   assert.equal(formatDistance(t1, t2), 'in 30 seconds');
   assert.equal(formatDistance(t2, t1), '30 seconds ago');
 });
+
+test('pre-2000 dates: daysSinceReference walks backward from the reference year', () => {
+  // daysSinceReference's fast path counts forward from REFERENCE_YEAR
+  // (2000) for dates on or after it; anything earlier walks the loop
+  // backward instead. Both endpoints below are pre-2000, so the diff
+  // still has to be correct across two backward walks. numeric:'auto'
+  // gives the natural "next/last year" form for a ±1 year result.
+  const before = date(1998, 3, 1);
+  const after = date(1999, 3, 1);
+  assert.equal(formatDistance(after, before), 'next year');
+  assert.equal(formatDistance(before, after), 'last year');
+});
+
+test('cutoffs override: crossing a pre-2000 boundary with a custom cutoff', () => {
+  // Exercises daysSinceReference's backward loop through a leap year
+  // (1996) as well, since isGregorianLeapYear is consulted per-year in
+  // that branch too.
+  const d1 = date(1995, 6, 1);
+  const d2 = date(1996, 6, 1); // spans the 1996 leap day
+  assert.match(formatDistance(d2, d1), /next year|in 12 months/);
+});
+
+test('getRtf: Intl.RelativeTimeFormat instances are cached and evicted past the cache cap', () => {
+  // getRtf() caches by `${canonicalLocaleKey(locale)}|${numeric}` and
+  // evicts the oldest entry once the cache hits MAX_RTF_CACHE_SIZE
+  // (100) — request more than that many distinct locale tags to force
+  // the eviction path in this module's own rtfCache (separate from
+  // relativeTime.ts's cache of the same shape).
+  const today = date(2026, 8, 4);
+  const tomorrow = date(2026, 8, 5);
+  for (let i = 0; i < 105; i++) {
+    const locale = `en-${String(i).padStart(3, '0')}`;
+    const r = formatDistance(tomorrow, today, { locale });
+    assert.equal(typeof r, 'string');
+  }
+});
+
+test('canonicalLocaleKey: falls back to the raw locale string when Intl.Locale throws', () => {
+  // canonicalLocaleKey normalizes the cache key via `new Intl.Locale(...)`;
+  // an unparseable locale string throws inside that constructor, and the
+  // catch falls back to using the raw string as the cache key. In this
+  // engine, any locale string malformed enough to fail Intl.Locale also
+  // fails Intl.RelativeTimeFormat's own constructor a moment later (both
+  // validate against the same BCP-47 grammar), so formatDistance still
+  // throws overall — but the catch branch itself does run first, which
+  // is what this test exercises.
+  const today = date(2026, 8, 4);
+  const tomorrow = date(2026, 8, 5);
+  assert.throws(() => formatDistance(tomorrow, today, { locale: 'en-' }));
+});

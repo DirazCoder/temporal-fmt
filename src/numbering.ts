@@ -36,10 +36,17 @@ const digitMapCache = new Map<string, Record<string, string>>();
 function getDigitMap(system: string): Record<string, string> {
   let map = digitMapCache.get(system);
   if (map) return map;
+  /* c8 ignore start @preserve -- dead by construction, not just
+     untested: both callers (convertDigits, convertDigitsToAscii) already
+     return early on system === 'latn' before calling getDigitMap at all,
+     so this function is never invoked with 'latn'. Kept as a defensive
+     fallback rather than trusting that stays true for any future
+     caller. */
   if (system === 'latn') {
     map = {};
     for (let i = 0; i < 10; i++) map[String(i)] = String(i);
   } else {
+    /* c8 ignore stop @preserve */
     const fmt = new Intl.NumberFormat('en-US-u-nu-' + system, { useGrouping: false });
     map = {};
     for (let i = 0; i < 10; i++) {
@@ -61,6 +68,12 @@ export function convertDigits(s: string, system: string): string {
   let result = '';
   for (const ch of s) {
     if (ch >= '0' && ch <= '9') {
+      // map[ch] is always populated for '0'-'9' since getDigitMap builds
+      // all ten digit keys for every supported system and ch is already
+      // range-checked above; the ?? ch fallback exists only as a
+      // type-safety guard against Record's implicit undefined, not a
+      // reachable runtime path.
+      /* c8 ignore next */
       result += map[ch] ?? ch;
     } else {
       result += ch;
@@ -73,6 +86,12 @@ export function convertDigits(s: string, system: string): string {
 // convertDigits — used by parse() when an explicit `numberingSystem`
 // option is passed. Throws on unsupported systems.
 export function convertDigitsToAscii(s: string, system: string): string {
+  // Same dead-by-construction situation as applyParseNumbering's own
+  // 'latn' guard: this function's only caller (applyParseNumbering)
+  // already returns early on system === 'latn' before reaching this
+  // call, so system is never 'latn' here in practice. Kept as a
+  // defensive guard for any future direct caller.
+  /* c8 ignore next */
   if (system === 'latn') return s;
   if (!SUPPORTED_NUMBERING_SYSTEMS.has(system)) {
     throw new InvalidLocaleError({ actual: system, reason: `numbering system "${system}" is not supported.` });
@@ -118,6 +137,13 @@ export function applyNumbering(s: string, options: NumberingFormatOptions): stri
 // path's option name (numberingSystem vs parseNumberingSystem) so a
 // caller can be explicit about which direction they want transliterated.
 export function applyParseNumbering(s: string, options: { parseNumberingSystem?: string }): string {
+  // Both call sites of applyParseNumbering (parse.ts) already guard with
+  // `if (options.parseNumberingSystem)` before calling it, so
+  // options.parseNumberingSystem is always truthy here — the ?? 'latn'
+  // fallback, and the subsequent 'latn' early return, are dead by
+  // construction, not just untested. Kept as a defensive default rather
+  // than assuming every future caller replicates the guard.
+  /* c8 ignore next 2 */
   const system = options.parseNumberingSystem ?? 'latn';
   if (system === 'latn') return s;
   return convertDigitsToAscii(s, system);

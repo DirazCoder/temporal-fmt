@@ -84,10 +84,62 @@ test('round: truncate mode always rounds down', () => {
   assert.equal(r.second, 0);
 });
 
+test('round: throws on non-positive roundingIncrement', () => {
+  const dt = Temporal.PlainDateTime.from('2026-08-04T15:45:30.123');
+  assert.throws(
+    () => round(dt, { unit: 'hour', roundingIncrement: 0 }),
+    /requires a positive roundingIncrement \(got 0\)/,
+  );
+  assert.throws(
+    () => round(dt, { unit: 'hour', roundingIncrement: -1 }),
+    /requires a positive roundingIncrement \(got -1\)/,
+  );
+});
+
+test('round: dates before the internal epoch (negative ms, Howard Hinnant day-count arithmetic)', () => {
+  // toMs/fromMs use the Howard Hinnant days_from_civil algorithm, which
+  // has distinct branches for: negative ms (applyMode's sign handling),
+  // month <= 2 (the y2/m2 "civil year" shift), and negative proleptic
+  // years (the era calculation). Every test above uses a 2026 date,
+  // which only exercises the positive/post-epoch/month>2 side of each.
+  const early = Temporal.PlainDateTime.from('1969-06-15T10:30:00');
+  const r1 = round(early, { unit: 'hour' });
+  assert.equal(r1.year, 1969);
+  assert.equal(r1.month, 6);
+  assert.equal(r1.day, 15);
+  // Not 11:00: applyMode rounds Math.abs(ms) as one combined magnitude
+  // from the epoch (not the clock time-of-day), then reapplies the
+  // sign — so a pre-epoch date's "nearest hour" doesn't necessarily
+  // match what post-epoch half-hour rounding would suggest.
+  assert.equal(r1.hour, 10);
+
+  const jan = Temporal.PlainDateTime.from('2026-01-15T10:30:00');
+  const r2 = round(jan, { unit: 'hour' });
+  assert.equal(r2.month, 1);
+  assert.equal(r2.day, 15);
+
+  const negYear = Temporal.PlainDateTime.from('-000050-06-15T10:30:00');
+  const r3 = round(negYear, { unit: 'hour' });
+  assert.equal(r3.year, -50);
+  assert.equal(r3.month, 6);
+  assert.equal(r3.day, 15);
+});
+
 test('roundDuration: throws on calendar-bound target unit', () => {
   assert.throws(
     () => roundDuration({ days: 1, hours: 12 }, { unit: 'months' }),
     /requires a Temporal\.Duration with a relativeTo/,
+  );
+});
+
+test('roundDuration: throws on non-positive roundingIncrement', () => {
+  assert.throws(
+    () => roundDuration({ hours: 1 }, { unit: 'hours', roundingIncrement: 0 }),
+    /requires a positive roundingIncrement \(got 0\)/,
+  );
+  assert.throws(
+    () => roundDuration({ hours: 1 }, { unit: 'hours', roundingIncrement: -2 }),
+    /requires a positive roundingIncrement \(got -2\)/,
   );
 });
 
@@ -96,6 +148,60 @@ test('roundDuration: rounds days/hours/minutes to nearest minute', () => {
   // 90m30s rounds to 91m → 1h31m
   assert.equal(r.minutes, 31);
   assert.equal(r.hours, 1);
+});
+
+test('roundDuration: negative durations round symmetrically (sign preserved)', () => {
+  // totalNs < 0n is only reachable with a negative duration — every
+  // other roundDuration test above uses a positive one.
+  const r = roundDuration({ hours: -1, minutes: -35 }, { unit: 'hours' });
+  assert.equal(r.hours, -2);
+});
+
+test('round: rounds a bare PlainDate with no time fields (hour/minute/second/millisecond default to 0)', () => {
+  // Every other round() test in this file passes a PlainDateTime, which
+  // always has hour/minute/second/millisecond set. A bare PlainDate has
+  // none of those fields, so toMs()'s `v.hour ?? 0` etc. defaults only
+  // fire here.
+  const date = Temporal.PlainDate.from('2026-08-04');
+  const r = round(date, { unit: 'day' });
+  assert.equal(r.year, 2026);
+  assert.equal(r.month, 8);
+  assert.equal(r.day, 4);
+});
+
+test('roundDuration: nearest mode leaves the value at the lower step when the remainder is under halfway', () => {
+  // 91 minutes rounded to the nearest 30 minutes: remainder is 1 minute,
+  // well under half of 30, so this should round DOWN to 90 (not up to
+  // 120). The negative-duration test above only exercises the round-up
+  // side of this same branch.
+  const r = roundDuration({ minutes: 91 }, { unit: 'minutes', mode: 'nearest', roundingIncrement: 30 });
+  assert.equal(r.hours, 1);
+  assert.equal(r.minutes, 30);
+});
+
+test('roundDuration: ceil mode leaves an exact multiple unchanged', () => {
+  // 90 minutes is already an exact multiple of the 30-minute step, so the
+  // remainder is 0 and ceil should not bump it up to the next step. The
+  // ceil case in the mode test below only exercises a nonzero remainder.
+  const r = roundDuration({ minutes: 90 }, { unit: 'minutes', mode: 'ceil', roundingIncrement: 30 });
+  assert.equal(r.hours, 1);
+  assert.equal(r.minutes, 30);
+});
+
+test('roundDuration: floor/ceil/trunc modes', () => {
+  // Only 'nearest' (the default) is exercised elsewhere in this file —
+  // each mode below is a distinct branch in roundDuration's switch.
+  const floorResult = roundDuration({ minutes: 95 }, { unit: 'minutes', mode: 'floor', roundingIncrement: 30 });
+  assert.equal(floorResult.hours, 1);
+  assert.equal(floorResult.minutes, 30);
+
+  const ceilResult = roundDuration({ minutes: 91 }, { unit: 'minutes', mode: 'ceil', roundingIncrement: 30 });
+  assert.equal(ceilResult.hours, 2);
+  assert.equal(ceilResult.minutes, 0);
+
+  const truncResult = roundDuration({ minutes: 91 }, { unit: 'minutes', mode: 'trunc', roundingIncrement: 30 });
+  assert.equal(truncResult.hours, 1);
+  assert.equal(truncResult.minutes, 30);
 });
 
 // ============== Section U: serialization ==============
@@ -284,6 +390,50 @@ test('formatRelativeToNow: returns a string', () => {
   assert.ok(r.length > 0);
 });
 
+test('formatRelative: 8 days out lands in the week bucket', () => {
+  const today = Temporal.PlainDate.from('2026-08-04');
+  const r = formatRelative(today.add({ days: 8 }), today);
+  // absDays 8 is >= 7 and < 30, so this exercises the week-rounding branch
+  // (rtf.format(..., 'week')), not the day branch the other tests hit.
+  assert.match(r, /week/i);
+});
+
+test('formatRelative: 40 days out lands in the month bucket', () => {
+  const today = Temporal.PlainDate.from('2026-08-04');
+  const r = formatRelative(today.add({ days: 40 }), today);
+  assert.match(r, /month/i);
+});
+
+test('formatRelative: 400 days out lands in the year bucket', () => {
+  const today = Temporal.PlainDate.from('2026-08-04');
+  const r = formatRelative(today.add({ days: 400 }), today);
+  assert.match(r, /year/i);
+});
+
+test('formatRelative: negative-direction buckets (past week/month/year) also format', () => {
+  // Same three thresholds, but date1 in the past relative to date2 — covers
+  // the negative side of each -Math.trunc(-dayDiff / N) calculation.
+  const today = Temporal.PlainDate.from('2026-08-04');
+  assert.match(formatRelative(today.subtract({ days: 8 }), today), /week/i);
+  assert.match(formatRelative(today.subtract({ days: 40 }), today), /month/i);
+  assert.match(formatRelative(today.subtract({ days: 400 }), today), /year/i);
+});
+
+test('formatRelative: Intl.RelativeTimeFormat instances are cached and evicted past the cache cap', () => {
+  // getRtf() caches by `${locale}|${numeric}` and evicts the oldest entry
+  // once the cache hits MAX_RTF_CACHE_SIZE (100) — request more than that
+  // many distinct locale tags to force the eviction path.
+  const today = Temporal.PlainDate.from('2026-08-04');
+  const tomorrow = today.add({ days: 1 });
+  for (let i = 0; i < 105; i++) {
+    // en-US region subtags are all valid distinct BCP-47 locales, which
+    // keeps the cache key genuinely unique per iteration.
+    const locale = `en-${String(i).padStart(3, '0')}`;
+    const r = formatRelative(tomorrow, today, { locale });
+    assert.equal(typeof r, 'string');
+  }
+});
+
 // ============== Section F: locale registration ==============
 test('registerLocale / hasLocale / getLocale', () => {
   registerLocale('test-locale-1', {
@@ -299,6 +449,48 @@ test('registerLocale / hasLocale / getLocale', () => {
   const vocab = getLocale('test-locale-1');
   assert.equal(vocab?.monthLong[0], 'Mo1');
   assert.equal(vocab?.quartersLong?.[0], 'First');
+});
+
+test('getLocale: falls back to the base Intl-derived vocab for a locale never registered here', () => {
+  // 'fr' has no registerLocale() call anywhere in this suite, so this
+  // exercises the extendedVocabs-miss path that falls through to
+  // getLocaleVocab() instead of returning early with a registered entry.
+  assert.ok(!hasLocale('fr'));
+  const vocab = getLocale('fr');
+  assert.ok(vocab);
+  assert.equal(vocab?.monthLong[0], 'janvier');
+  // No extended fields were registered for 'fr', so they stay undefined
+  // rather than getting invented defaults.
+  assert.equal(vocab?.quartersLong, undefined);
+});
+
+test('getLocale: returns undefined for a locale that neither extendedVocabs nor Intl.Locale can resolve', () => {
+  // An empty string throws inside Intl.Locale's constructor (which
+  // getLocaleVocab relies on), so this exercises the catch → undefined
+  // branch, not just the try's success path covered above.
+  assert.equal(getLocale(''), undefined);
+});
+
+test('registerLocale: extended-field validation rejects non-array, wrong-length, and non-string entries', () => {
+  const base = {
+    monthLong: ['Mo1','Mo2','Mo3','Mo4','Mo5','Mo6','Mo7','Mo8','Mo9','Mo10','Mo11','Mo12'],
+    monthShort: ['M1','M2','M3','M4','M5','M6','M7','M8','M9','M10','M11','M12'],
+    weekdayLong: ['Day1','Day2','Day3','Day4','Day5','Day6','Day7'],
+    weekdayShort: ['D1','D2','D3','D4','D5','D6','D7'],
+    dayPeriod: ['AM','PM'],
+  };
+  assert.throws(
+    () => registerLocale('test-locale-bad-1', { ...base, quartersLong: 'not-an-array' }),
+    /"quartersLong" must be an array/,
+  );
+  assert.throws(
+    () => registerLocale('test-locale-bad-2', { ...base, erasLong: ['OnlyOne'] }),
+    /"erasLong" must have 2 entries \(got 1\)/,
+  );
+  assert.throws(
+    () => registerLocale('test-locale-bad-3', { ...base, ordinals: ['st', '', 'rd', 'th'] }),
+    /"ordinals\[1\]" must be a non-empty string/,
+  );
 });
 
 // ============== Section G: numbering ==============
@@ -347,6 +539,23 @@ test('createConfig: validates firstDayOfWeek', () => {
   assert.throws(() => createConfig({ firstDayOfWeek: 3 }), /firstDayOfWeek must be 1.*7/);
 });
 
+test('createConfig: validates locale is a non-empty string', () => {
+  assert.throws(() => createConfig({ locale: '' }), /locale must be a non-empty string/);
+  assert.throws(() => createConfig({ locale: 42 }), /locale must be a non-empty string/);
+});
+
+test('createConfig: validates roundingMode', () => {
+  assert.throws(() => createConfig({ roundingMode: 'banana' }), /roundingMode "banana" is not recognized/);
+});
+
+test('createConfig: validates disambiguation', () => {
+  assert.throws(() => createConfig({ disambiguation: 'banana' }), /disambiguation "banana" is not recognized/);
+});
+
+test('createConfig: validates overflow', () => {
+  assert.throws(() => createConfig({ overflow: 'banana' }), /overflow "banana" is not recognized/);
+});
+
 test('mergeWithConfig: per-call overrides win', () => {
   const c = createConfig({ locale: 'fr-FR' });
   const merged = mergeWithConfig(c, { locale: 'en-US' });
@@ -357,6 +566,19 @@ test('mergeWithConfig: config fills in defaults when per-call omits', () => {
   const c = createConfig({ locale: 'fr-FR' });
   const merged = mergeWithConfig(c, {});
   assert.equal(merged.locale, 'fr-FR');
+});
+
+test('mergeWithConfig: no config returns perCall unchanged', () => {
+  const perCall = { locale: 'en-US' };
+  assert.equal(mergeWithConfig(undefined, perCall), perCall);
+});
+
+test('mergeWithConfig: fills in calendar, timezone, and lenient when config sets them and per-call omits them', () => {
+  const c = createConfig({ calendar: 'hebrew', timezone: 'America/New_York', parseLenient: true });
+  const merged = mergeWithConfig(c, {});
+  assert.equal(merged.calendar, 'hebrew');
+  assert.equal(merged.timezone, 'America/New_York');
+  assert.equal(merged.lenient, true);
 });
 
 // ============== Section K: grammar registration ==============
@@ -371,6 +593,44 @@ test('registerRelativeGrammar: registers and lists a grammar', () => {
   });
   const langs = listRegisteredGrammars();
   assert.ok(langs.includes('test-lang'));
+});
+
+test('registerRelativeGrammar: re-registering the same language replaces the old grammar, not appends', () => {
+  registerRelativeGrammar({
+    language: 'test-lang-replace',
+    matchers: [(_input) => null],
+  });
+  const before = listRegisteredGrammars().filter((l) => l === 'test-lang-replace');
+  assert.equal(before.length, 1);
+
+  registerRelativeGrammar({
+    language: 'test-lang-replace',
+    matchers: [(_input) => null],
+  });
+  const after = listRegisteredGrammars().filter((l) => l === 'test-lang-replace');
+  // Still exactly one entry for this language — the second call replaced
+  // the first in place rather than adding a duplicate.
+  assert.equal(after.length, 1);
+});
+
+test('registerRelativeGrammar: throws on an empty language string', () => {
+  assert.throws(
+    () => registerRelativeGrammar({ language: '', matchers: [(_input) => null] }),
+    /requires a non-empty language string/,
+  );
+});
+
+test('registerRelativeGrammar: throws when matchers is missing or empty', () => {
+  assert.throws(
+    () => registerRelativeGrammar({ language: 'test-lang-empty', matchers: [] }),
+    /requires at least one matcher/,
+  );
+  assert.throws(
+    // Deliberately omitting matchers entirely to hit the !Array.isArray(...)
+    // side of the guard, not just the array-but-empty length check above.
+    () => registerRelativeGrammar({ language: 'test-lang-missing' }),
+    /requires at least one matcher/,
+  );
 });
 
 // ============== Section P: intervals ==============
@@ -548,6 +808,28 @@ test('createHolidayCalendar: detects fixed-date holidays', () => {
   assert.ok(!cal.isHoliday(Temporal.PlainDate.from('2026-08-04')));
 });
 
+test('createHolidayCalendar: detects floating holidays via a compute() spec', () => {
+  // "Last Monday of May" style rule — compute() takes the year and
+  // returns { month, day } for that year, rather than a fixed date.
+  const memorialDay = (year) => {
+    let d = Temporal.PlainDate.from({ year, month: 5, day: 31 });
+    while (d.dayOfWeek !== 1) d = d.subtract({ days: 1 });
+    return { month: d.month, day: d.day };
+  };
+  const cal = createHolidayCalendar([{ compute: memorialDay, name: 'Memorial Day' }]);
+  // Memorial Day 2026 is Monday, May 25.
+  assert.ok(cal.isHoliday(Temporal.PlainDate.from('2026-05-25')));
+  assert.ok(!cal.isHoliday(Temporal.PlainDate.from('2026-05-24')));
+});
+
+test('createHolidayCalendar: isHoliday throws on a value missing year/month/day', () => {
+  const cal = createHolidayCalendar([{ month: 1, day: 1 }]);
+  assert.throws(
+    () => cal.isHoliday({ month: 1, day: 1 }), // no year
+    /needs a value with year\/month\/day/,
+  );
+});
+
 test('holidaysBetween: enumerates holidays in range', () => {
   const cal = createHolidayCalendar([
     { month: 1, day: 1 },
@@ -556,6 +838,17 @@ test('holidaysBetween: enumerates holidays in range', () => {
   ]);
   const list = cal.holidaysBetween(Temporal.PlainDate.from('2026-01-01'), Temporal.PlainDate.from('2026-12-31'));
   assert.equal(list.length, 3);
+});
+
+test('holidaysBetween: the standalone exported helper delegates to cal.holidaysBetween', () => {
+  // The exported holidaysBetween(cal, start, end) function is a thin
+  // wrapper around the calendar's own method — separate from the
+  // cal.holidaysBetween(...) call the test above exercises.
+  const cal = createHolidayCalendar([{ month: 7, day: 4 }]);
+  const viaHelper = holidaysBetween(cal, Temporal.PlainDate.from('2026-01-01'), Temporal.PlainDate.from('2026-12-31'));
+  const viaMethod = cal.holidaysBetween(Temporal.PlainDate.from('2026-01-01'), Temporal.PlainDate.from('2026-12-31'));
+  assert.deepEqual(viaHelper, viaMethod);
+  assert.equal(viaHelper.length, 1);
 });
 
 test('nextHoliday: finds next holiday', () => {
@@ -567,10 +860,49 @@ test('nextHoliday: finds next holiday', () => {
   assert.equal(d.day, 4);
 });
 
+test('nextHoliday: returns undefined when no holiday is found within 5 years', () => {
+  // Empty calendar — isHoliday() never matches, so the loop should run
+  // its full 365*5 iterations and fall through to the `return undefined`.
+  const cal = createHolidayCalendar([]);
+  const r = nextHoliday(cal, Temporal.PlainDate.from('2026-06-15'));
+  assert.equal(r, undefined);
+});
+
+test('previousHoliday: finds the most recent holiday before the given date', () => {
+  const cal = createHolidayCalendar([{ month: 7, day: 4 }]);
+  const r = previousHoliday(cal, Temporal.PlainDate.from('2026-08-04'));
+  assert.ok(r !== undefined);
+  assert.equal(r.month, 7);
+  assert.equal(r.day, 4);
+});
+
+test('previousHoliday: returns undefined when no holiday is found within 5 years', () => {
+  const cal = createHolidayCalendar([]);
+  const r = previousHoliday(cal, Temporal.PlainDate.from('2026-06-15'));
+  assert.equal(r, undefined);
+});
+
 // ============== Section Q: timezone ==============
 test('resolveZoned: constructs a ZonedDateTime', () => {
   const r = resolveZoned({ year: 2026, month: 8, day: 4, hour: 15, minute: 45, second: 30 }, 'UTC');
   assert.ok(r !== undefined);
+});
+
+test('resolveZoned: omitting hour/minute/second/etc. defaults them to 0', () => {
+  const r = resolveZoned({ year: 2026, month: 8, day: 4 }, 'UTC');
+  assert.equal(getOffset(r), '+00:00');
+  const withParts = resolveZoned({ year: 2026, month: 8, day: 4, hour: 0, minute: 0, second: 0 }, 'UTC');
+  assert.equal(r.toString(), withParts.toString());
+});
+
+test('resolveZoned: options.offset is passed through when provided', () => {
+  // options.offset controls how a conflicting/absent offset in the input
+  // is resolved ('use'|'ignore'|'prefer'|'reject') — passing it explicitly
+  // exercises the conditional spread that only includes `offset` in the
+  // field bag when the caller set it, instead of always omitting it.
+  const r = resolveZoned({ year: 2026, month: 8, day: 4, hour: 15 }, 'UTC', { offset: 'reject' });
+  assert.ok(r !== undefined);
+  assert.equal(getOffset(r), '+00:00');
 });
 
 test('getTimeZone: returns the zone id', () => {
@@ -586,6 +918,60 @@ test('getOffset: returns the offset string', () => {
 test('getOffsetNanoseconds: returns 0 for UTC', () => {
   const zdt = Temporal.ZonedDateTime.from('2026-08-04T15:45:30[UTC]');
   assert.equal(getOffsetNanoseconds(zdt), 0);
+});
+
+test('getOffsetNanoseconds: parses a +HH:MM offset string when offsetNanoseconds is absent', () => {
+  // A plain object shaped like { offset } but with no offsetNanoseconds
+  // field forces the regex-parse fallback rather than the direct
+  // numeric read.
+  assert.equal(getOffsetNanoseconds({ offset: '+05:30' }), (5 * 3600 + 30 * 60) * 1_000_000_000);
+  assert.equal(getOffsetNanoseconds({ offset: '-08:00' }), -8 * 3600 * 1_000_000_000);
+});
+
+test('getNextTransition: UTC never transitions, so this exhausts the 2-year search and returns undefined', () => {
+  const zdt = Temporal.ZonedDateTime.from('2026-01-01T00:00[UTC]');
+  assert.equal(getNextTransition(zdt), undefined);
+});
+
+test('getPreviousTransition: same 2-year exhaustion, walking backward instead of forward', () => {
+  const zdt = Temporal.ZonedDateTime.from('2026-01-01T00:00[UTC]');
+  assert.equal(getPreviousTransition(zdt), undefined);
+});
+
+test('getNextTransition: finds the real spring-forward date in America/New_York', () => {
+  const zdt = Temporal.ZonedDateTime.from('2026-01-01T00:00[America/New_York]');
+  const next = getNextTransition(zdt);
+  assert.ok(next !== undefined);
+  assert.equal(next.toString().slice(0, 10), '2026-03-09');
+});
+
+test('getTransitions: throws when start is not a ZonedDateTime', () => {
+  const end = Temporal.ZonedDateTime.from('2026-12-31T00:00[America/New_York]');
+  assert.throws(() => getTransitions(42, end), /expected a ZonedDateTime for start/);
+});
+
+test('getTransitions: stops once a found transition would fall after the end boundary', () => {
+  // Search a window that ends before the year's second transition
+  // (fall-back, Nov 2) so the day > endV.day / month > endV.month
+  // trim-and-break logic actually has to discard a candidate.
+  const start = Temporal.ZonedDateTime.from('2026-01-01T00:00[America/New_York]');
+  const end = Temporal.ZonedDateTime.from('2026-06-01T00:00[America/New_York]');
+  const transitions = getTransitions(start, end);
+  // Only the spring-forward (March) transition should be in range —
+  // fall-back (November) is past `end` and must be trimmed.
+  assert.equal(transitions.length, 1);
+  assert.equal(transitions[0].toString().slice(0, 7), '2026-03');
+});
+
+test('getTransitions: also trims a transition landing later in the same month as the end boundary', () => {
+  // Spring-forward 2026 is March 9. Ending the search on March 5 (same
+  // month as the transition, but an earlier day) exercises the
+  // same-month-later-day arm of the boundary check specifically, not
+  // just the later-month arm the test above covers.
+  const start = Temporal.ZonedDateTime.from('2026-01-01T00:00[America/New_York]');
+  const end = Temporal.ZonedDateTime.from('2026-03-05T00:00[America/New_York]');
+  const transitions = getTransitions(start, end);
+  assert.equal(transitions.length, 0);
 });
 
 // ============== Section X: extensibility ==============

@@ -150,9 +150,33 @@ test('locale option selects a non-Gregorian calendar for construction', () => {
   assert.equal(result.withCalendar('iso8601').toString(), gregorian.toString());
 });
 
+test('locale option with an explicit -u-ca-gregory extension resolves to the default calendar', () => {
+  // resolveCalendar() special-cases an explicit "gregory" resolution back
+  // to `undefined` (the default), rather than passing "gregory" through
+  // as a real calendar override — Temporal's own default calendar id is
+  // "iso8601", not "gregory", so this keeps parse() from producing a
+  // result whose calendarId is the ICU-internal name instead of the
+  // Temporal-spec one. The Hebrew case above only exercises the
+  // "actually a different calendar" branch; this pins the "resolves to
+  // gregory itself" branch.
+  const result = parse('yyyy-MM-dd', '2026-08-04', { locale: 'en-u-ca-gregory' });
+  assert.equal(result.calendarId, 'iso8601');
+});
+
 test('no locale option still builds a plain ISO 8601 result', () => {
   const result = parse('yyyy-MM-dd', '2026-08-04');
   assert.equal(result.calendarId, 'iso8601');
+});
+
+test('format string mixing "yyyy" and "yy" throws — the two year representations can\'t both apply', () => {
+  // resolveYear() rejects a format string that captures both a 4-digit
+  // and a 2-digit year token — nothing at the pattern-compile stage
+  // stops a format string from containing both, so this cross-field
+  // check runs after the regex match succeeds.
+  assert.throws(
+    () => parse('yyyy-yy-MM-dd', '2026-26-08-04'),
+    /mixes "yyyy" and "yy" year representations/
+  );
 });
 
 test('setTemporal injection works even without a global Temporal', () => {
@@ -281,10 +305,10 @@ test('zzz with only a time (no date) throws', () => {
   assert.throws(() => parse('HH:mm zzz', '15:45 America/New_York'), /needs a full date and time/);
 });
 
-test('zzz with an unrecognized zone id is rejected by the token pattern (built from Intl.supportedValuesOf)', () => {
+test('zzz with an unrecognized zone id throws InvalidTimeZoneError (built from Intl.supportedValuesOf)', () => {
   assert.throws(
     () => parse('yyyy-MM-dd HH:mm zzz', '2026-08-04 15:45 Not/A_Zone'),
-    /no valid pattern matches/
+    /not a recognized IANA time zone/
   );
 });
 

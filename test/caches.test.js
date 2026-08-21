@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { format, parse, setTemporal } from '../dist/index.js';
+import { format, parse, formatDuration, setTemporal } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
 // Three separate module-level Maps cap themselves at 500 entries and evict
@@ -17,15 +17,20 @@ const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 setTemporal(Temporal);
 
 test('formatterCache (tokens.ts) evicts correctly once pushed past 500 entries — formatting still works afterward', () => {
-  const date = Temporal.PlainDate.from('2026-08-04');
+  // getFormatter() is only reached through dayPeriodPart() (the 'a'
+  // token) on a runtime without native Temporal+Intl support — 'MMMM'
+  // and friends go through intlPart()'s toLocaleString() fallback
+  // instead, which never touches this cache. See the version-gated
+  // note on intlPart() in tokens.ts for why.
+  const dt = Temporal.PlainDateTime.from('2026-08-04T14:00:00');
   // getFormatter() caches by (locale, JSON.stringify(options)) — vary the
   // options per call so each one is a distinct key, not a repeat hit
   for (let i = 0; i < 520; i++) {
-    format(date, 'MMMM', { locale: `en-US-x-c${i}` });
+    format(dt, 'a', { locale: `en-US-x-c${i}` });
   }
   // the cache has now evicted its earliest ~20 entries — confirm the
   // library is still in a working state, not just that the loop didn't throw
-  assert.equal(format(date, 'MMMM', { locale: 'en-US' }), 'August');
+  assert.equal(format(dt, 'a', { locale: 'en-US' }), 'PM');
 });
 
 test('patternCache (parse.ts) evicts correctly once pushed past 500 entries — parsing still works afterward', () => {
@@ -60,4 +65,14 @@ test('all three caches evicting simultaneously (interleaved format/parse calls) 
   assert.equal(format(date, 'MMMM'), 'August');
   const result = parse('yyyy-MM-dd', '2026-08-04');
   assert.equal(result.toString(), '2026-08-04');
+});
+
+test('unitFormatterCache (formatDuration.ts) evicts correctly once pushed past its 200-entry cap — formatting still works afterward', () => {
+  // getUnitFormatter() caches by (canonicalCacheKey(locale), intlUnit,
+  // unitDisplay) — vary the locale per call so each one is a distinct
+  // key, not a repeat hit, same approach as formatterCache above.
+  for (let i = 0; i < 220; i++) {
+    formatDuration({ hours: 1 }, 'hhh', { locale: `en-US-x-d${i}` });
+  }
+  assert.equal(formatDuration({ hours: 1 }, 'hhh'), '1 hour');
 });

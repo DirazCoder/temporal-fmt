@@ -48,7 +48,6 @@ export function resolveZoned(
         microsecond: fields.microsecond ?? 0,
         nanosecond: fields.nanosecond ?? 0,
         timeZone,
-        ...(options.offset !== undefined ? { offset: options.offset } : {}),
       },
       fromOptions,
     );
@@ -139,42 +138,59 @@ function findTransition(value: unknown, direction: 1 | -1): unknown | undefined 
     throw new Error(`temporal-fmt: ${direction > 0 ? 'getNextTransition' : 'getPreviousTransition'}() expected a ZonedDateTime, got ${typeof value}.`);
   }
   const temporal = getTemporal();
-  let candidate = value;
+  const timeZone = v.timeZoneId;
+  let candidateFields = add(value, direction, 'days');
   const startOffset = v.offset!;
   for (let i = 0; i < 365 * 2; i++) {
-    candidate = add(candidate, direction, 'days');
-    const cz = candidate as { offset?: string };
-    if (cz.offset !== startOffset) {
-      // Found a transition day. Return the candidate.
-      return candidate;
+    // Rebuild a real ZonedDateTime for this candidate day, in this
+    // timezone, so `.offset` reflects the actual UTC offset on that
+    // day rather than being absent. add() only produces a plain field
+    // bag (it has no notion of timezone), so re-attaching timeZone via
+    // ZonedDateTime.from is what actually lets us detect a DST change
+    // here — using the field bag's own (nonexistent) offset would make
+    // every call "find" a transition on the very first day checked.
+    const cf = candidateFields as { year: number; month: number; day: number; hour: number; minute: number; second: number; millisecond: number };
+    const candidateZdt = temporal.ZonedDateTime.from(
+      { ...cf, timeZone },
+      { disambiguation: 'compatible' } as unknown as Parameters<typeof temporal.ZonedDateTime.from>[1],
+    ) as { offset: string };
+    if (candidateZdt.offset !== startOffset) {
+      // Found a transition day. Return the reconstructed ZonedDateTime.
+      return candidateZdt;
     }
+    candidateFields = add(candidateFields, direction, 'days');
   }
   return undefined;
 }
 
 export function getTransitions(start: unknown, end: unknown): unknown[] {
   const result: unknown[] = [];
-  // Don't use getNextTransition in a loop — it calls add() which returns
-  // a field bag, not a ZonedDateTime, so the next iteration would fail
-  // the type check in findTransition. Instead, walk day-by-day here and
-  // detect offset changes directly.
   const startV = start as { timeZoneId?: string; offset?: string; year?: number; month?: number; day?: number };
   if (typeof startV?.timeZoneId !== 'string') {
     throw new Error(`temporal-fmt: getTransitions() expected a ZonedDateTime for start, got ${typeof start}.`);
   }
   const endV = end as { year: number; month: number; day: number };
   const temporal = getTemporal();
-  let cursor = start;
+  const timeZone = startV.timeZoneId;
+  let cursorFields = add(start, 1, 'days');
   let lastOffset = startV.offset!;
   for (let i = 0; i < 365 * 5; i++) {
-    cursor = add(cursor, 1, 'days');
-    const cv = cursor as { offset?: string; year?: number; month?: number; day?: number };
-    if (cv.offset !== lastOffset) {
+    // Same reconstruction as findTransition() above — add() strips
+    // timezone/offset info, so we rebuild a real ZonedDateTime each
+    // iteration to read its actual offset instead of comparing against
+    // a field bag that never has one.
+    const cf = cursorFields as { year: number; month: number; day: number; hour: number; minute: number; second: number; millisecond: number };
+    const cursorZdt = temporal.ZonedDateTime.from(
+      { ...cf, timeZone },
+      { disambiguation: 'compatible' } as unknown as Parameters<typeof temporal.ZonedDateTime.from>[1],
+    ) as { offset: string; year: number; month: number; day: number };
+    if (cursorZdt.offset !== lastOffset) {
       // Found a transition.
-      if (cv.year! > endV.year || (cv.year === endV.year && (cv.month! > endV.month || (cv.month === endV.month && cv.day! > endV.day)))) break;
-      result.push(cursor);
-      lastOffset = cv.offset!;
+      if (cursorZdt.year > endV.year || (cursorZdt.year === endV.year && (cursorZdt.month > endV.month || (cursorZdt.month === endV.month && cursorZdt.day > endV.day)))) break;
+      result.push(cursorZdt);
+      lastOffset = cursorZdt.offset;
     }
+    cursorFields = add(cursorFields, 1, 'days');
   }
   return result;
 }
@@ -186,28 +202,39 @@ export function possibleInstantsFor(
   timeZone: string,
 ): unknown[] {
   const temporal = getTemporal();
-  const results: unknown[] = [];
-  // Try with both possible offsets for an overlap. For a gap, both
-  // attempts produce shifted instants; for a normal time, one attempt
-  // is correct and the other is rejected by the offset check.
-  for (const offset of ['-23:59', '+23:59', '+00:00']) {
-    try {
-      const zdt = temporal.ZonedDateTime.from(
-        { ...fields, timeZone, offset },
-        { disambiguation: 'reject', offset: 'reject' } as unknown as Parameters<typeof temporal.ZonedDateTime.from>[1],
-      );
-      results.push(zdt);
-    } catch {
-      // This offset doesn't match — skip.
-    }
+  // Resolve the same wall-clock fields twice, forcing disambiguation
+  // toward the earlier and later side of any DST boundary. Comparing
+  // the two results tells us which of the three cases we're in:
+  //  - gap (e.g. 2:30am on a spring-forward day): neither result's own
+  //    wall-clock fields match what was requested, since Temporal has
+  //    to shift off the nonexistent time in both directions — 0 instants.
+  //  - overlap (e.g. 1:30am on a fall-back day): both results keep the
+  //    requested wall-clock time but land on different instants (one
+  //    per side of the boundary) — 2 instants.
+  //  - normal time: both results match the requested wall-clock time
+  //    and resolve to the same instant — 1 instant.
+  const earlier = temporal.ZonedDateTime.from(
+    { ...fields, timeZone },
+    { disambiguation: 'earlier', offset: 'ignore' } as unknown as Parameters<typeof temporal.ZonedDateTime.from>[1],
+  ) as { year: number; month: number; day: number; hour: number; minute: number; second: number; millisecond: number; toInstant: () => { epochNanoseconds: bigint } };
+  const later = temporal.ZonedDateTime.from(
+    { ...fields, timeZone },
+    { disambiguation: 'later', offset: 'ignore' } as unknown as Parameters<typeof temporal.ZonedDateTime.from>[1],
+  ) as { year: number; month: number; day: number; hour: number; minute: number; second: number; millisecond: number; toInstant: () => { epochNanoseconds: bigint } };
+
+  const matchesRequestedWallClock = (z: typeof earlier) =>
+    z.year === fields.year && z.month === fields.month && z.day === fields.day &&
+    z.hour === fields.hour && z.minute === fields.minute &&
+    z.second === fields.second && z.millisecond === fields.millisecond;
+
+  if (!matchesRequestedWallClock(earlier) || !matchesRequestedWallClock(later)) {
+    // Gap — the requested wall-clock time doesn't exist in this zone.
+    return [];
   }
-  // Dedupe by epoch ns.
-  const seen = new Set<bigint>();
-  return results.filter((r) => {
-    const inst = (r as { toInstant?: () => { epochNanoseconds: bigint } }).toInstant?.();
-    if (!inst) return false;
-    if (seen.has(inst.epochNanoseconds)) return false;
-    seen.add(inst.epochNanoseconds);
-    return true;
-  });
+  if (earlier.toInstant().epochNanoseconds === later.toInstant().epochNanoseconds) {
+    // Normal time — both disambiguation directions agree on the instant.
+    return [earlier];
+  }
+  // Overlap — same wall-clock time, two distinct instants.
+  return [earlier, later];
 }

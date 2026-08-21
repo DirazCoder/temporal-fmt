@@ -297,6 +297,16 @@ test('fractional-second tokens are all zero for a whole-second value', () => {
   assert.equal(format(t, 'SSSSSSSSS'), '000000000');
 });
 
+test('fractional-second tokens default missing microsecond/nanosecond to 0 for a hand-built field bag', () => {
+  // Every other fraction-token test above uses a real Temporal.PlainTime,
+  // which always has microsecond/nanosecond set (even if 0). A plain
+  // object missing those fields entirely — like what a caller could
+  // build by hand, or get back from a helper that only sets millisecond
+  // precision — exercises formatFraction's `?? 0` fallbacks instead.
+  const fakeTime = { millisecond: 500, hour: 9, minute: 30, second: 0, calendarId: 'iso8601' };
+  assert.equal(format(fakeTime, 'SSSSSSSSS'), '500000000');
+});
+
 test('nanosecond round-trip through a ZonedDateTime survives format -> parse at full precision', () => {
   const zdt = Temporal.ZonedDateTime.from('2026-07-13T09:30:00.123456789-04:00[America/New_York]');
   const p = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSS'['zzz']'";
@@ -437,4 +447,17 @@ test('repeated calls with different locales do not cross-contaminate cache', () 
   assert.equal(en, 'August');
   assert.equal(fr, 'août');
   assert.equal(enAgain, 'August');
+});
+
+test('_getPieces: exposes the shared tokenization cache via the format.js subpath', async () => {
+  const { _getPieces } = await import('../dist/format.js');
+  assert.equal(typeof _getPieces, 'function');
+  const pieces = _getPieces('yyyy-MM-dd');
+  assert.deepEqual(pieces, [
+    { kind: 'token', value: 'yyyy' },
+    { kind: 'literal', value: '-' },
+    { kind: 'token', value: 'MM' },
+    { kind: 'literal', value: '-' },
+    { kind: 'token', value: 'dd' },
+  ]);
 });

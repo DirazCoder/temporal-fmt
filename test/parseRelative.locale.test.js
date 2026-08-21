@@ -67,6 +67,9 @@ test('Spanish: unit offsets (en N X / hace N X)', () => {
   assert.equal(asIso(parseRelative('hace 1 año', REFERENCE, { locale: 'es-ES' })), '2025-08-04');
   // "dentro de N X" — alternative future marker
   assert.equal(asIso(parseRelative('dentro de 3 días', REFERENCE, { locale: 'es-ES' })), '2026-08-07');
+  // "N X hace" — marker-last past form, less common than "hace N X"
+  // above but still grammatical.
+  assert.equal(asIso(parseRelative('2 semanas hace', REFERENCE, { locale: 'es-ES' })), '2026-07-21');
 });
 
 test('Spanish: month-day without year (5 de marzo)', () => {

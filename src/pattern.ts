@@ -216,8 +216,20 @@ export function tokenFragment(token: string, locale: string, nextToken?: string)
     case 'X': case 'XX': case 'XXX':
     case 'x': case 'xx': case 'xxx':
       return OFFSET_SHAPES[token]!;
+    /* c8 ignore start @preserve -- defensive guard, not reachable through
+       the public API. tokenFragment's only caller (buildCapturingPattern
+       in parsePattern.ts) always passes piece.value straight from
+       tokenize.ts, which only ever emits strings from tokens.ts's TOKENS
+       table. Every token in that table is handled above: the numeric
+       ones via NUMERIC_FRAGMENTS, QQQ via QQQ_FRAGMENT, the format-only
+       ones via the FORMAT_ONLY_TOKENS check earlier in this function, and
+       everything else via one of the switch cases. There's no token
+       string that can reach this default without either tokens.ts
+       registering something new or tokenize.ts being bypassed, neither of
+       which happens on the parse() path. */
     default:
       throw new Error(`temporal-fmt: unknown token "${token}"`);
+    /* c8 ignore stop @preserve */
   }
 }
 
@@ -285,9 +297,18 @@ export function enumerateValidSplits(digits: string, tokens: string[]): number[]
 
     const token = tokens[tokenIndex];
     const ranges = UNPADDED_NUMERIC_RANGES[token!];
+    /* c8 ignore start @preserve -- defensive guard, not reachable through
+       the public API. enumerateValidSplits's only caller (parse.ts, both
+       call sites) passes run.tokens straight from
+       pattern.ambiguousRuns, which parsePattern.ts only ever populates
+       with tokens already checked against UNPADDED_NUMERIC_TOKENS — the
+       exact same key set as UNPADDED_NUMERIC_RANGES. There's no path
+       where a token reaches here without having already passed that
+       check. */
     if (!ranges) {
       throw new Error(`temporal-fmt: internal error — "${token}" is not an unpadded numeric token`);
     }
+    /* c8 ignore stop @preserve */
 
     const results: number[][] = [];
     for (const { digits: width, min, max } of ranges) {

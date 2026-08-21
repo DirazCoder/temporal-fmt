@@ -247,10 +247,16 @@ export function formatDuration(
     }
 
     const unit = DURATION_UNITS[piece.unit];
+    // Dead by construction: piece.unit always comes from match[0] where
+    // match is a member of DURATION_TOKEN_STRINGS, itself built
+    // exhaustively from DURATION_UNITS' own keys — so this lookup can
+    // never miss. Kept in case tokenizeDuration's token construction
+    // ever diverges from DURATION_UNITS.
+    /* c8 ignore start */
     if (!unit) {
-      // shouldn't happen — tokenizeDuration only emits known units
       throw new Error(`temporal-fmt: unknown duration token "${piece.value}"`);
     }
+    /* c8 ignore stop */
 
     const value = readUnit(duration, unit.field);
     if (value === 0 && !showZeroes) {

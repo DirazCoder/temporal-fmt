@@ -184,6 +184,6 @@ test('a zone id with three path segments is accepted, when the runtime ICU data 
 test('a bare region name with no slash is rejected as a zone id (except UTC, which is special-cased)', () => {
   assert.throws(
     () => parse('yyyy-MM-dd HH:mm zzz', '2026-08-04 15:45 Narnia'),
-    /no valid pattern matches/
+    /not a recognized IANA time zone/
   );
 });

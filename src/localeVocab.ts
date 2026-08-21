@@ -166,9 +166,23 @@ const MAX_VOCAB_CACHE_SIZE = 500;
 function partValue(formatter: Intl.DateTimeFormat, date: Date, type: Intl.DateTimeFormatPartTypes): string {
   const parts = formatter.formatToParts(date);
   const index = parts.findIndex((p) => p.type === type);
+  /* c8 ignore start @preserve -- defensive guard against a real but
+     unreproducible failure mode: an Intl implementation that omits the
+     requested part type entirely for some locale. Checked every locale
+     with unusual dayPeriod/weekday/month rendering available in this
+     runtime's ICU data (ja-JP, zh-CN, th-TH, he-IL, ar-SA, ko-KR, fa-IR)
+     against the exact formatter options getLocaleVocab uses (notably
+     hour12: true for the dayPeriod formatter, which is what makes every
+     locale here actually emit a dayPeriod part — omitting it is what
+     produced a false "gap" during investigation). None omit their part
+     on this runtime. A different ICU version or a non-Node Intl
+     implementation could plausibly behave differently, so this stays a
+     real check rather than an assertion. */
+  /* c8 ignore start @preserve */
   if (index === -1) {
     throw new Error(`temporal-fmt: locale produced no "${type}" part while building match vocabulary.`);
   }
+  /* c8 ignore stop @preserve */
   let value = parts[index]!.value;
   const prev = parts[index - 1];
   const next = parts[index + 1];

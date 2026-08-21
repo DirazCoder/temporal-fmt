@@ -67,6 +67,14 @@ function fromMs(ms: number, base: DateTimeFieldView): DateTimeFieldView {
   const MS_PER_DAY = MS_PER_UNIT.day;
   const totalDays = Math.floor(ms / MS_PER_DAY);
   let withinDay = ms - totalDays * MS_PER_DAY; // ms since midnight
+  // Defensive floating-point guard: given totalDays = Math.floor(ms /
+  // MS_PER_DAY), withinDay = ms - totalDays * MS_PER_DAY is
+  // mathematically guaranteed non-negative (that's what Math.floor
+  // division gives you), verified against extreme values including
+  // Number.MIN_SAFE_INTEGER and sub-ms fractional noise near day
+  // boundaries. Kept in case a future change to how ms is computed
+  // upstream breaks that guarantee.
+  /* c8 ignore next */
   if (withinDay < 0) withinDay += MS_PER_DAY;
   const hour = Math.floor(withinDay / MS_PER_UNIT.hour);
   const minute = Math.floor((withinDay % MS_PER_UNIT.hour) / MS_PER_UNIT.minute);
@@ -251,6 +259,12 @@ export function roundDuration(duration: DurationFields, options: {
   for (let i = 0; i <= startIdx; i++) {
     const u = unitsInOrder[i]!;
     const unitNs = DURATION_UNIT_TO_NS[u];
+    // Dead by construction: unitsInOrder only lists days/hours/minutes/
+    // seconds/milliseconds/microseconds/nanoseconds, none of which are
+    // 0n in DURATION_UNIT_TO_NS (only years/months/weeks are, and those
+    // never appear in this array). Kept in case unitsInOrder grows to
+    // include a calendar-bound unit later.
+    /* c8 ignore next */
     if (unitNs === 0n) continue;
     const count = remaining / unitNs;
     remaining -= count * unitNs;

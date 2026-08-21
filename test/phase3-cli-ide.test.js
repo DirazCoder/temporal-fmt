@@ -98,9 +98,49 @@ test('getInlineDiagnostics: surfaces warnings from analyzeFormat', () => {
   assert.ok(diags.some((d) => d.suggestion && d.suggestion.length > 0));
 });
 
+test('getInlineDiagnostics: mixing 12- and 24-hour tokens gets a tailored suggestion', () => {
+  const diags = getInlineDiagnostics('HH:mmh');
+  const warning = diags.find((d) => d.code === 'MIXED_12_AND_24_HOUR');
+  assert.ok(warning);
+  assert.match(warning.suggestion, /Pick one form/);
+});
+
+test('getInlineDiagnostics: ambiguous unpadded numeric run gets a tailored suggestion', () => {
+  const diags = getInlineDiagnostics('Md');
+  const warning = diags.find((d) => d.code === 'AMBIGUOUS_NUMERIC_RUN');
+  assert.ok(warning);
+  assert.match(warning.suggestion, /Add a separator/);
+});
+
+test('getInlineDiagnostics: format-only token gets a tailored suggestion', () => {
+  const diags = getInlineDiagnostics('do');
+  const warning = diags.find((d) => d.code === 'FORMAT_ONLY_TOKEN');
+  assert.ok(warning);
+  assert.match(warning.suggestion, /parse-capable variant/);
+});
+
 test('getInlineDiagnostics: empty for clean format strings', () => {
   const diags = getInlineDiagnostics('yyyy-MM-dd HH:mm:ss');
   assert.equal(diags.length, 0);
+});
+
+test('getInlineDiagnostics: zzz with an offset token falls through with no suggestion', () => {
+  // ZZZ_WITH_OFFSET_TOKEN isn't one of the codes getInlineDiagnostics
+  // has a tailored suggestion for — this is a real, reachable warning
+  // code (unlike UNKNOWN_TOKEN_NO_METADATA, which tokenize() prevents
+  // analyzeFormat from ever producing), so the fallthrough to an
+  // undefined suggestion is genuine behavior, not a gap.
+  const diags = getInlineDiagnostics("yyyy-MM-dd'T'HH:mm:ssXXXzzz");
+  const warning = diags.find((d) => d.code === 'ZZZ_WITH_OFFSET_TOKEN');
+  assert.ok(warning);
+  assert.equal(warning.suggestion, undefined);
+});
+
+test('getInlineDiagnostics: offset token without a full date falls through with no suggestion', () => {
+  const diags = getInlineDiagnostics('HH:mmXXX');
+  const warning = diags.find((d) => d.code === 'OFFSET_WITHOUT_FULL_DATE');
+  assert.ok(warning);
+  assert.equal(warning.suggestion, undefined);
 });
 
 test('previewFormat: produces formatted output for the default sample', () => {

@@ -79,7 +79,7 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
     return add(value, steps * rule.interval, unit as Parameters<typeof add>[2]);
   }
 
-  function nextMatch(value: unknown): unknown {
+  function nextMatch(value: unknown): { value: unknown; found: boolean } {
     // Advance one step at a time until we find a match. For
     // byWeekday/byMonthDay rules this can skip multiple steps.
     let candidate = value;
@@ -89,16 +89,19 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
       safetyCounter++;
       if (safetyCounter > 1000) {
         // Defensive — if the rule is so restrictive no match exists
-        // within 1000 steps, give up rather than spin forever.
+        // within 1000 steps, give up rather than spin forever. The
+        // caller must treat this as "no more occurrences", not as a
+        // real match — returning the unmatched candidate here used to
+        // get handed back to next()'s caller as if it were valid.
         atEnd = true;
-        return candidate;
+        return { value: candidate, found: false };
       }
       if (rule.until && compare(candidate, rule.until) > 0) {
         atEnd = true;
-        return candidate;
+        return { value: candidate, found: false };
       }
     } while (!matches(candidate));
-    return candidate;
+    return { value: candidate, found: true };
   }
 
   return {
@@ -118,13 +121,17 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
           return { value: current, done: false };
         }
         // If start doesn't match, advance to first match.
-        current = nextMatch(current);
+        const advanced = nextMatch(current);
+        if (!advanced.found) return { value: undefined, done: true };
+        current = advanced.value;
         count++;
         if (rule.count !== undefined && count >= rule.count) atEnd = true;
         history.push(current);
         return { value: current, done: false };
       }
-      current = nextMatch(current);
+      const advanced = nextMatch(current);
+      if (!advanced.found) return { value: undefined, done: true };
+      current = advanced.value;
       count++;
       if (rule.count !== undefined && count >= rule.count) atEnd = true;
       history.push(current);

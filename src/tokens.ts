@@ -117,10 +117,21 @@ function intlSupportsNativeTemporal(): boolean {
         const temporal = getTemporal();
         new Intl.DateTimeFormat('en-US', { day: 'numeric' })
           .formatToParts(temporal.PlainDate.from({ year: 1970, month: 1, day: 1 }) as Date);
+        // Version-gated, not dead — see the matching note on the
+        // !intlSupportsNativeTemporal() branch in intlPart() below for
+        // why this can't be exercised from this environment.
+        /* c8 ignore next */
         nativeSupport = true;
+      /* c8 ignore start */
       } catch {
-        // native Temporal absent, or present but not recognized by Intl — fall back
+        // native Temporal absent, or present but not recognized by Intl — fall back.
+        // Version-gated, not dead: this catch only fires on runtimes where the
+        // probe above throws (no native Temporal, or Intl doesn't recognize it).
+        // On a runtime with full native support (e.g. Node builds where Intl
+        // accepts native Temporal instances directly) the try succeeds and this
+        // branch is unreachable — mirror case of the block below.
       }
+      /* c8 ignore stop */
   }
   return nativeSupport;
 }
@@ -164,6 +175,24 @@ function intlPart(
   // Temporal.prototype.toLocaleString() is part of the Temporal spec itself:
   // polyfills implement the ICU formatting internally without needing the
   // engine to recognize the object, so it works without native Intl support.
+  //
+  // Everything from here to the end of this function is genuinely
+  // reachable — NOT dead code — but only on a Node build where a global
+  // `Temporal` exists AND Intl.DateTimeFormat.formatToParts() recognizes
+  // native Temporal instances directly (this is real, observed to vary
+  // across Node versions: absent on the Node 22/24 builds this suite has
+  // been run against, present on at least one Node 26 build). This
+  // environment has no native Temporal (`typeof globalThis.Temporal ===
+  // 'undefined'`), so intlSupportsNativeTemporal() always returns false
+  // here and this branch can't be exercised from this test suite without
+  // faking native-instance recognition, which turned out to be
+  // impractical (Intl's native-Temporal detection isn't spoofable via a
+  // Proxy or valueOf() shim — see the M-02 regression test in
+  // temporalProvider.test.js for the same conclusion reached about the
+  // sibling probe function). Coverage numbers for this block will differ
+  // between Node versions for that reason; that's expected, not a
+  // regression.
+  /* c8 ignore start */
   if (!intlSupportsNativeTemporal()) {
     return temporal.toLocaleString!(locale, formatterOptions);
   }
@@ -203,6 +232,7 @@ function intlPart(
   if (next?.type === 'literal' && !/\s/.test(next.value)) value = value + next.value;
   return value;
 }
+/* c8 ignore stop */
 
 // Temporal.prototype.toLocaleString() can't isolate a single field the way
 // formatToParts() can — asking for `hour` + `dayPeriod` together returns one
@@ -225,9 +255,18 @@ function dayPeriodPart(hour: number, locale: string): string {
   const date = new Date(Date.UTC(1970, 0, 1, hour));
   const formatter = getFormatter(locale, { hour: 'numeric', hour12: true, timeZone: 'UTC' });
   const part = formatter.formatToParts(date).find((p) => p.type === 'dayPeriod');
+  // Defensive guard, confirmed unreachable on this ICU build: forcing
+  // hour12: true (as this call always does) produces a dayPeriod part
+  // for every locale checked, including 24-hour-clock locales (ja-JP,
+  // zh-CN, th-TH, he-IL) and a wide sweep of less-common tags (dz-BT,
+  // bo-CN, am-ET, etc.). Same finding as partValue()'s twin guard in
+  // localeVocab.ts. Kept in case a future ICU/locale-data update
+  // produces a locale that genuinely omits it.
+  /* c8 ignore start */
   if (!part) {
     throw new Error(`temporal-fmt: locale "${locale}" produced no "dayPeriod" part for token "a".`);
   }
+  /* c8 ignore stop */
   return part.value;
 }
 

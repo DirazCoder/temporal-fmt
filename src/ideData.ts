@@ -79,6 +79,14 @@ export function getHoverDocs(): Record<string, TokenHoverDoc> {
       signature: name,
       summary: meta.meaning,
       details: [
+        // every entry in TOKEN_METADATA currently has formatCapable:
+        // true (verified: 51/51). The 'no' branch reflects real,
+        // intended behavior for a future format-incapable token —
+        // there's no such token today, so this isn't reachable data,
+        // not dead logic. Every other field on this line has real
+        // true/false variance across the token table and is exercised
+        // by this same loop running over ALL_TOKEN_NAMES.
+        /* c8 ignore next */
         `Format-capable: ${meta.formatCapable ? 'yes' : 'no'}`,
         `Parse-capable: ${meta.parseCapable ? 'yes' : 'no'}`,
         `Locale-sensitive: ${meta.localeSensitive ? 'yes' : 'no'}`,

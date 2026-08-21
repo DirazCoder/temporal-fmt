@@ -19,6 +19,25 @@ function asDateTime(value: unknown): DateTimeFieldView {
   return asDateFieldView(value) as DateTimeFieldView;
 }
 
+// Recomputes dayOfWeek after year/month/day change. Mirrors
+// calendarUtils.ts's recomputeDayOfWeek — same fix, needed here too
+// since add()/subtract() mutate the date fields via a shallow spread
+// that otherwise leaves the old dayOfWeek sitting there, silently wrong.
+function recomputeDayOfWeek(view: DateTimeFieldView): void {
+  if (typeof view.dayOfWeek !== 'number') return;
+  /* c8 ignore start @preserve -- unreachable: every call site (add()'s
+     'years'/'months' cases, shiftDays()) passes a `result` whose
+     year/month/day were just explicitly set, and the value originally
+     came from asDateTime()/asDateFieldView(), which throws unless
+     year/month/day are all present as numbers. So by the time this guard
+     runs, all three are guaranteed valid. Kept in case a future caller
+     constructs a DateTimeFieldView bypassing that validation. */
+  if (typeof view.year !== 'number' || typeof view.month !== 'number' || typeof view.day !== 'number') return;
+  /* c8 ignore stop @preserve */
+  const jsDow = new Date(Date.UTC(view.year, view.month - 1, view.day)).getUTCDay(); // 0=Sun..6=Sat
+  view.dayOfWeek = jsDow === 0 ? 7 : jsDow; // 1=Mon..7=Sun
+}
+
 // Adds the requested amount to the value's specified unit. Returns a
 // new field bag; the input is not mutated. Handles month/year overflow
 // by clamping to the last valid day of the target month (Feb 29 + 1
@@ -30,23 +49,44 @@ export function add(value: unknown, amount: number, unit: AddUnit): DateTimeFiel
   let result: DateTimeFieldView = { ...v };
   switch (unit) {
     case 'years': {
+      /* c8 ignore start @preserve -- the `?? 0` fallback is unreachable:
+         asDateTime()/asDateFieldView() (called at the top of add()) throws
+         unless year is present as a number, so result.year is never
+         undefined here. Kept as a guard against a future change that
+         relaxes that validation. */
       result.year = (result.year ?? 0) + amount;
+      /* c8 ignore stop @preserve */
       // Clamp day-of-month to the new month's length.
       const maxDay = daysInMonth({ year: result.year!, month: result.month! });
       if (result.day! > maxDay) result.day = maxDay;
+      recomputeDayOfWeek(result);
       break;
     }
     case 'months': {
       // Total months = year*12 + month + amount, then split back.
+      /* c8 ignore start @preserve -- both `??` fallbacks are unreachable
+         for the same reason as the 'years' case above: asDateFieldView()
+         guarantees year and month are present numbers before add() ever
+         reaches here. */
       const total = (result.year ?? 0) * 12 + (result.month ?? 1) - 1 + amount;
+      /* c8 ignore stop @preserve */
       result.year = Math.floor(total / 12);
       result.month = (total % 12) + 1;
       if (result.month < 1) { result.month += 12; result.year -= 1; }
       // Negative modulo handling: when total < 0, the mod goes negative.
       // Re-normalize.
+      /* c8 ignore start @preserve -- unreachable: (total % 12) + 1 can never
+         exceed 12 for any integer total in JS (its range is [-10, 12] since
+         JS's % can return a negative remainder but never one with
+         magnitude >= 12, so adding 1 tops out at 12). Only the < 1 branch
+         above is reachable; this was written symmetrically with it but the
+         overflow direction it guards against can't occur. Kept rather than
+         removed since it costs nothing and documents the intent. */
       if (result.month > 12) { result.month -= 12; result.year += 1; }
+      /* c8 ignore stop @preserve */
       const maxDay = daysInMonth({ year: result.year!, month: result.month! });
       if (result.day! > maxDay) result.day = maxDay;
+      recomputeDayOfWeek(result);
       break;
     }
     case 'weeks':
@@ -97,6 +137,7 @@ function shiftDays(v: DateTimeFieldView, days: number): DateTimeFieldView {
   const yOut = m2out <= 2 ? y2out + 1 : y2out;
 
   const result: DateTimeFieldView = { ...v, year: yOut, month: m2out, day: d2 };
+  recomputeDayOfWeek(result);
   return result;
 }
 

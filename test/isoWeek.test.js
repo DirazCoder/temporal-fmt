@@ -125,6 +125,19 @@ test('ww/RRRR: requires dayOfWeek field, throws on PlainTime', () => {
   assert.throws(() => format(time, 'RRRR'), /requires "dayOfWeek"/);
 });
 
+test('ww/RRRR: dates before the year-2000 reference anchor resolve correctly', () => {
+  // dayOfWeekOfJan1() anchors its day-of-week arithmetic to Jan 1, 2000
+  // and walks forward or backward from there depending on which side of
+  // the anchor the target year falls on. Every other test in this file
+  // uses a post-2000 date, which only ever exercises the forward walk —
+  // this covers the backward walk. Both dates independently verified
+  // against Python's stdlib datetime.isocalendar().
+  assert.equal(format(Temporal.PlainDate.from('1987-03-15'), 'RRRR-ww'), '1987-11');
+  // 1969-12-31 is a Wednesday that falls in ISO week 1 of 1970 — also
+  // exercises the pre-2000 backward walk at a year-boundary case.
+  assert.equal(format(Temporal.PlainDate.from('1969-12-31'), 'RRRR-ww'), '1970-01');
+});
+
 test('ww: year with 53 weeks vs 52 weeks is handled correctly', () => {
   // ISO years with 53 weeks include 2020, 2026, 2032; 2021 has 52.
   // Just spot-check that the maximum week for 2026 is 53 and for

@@ -463,10 +463,10 @@ test('zzz regression: alone throws "needs a full date and time" (same message as
   assert.throws(() => parse('HH:mm zzz', '15:45 America/New_York'), /needs a full date and time/);
 });
 
-test('zzz regression: unrecognized zone id still fails with "no valid pattern matches"', () => {
+test('zzz regression: unrecognized zone id throws InvalidTimeZoneError', () => {
   assert.throws(
     () => parse('yyyy-MM-dd HH:mm zzz', '2026-08-04 15:45 Not/A_Zone'),
-    /no valid pattern matches/
+    /not a recognized IANA time zone/
   );
 });
 

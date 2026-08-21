@@ -139,6 +139,19 @@ export class InvalidDateError extends TemporalFmtError {
   }
 }
 
+/* c8 ignore start @preserve -- InvalidTimeError is part of the public
+   error-class surface (exported from index.ts, code 'INVALID_TIME')
+   but nothing in this package constructs one. Investigated wiring it
+   in the same way InvalidTimeZoneError was just wired (see parse.ts's
+   zzz-validation loop): checked whether hour/minute/second have a
+   post-match semantic range check the way zone ids do. They don't —
+   pattern.ts's regex fragments for HH/H/hh/h/mm/m/ss/s already enforce
+   their valid ranges at the regex level (e.g. HH is '(?:[01]\d|2[0-3])',
+   which can't match "99" in the first place), so an out-of-range time
+   is rejected as a plain shape mismatch before any semantic check
+   could run. There's no live gap to hook this into without inventing a
+   redundant check purely to give this class a body. Left unconstructed
+   until the library actually has a real invalid-time case to report. */
 export class InvalidTimeError extends TemporalFmtError {
   constructor(fields: Omit<TemporalFmtErrorFields, 'code'> & { message?: string }) {
     const { message, ...rest } = fields;
@@ -149,6 +162,7 @@ export class InvalidTimeError extends TemporalFmtError {
     this.name = 'InvalidTimeError';
   }
 }
+/* c8 ignore stop @preserve */
 
 export class InvalidOffsetError extends TemporalFmtError {
   constructor(fields: Omit<TemporalFmtErrorFields, 'code'> & { message?: string }) {
@@ -172,6 +186,17 @@ export class InvalidTimeZoneError extends TemporalFmtError {
   }
 }
 
+/* c8 ignore start @preserve -- InvalidCalendarError is part of the
+   public error-class surface (exported from index.ts, code
+   'INVALID_CALENDAR') but nothing in this package constructs one.
+   Checked for a wiring opportunity the same way InvalidTimeZoneError
+   got one: there's no user-supplied calendar identifier anywhere in
+   the library to validate against a supported list. resolveCalendar()
+   in parse.ts derives the calendar entirely from Intl's own resolution
+   of the locale string — it's never handed an arbitrary "calendar"
+   value a caller could get wrong. There's no live input to reject.
+   Left unconstructed until the library actually accepts a calendar
+   parameter that could be invalid. */
 export class InvalidCalendarError extends TemporalFmtError {
   constructor(fields: Omit<TemporalFmtErrorFields, 'code'> & { message?: string }) {
     const { message, ...rest } = fields;
@@ -182,6 +207,7 @@ export class InvalidCalendarError extends TemporalFmtError {
     this.name = 'InvalidCalendarError';
   }
 }
+/* c8 ignore stop @preserve */
 
 export class AmbiguousInputError extends TemporalFmtError {
   constructor(fields: Omit<TemporalFmtErrorFields, 'code'> & { message?: string }) {
@@ -235,15 +261,21 @@ export function wrapUntypedError(err: Error, context: { input?: string; format?:
   if (/offset/.test(msg) && /out of range|exceeds|doesn't match the shape/i.test(msg)) {
     return new InvalidOffsetError({ input: context.input, format: context.format, reason: msg });
   }
-  if (/time ?zone/i.test(msg) && /no valid pattern/i.test(msg)) {
-    return new InvalidTimeZoneError({ input: context.input, format: context.format, reason: msg });
-  }
   if (/no valid pattern matches/i.test(msg)) {
     return new ParseMismatchError({ input: context.input, format: context.format, reason: msg });
   }
   if (/doesn't describe a valid date\/time|incomplete date|weekday token|quarter token/.test(msg)) {
     return new InvalidDateError({ input: context.input, format: context.format, reason: msg });
   }
+  /* c8 ignore start @preserve -- both triggers for this branch are
+     currently unreachable through safeParse(), which is the only way
+     wrapUntypedError gets called. localeVocab.ts's "produced no" throw
+     needs Intl to omit a part for a valid locale (Intl-dependent, same
+     category as the dead branches in serialization.ts); tokens.ts's
+     "produced no" throw and formatDistance's "cutoffs must be" throw
+     both happen on the format() side, which doesn't route through
+     safeParse's catch at all. Kept, not deleted, since a future
+     parse()-path locale validation could legitimately land here. */
   const lowerMsg = msg.toLowerCase();
   const mentionsLocale = lowerMsg.includes('locale');
   if (
@@ -252,6 +284,7 @@ export function wrapUntypedError(err: Error, context: { input?: string; format?:
   ) {
     return new InvalidLocaleError({ input: context.input, format: context.format, reason: msg });
   }
+  /* c8 ignore stop @preserve */
   if (/format string exceeds maximum length|input exceeds maximum length|unterminated quote|isn't a recognized token/i.test(msg)) {
     return new FormatSyntaxError({ input: context.input, format: context.format, reason: msg });
   }

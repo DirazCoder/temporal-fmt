@@ -127,7 +127,13 @@ export function createFormatter(options: FormatterOptions = {}): Formatter {
           continue;
         }
         const handler = handlerByToken.get(piece.value);
+        /* c8 ignore start @preserve -- unreachable: customTokenize only ever produces a
+           `kind: 'token'` piece via sortedTokenStrings.find(...), and
+           handlerByToken is built from that same mergedTokens array, so
+           every token piece is guaranteed a handler entry. Guards against a
+           future customTokenize change that decouples the two lookups. */
         if (!handler) throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
+        /* c8 ignore stop @preserve */
         if (temporal[handler.field] === undefined) {
           throw new Error(
             `temporal-fmt: token "${piece.value}" requires "${String(handler.field)}", which this Temporal object doesn't have.`
@@ -147,12 +153,23 @@ export function createFormatter(options: FormatterOptions = {}): Formatter {
       for (const piece of pieces) {
         if (piece.kind === 'literal') {
           const last = out[out.length - 1];
+          /* c8 ignore start @preserve -- unreachable: customTokenize's own
+             appendLiteral() already merges adjacent literal chars/quoted
+             spans into a single piece before this loop ever sees them, so
+             two literal pieces are never adjacent here. Kept as a guard
+             against a future customTokenize change that stops merging. */
           if (last && last.type === 'literal') last.value += piece.value;
+          /* c8 ignore stop @preserve */
           else out.push({ type: 'literal', value: piece.value });
           continue;
         }
         const handler = handlerByToken.get(piece.value);
+        /* c8 ignore start @preserve -- unreachable: customTokenize only emits
+           kind:'token' pieces found in sortedTokenStrings, the same array
+           handlerByToken is built from, so every token piece is guaranteed
+           a handler entry. Guards against future decoupling of the two. */
         if (!handler) throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
+        /* c8 ignore stop @preserve */
         if (temporal[handler.field] === undefined) {
           throw new Error(`temporal-fmt: token "${piece.value}" requires "${String(handler.field)}".`);
         }
@@ -177,7 +194,10 @@ export function createFormatter(options: FormatterOptions = {}): Formatter {
               continue;
             }
             const handler = handlerByToken.get(piece.value);
+            /* c8 ignore start @preserve -- unreachable, see the same guard's comment
+               above in the un-compiled format(). */
             if (!handler) throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
+            /* c8 ignore stop @preserve */
             if (temporal[handler.field] === undefined) {
               throw new Error(`temporal-fmt: token "${piece.value}" requires "${String(handler.field)}".`);
             }
@@ -191,12 +211,18 @@ export function createFormatter(options: FormatterOptions = {}): Formatter {
           for (const piece of pieces) {
             if (piece.kind === 'literal') {
               const last = out[out.length - 1];
+              /* c8 ignore start @preserve -- unreachable, see the same guard's
+                 comment above in the un-compiled formatToParts. */
               if (last && last.type === 'literal') last.value += piece.value;
+              /* c8 ignore stop @preserve */
               else out.push({ type: 'literal', value: piece.value });
               continue;
             }
             const handler = handlerByToken.get(piece.value);
+            /* c8 ignore start @preserve -- unreachable, see the same guard's
+               comment above in the un-compiled formatToParts. */
             if (!handler) throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
+            /* c8 ignore stop @preserve */
             if (temporal[handler.field] === undefined) {
               throw new Error(`temporal-fmt: token "${piece.value}" requires "${String(handler.field)}".`);
             }

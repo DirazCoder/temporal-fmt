@@ -173,3 +173,19 @@ test('registerLocaleVocab: does not affect other locales (no spillover)', () => 
   assert.equal(format(date, 'MMMM', { locale: 'en-US' }), 'August');
   assert.equal(format(date, 'MMMM', { locale: CUSTOM_LOCALE }), 'Eighthmo');
 });
+
+test('registerLocaleVocab: custom vocab is honored by the short/standalone token variants too', () => {
+  // The tests above only ever format MMMM/EEEE (long forms) with custom
+  // vocab active. MMM/EEE (short) and LLLL/LLL/cccc/ccc (standalone
+  // month/weekday) each read from the same custom object but are
+  // separate token handlers — every one of them needs its own real
+  // exercise with `custom` actually set, not just Intl's default vocab.
+  registerLocaleVocab(CUSTOM_LOCALE, validVocab());
+  const date = Temporal.PlainDate.from('2026-08-03'); // Monday
+  assert.equal(format(date, 'MMM', { locale: CUSTOM_LOCALE }), 'Eig');
+  assert.equal(format(date, 'EEE', { locale: CUSTOM_LOCALE }), 'Moo');
+  assert.equal(format(date, 'LLLL', { locale: CUSTOM_LOCALE }), 'Eighthmo');
+  assert.equal(format(date, 'LLL', { locale: CUSTOM_LOCALE }), 'Eig');
+  assert.equal(format(date, 'cccc', { locale: CUSTOM_LOCALE }), 'Moonday');
+  assert.equal(format(date, 'ccc', { locale: CUSTOM_LOCALE }), 'Moo');
+});

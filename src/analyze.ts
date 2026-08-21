@@ -131,10 +131,12 @@ export function analyzeFormat(formatStr: string): FormatAnalysis {
       continue;
     }
     const metadata = TOKEN_METADATA[piece.value];
+    // Dead by construction, confirmed via listTokens(): every token in
+    // TOKENS has a matching TOKEN_METADATA entry (51/51), and tokenize()
+    // already throws on any string that isn't in TOKENS before this loop
+    // ever runs. Kept as a guard against the two tables drifting apart.
+    /* c8 ignore start */
     if (!metadata) {
-      // Shouldn't happen — tokenize() throws on unknown tokens before
-      // we get here. Surface as a warning so a future change to either
-      // table doesn't silently break the analysis.
       warnings.push({
         code: 'UNKNOWN_TOKEN_NO_METADATA',
         message: `Token "${piece.value}" is recognized by the tokenizer but has no metadata entry in tokenMetadata.ts — this is a bug in temporal-fmt.`,
@@ -142,6 +144,7 @@ export function analyzeFormat(formatStr: string): FormatAnalysis {
       offset += piece.value.length;
       continue;
     }
+    /* c8 ignore stop */
     tokens.push({ name: piece.value, position: offset, metadata });
 
     // Required fields: read off the handler map (the source of truth

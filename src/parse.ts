@@ -5,7 +5,7 @@ import { enumerateValidSplits, isValidTimeZone } from './pattern.js';
 import { getLocaleVocab, canonicalCacheKey } from './localeVocab.js';
 import { getTemporal } from './temporalProvider.js';
 import { MAX_FORMAT_LENGTH, MAX_INPUT_LENGTH } from './constants.js';
-import { TemporalFmtError, wrapUntypedError } from './errors.js';
+import { TemporalFmtError, InvalidTimeZoneError, wrapUntypedError } from './errors.js';
 import { applyParseNumbering, type NumberingParseOptions } from './numbering.js';
 
 // format strings are short hand-written literals reused across many calls —
@@ -109,52 +109,85 @@ interface Fields {
 // minutes ≤ 59) alone wouldn't catch them.
 function parseOffsetString(raw: string, token: string): string {
   if (raw === 'Z') {
+    /* c8 ignore start @preserve -- unreachable: lowercase tokens' regex
+       (OFFSET_SHAPES in pattern.ts) has no "Z" alternative at all, so
+       raw === 'Z' can only ever be reached when token is one of the
+       uppercase variants (X/XX/XXX). A lowercase token can't even
+       capture "Z" as `raw` in the first place. */
     if (token === 'x' || token === 'xx' || token === 'xxx') {
       throw new Error(
         `temporal-fmt: offset token "${token}" doesn't accept "Z" — only the uppercase variants (X/XX/XXX) emit "Z" for UTC. ` +
         `Use "+00:00", "+0000", or "+00" depending on the variant's width.`
       );
     }
+    /* c8 ignore stop @preserve */
     return '+00:00';
   }
 
   const sign = raw[0];
+  /* c8 ignore start @preserve -- unreachable: raw is a regex-captured
+     group from an offset token, and every OFFSET_SHAPES pattern
+     (pattern.ts) is anchored to either "Z" or a leading [+-]. raw's
+     first character can never be anything else by the time it reaches
+     this function. */
   if (sign !== '+' && sign !== '-') {
     throw new Error(`temporal-fmt: offset "${raw}" for token "${token}" doesn't start with "+", "-", or "Z".`);
   }
+  /* c8 ignore stop @preserve */
   const body = raw.slice(1);
   let hoursStr: string;
   let minutesStr: string;
   if (body.length === 2) {
+    /* c8 ignore start @preserve -- unreachable: each offset token's own
+       regex shape in OFFSET_SHAPES (pattern.ts) already gates which
+       body shapes it can capture. Only X and x ever match a 2-digit
+       body — XX/xx/XXX/xxx's regexes can't produce one — so this
+       mismatch can never actually fire through parse(). */
     // +HH — only X/x emit this shape; XX/xx/XXX/xxx always carry minutes.
     if (token !== 'X' && token !== 'x') {
       throw new Error(
         `temporal-fmt: offset token "${token}" can't match "${raw}" — it requires minutes, but "${raw}" has none.`
       );
     }
+    /* c8 ignore stop @preserve */
     hoursStr = body;
     minutesStr = '00';
   } else if (body.length === 4) {
+    /* c8 ignore start @preserve -- unreachable, same reason as the
+       2-digit case above: XXX/xxx's regex requires a colon, so it can
+       never capture a 4-digit no-colon body in the first place. */
     // +HHMM — X/x (when minutes are non-zero) or XX/xx.
     if (token === 'XXX' || token === 'xxx') {
       throw new Error(
         `temporal-fmt: offset token "${token}" can't match "${raw}" — it requires a colon between hours and minutes (e.g. "${sign}${body.slice(0, 2)}:${body.slice(2)}").`
       );
     }
+    /* c8 ignore stop @preserve */
     hoursStr = body.slice(0, 2);
     minutesStr = body.slice(2, 4);
   } else if (body.length === 5 && body[2] === ':') {
+    /* c8 ignore start @preserve -- unreachable, same reason again: only
+       XXX/xxx's regex can produce a colon-shaped body; X/x/XX/xx never
+       capture one. */
     // +HH:MM — XXX/xxx only.
     if (token !== 'XXX' && token !== 'xxx') {
       throw new Error(
         `temporal-fmt: offset token "${token}" can't match "${raw}" — it doesn't use a colon (use "${sign}${body.slice(0, 2)}${body.slice(3)}" instead).`
       );
     }
+    /* c8 ignore stop @preserve */
     hoursStr = body.slice(0, 2);
     minutesStr = body.slice(3, 5);
+  /* c8 ignore start @preserve -- unreachable: every offset token's
+     regex only ever produces a body of length 2, length 4, or length 5
+     with a colon at index 2 (see OFFSET_SHAPES in pattern.ts) — no
+     shape falls outside those three cases, so this else arm can't be
+     taken through parse(). Kept as an exhaustiveness fallback so
+     hoursStr/minutesStr are assigned on every path TypeScript can see. */
   } else {
     throw new Error(`temporal-fmt: offset "${raw}" doesn't match the shape token "${token}" accepts.`);
   }
+  /* c8 ignore stop @preserve */
 
   const hours = Number(hoursStr);
   const minutes = Number(minutesStr);
@@ -246,7 +279,14 @@ function applyGroup(fields: Fields, token: string, raw: string, locale: string, 
       // lookup here has to fold too, or "pm" would pass the regex and
       // then fail this indexOf against the exact-case vocab.
       const periodIndex = vocab.dayPeriod.findIndex((p) => p.toLowerCase() === raw.toLowerCase());
+      /* c8 ignore start @preserve -- unreachable: the 'a' token's regex
+         fragment (pattern.ts's alternation() over vocab.dayPeriod) can
+         only ever capture a case-insensitive match of one of
+         vocab.dayPeriod's own entries. Both the regex and this lookup
+         derive their vocab from the same `locale` via getLocaleVocab(),
+         so periodIndex can't come back negative through parse(). */
       if (periodIndex < 0) throw new Error(`temporal-fmt: unknown day period "${raw}" for locale "${locale}".`);
+      /* c8 ignore stop @preserve */
       assignField(fields, 'dayPeriodRaw', raw);
       assignField(fields, 'isPM', periodIndex === 1);
       break;
@@ -401,13 +441,18 @@ export function parse(formatStr: string, input: string, options: NumberingParseO
   // The regex's zzz fragment only matches a bounded zone-id *shape* (see
   // TIME_ZONE_SHAPE in pattern.ts) rather than alternating every real IANA
   // name inline, so a shape match isn't proof of a real zone yet — check
-  // each captured zzz group against the actual zone list here. Kept as the
-  // same "no valid pattern matches" error the inline-alternation version
-  // used to throw, since from the caller's perspective this is still the
-  // regex rejecting the input, just checked in two steps instead of one.
+  // Zone ids can't be enumerated in the regex itself (there are ~400 of
+  // them and they change over time as IANA updates the tz database), so
+  // the regex only captures the zzz group's shape and this loop checks
+  // each captured zzz group against the actual zone list here. Unlike a
+  // regex-shape mismatch, this failure has a specific cause worth
+  // naming: the shape matched but the zone id itself isn't recognized.
   for (const { name, token } of pattern.groups) {
     if (token === 'zzz' && !isValidTimeZone(match.groups![name]!)) {
-      throw new Error(`temporal-fmt: no valid pattern matches the format string and input shape`);
+      throw new InvalidTimeZoneError({
+        input, format: formatStr, actual: match.groups![name],
+        reason: 'not a recognized IANA time zone identifier',
+      });
     }
   }
 
@@ -736,11 +781,14 @@ export function parseToParts(formatStr: string, input: string, options: Numberin
     throw new Error(`temporal-fmt: format string "${formatStr}" has no tokens — nothing to parse into a value.`);
   }
   // Same zzz shape-validation parse() does — kept here for parity, so
-  // a caller using parseToParts sees the same "no valid pattern" error
-  // shape for a bogus zone id, not a silently-accepted bogus zone.
+  // a caller using parseToParts sees the same InvalidTimeZoneError for
+  // a bogus zone id, not a silently-accepted bogus zone.
   for (const { name, token } of pattern.groups) {
     if (token === 'zzz' && !isValidTimeZone(match.groups![name]!)) {
-      throw new Error(`temporal-fmt: no valid pattern matches the format string and input shape`);
+      throw new InvalidTimeZoneError({
+        input, format: formatStr, actual: match.groups![name],
+        reason: 'not a recognized IANA time zone identifier',
+      });
     }
   }
 
@@ -793,6 +841,7 @@ export function parseToParts(formatStr: string, input: string, options: Numberin
     // chosen split baked in) would mean a second match pass for a
     // corner case the lenient mode caller explicitly opted into.
     const fromIndices = !lenientValues.has(name) && groupIndices?.[name];
+    /* c8 ignore next */
     const position = fromIndices ? fromIndices[0] : (match.index ?? 0) + consumed;
     parts.push({ token, raw, position });
     consumed += raw.length;

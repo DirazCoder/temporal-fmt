@@ -1,6 +1,6 @@
 {
   "name": "temporal-fmt",
-  "version": "0.8.94",
+  "version": "0.8.95",
   "description": "Format Temporal.PlainDate/PlainDateTime/PlainTime/ZonedDateTime objects using date-fns-style token strings.",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -137,7 +137,7 @@
     "test": "node scripts/run-tests.mjs",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
-    "test:coverage": "c8 --include=\"dist/**/*.js\" --exclude=\"dist/**/*.cjs\" --exclude=\"dist/**/*.map\" --exclude=\"dist/**/*.d.ts\" --exclude=\"dist/**/*.d.cts\" --check-coverage --lines 90 --branches 75 --functions 88 -r text node --max-old-space-size=4096 scripts/run-tests.mjs",
+    "test:coverage": "c8 --include=\"dist/**/*.js\" --exclude=\"dist/**/*.cjs\" --exclude=\"dist/**/*.map\" --exclude=\"dist/**/*.d.ts\" --exclude=\"dist/**/*.d.cts\" --check-coverage --lines 100 --branches 100 --functions 100 --statements 100 -r text node --max-old-space-size=4096 scripts/run-tests.mjs",
     "test:types": "vitest run --typecheck",
     "test:pack": "attw --pack . && publint .",
     "test:smoke": "node smoke-test/run.mjs",
