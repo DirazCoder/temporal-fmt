@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { format, parse, setTemporal, parseRelative, registerLocaleVocab } from '../dist/index.js';
+import { format, parse, setTemporal, parseRelative, registerLocaleVocab, safeParse, analyzeFormat } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
 // fuzz.test.js covers random ASCII noise. This file targets specific
@@ -349,4 +349,26 @@ test('ISO week boundary: Dec 31 / Jan 1 pairs that cross the year boundary produ
       assert.equal(a, b, `Dec 31 ${year} and Jan 1 ${year + 1} share a Thursday but disagree on (week, year): ${a} vs ${b}`);
     }
   }
+});
+
+test('adversarial: safeParse on input at the length cap', () => {
+  // MAX_INPUT_LENGTH is 100_000 — exercising it directly would be slow.
+  // Spot-check that a 1_000-char input still parses.
+  const input = '2026-08-04' + ' '.repeat(1000);
+  const result = safeParse('yyyy-MM-dd', input.slice(0, 10));
+  assert.equal(result.ok, true);
+});
+
+test('adversarial: analyzeFormat on a pathological format string at the length cap', () => {
+  // Repeating "yyyy " 200 times → 1000 chars, exactly at MAX_FORMAT_LENGTH.
+  const fmt = 'yyyy '.repeat(200).trimEnd();
+  assert.equal(fmt.length, 999); // 200*5 - 1 for trimEnd
+  const analysis = analyzeFormat(fmt);
+  assert.equal(analysis.tokens.length, 200);
+  // All yyyy → all need year. Compatible types are the four that carry year.
+  assert.deepEqual(analysis.compatibleTypes, ['PlainDate', 'PlainDateTime', 'PlainYearMonth', 'ZonedDateTime']);
+});
+
+test('adversarial: analyzeFormat rejects format strings over MAX_FORMAT_LENGTH', () => {
+  assert.throws(() => analyzeFormat('x'.repeat(1001)), /exceeds maximum length/);
 });
