@@ -327,7 +327,6 @@ test('parseRRule: a BYDAY entry that fails the weekday regex maps to 0 instead o
   assert.deepEqual(rule.byWeekday, [1, 0, 3]);
 });
 
-// ============== Section T: recurrence ==============
 test('recurrence + take: returns N occurrences', () => {
   const start = Temporal.PlainDate.from('2026-01-01');
   const rule = { frequency: 'daily', interval: 1 };

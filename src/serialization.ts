@@ -58,7 +58,6 @@ function buildISOFromFields(fields: Record<string, unknown>): string {
   return `${y}-${m}-${d}${h}${min}${sec}${frac}${tz}`;
 }
 
-// ===== ISO 8601 =====
 // ISO 8601 is the most permissive of the standards here — accepts
 // calendar dates, week dates, ordinal dates, times with optional
 // fractional seconds, timezone offsets or 'Z'. Delegates to
@@ -115,7 +114,6 @@ export function formatISO(value: unknown): string {
   return v.toString();
 }
 
-// ===== RFC 3339 =====
 // RFC 3339 is a profile of ISO 8601 used in network protocols (HTTP,
 // JSON-RPC, etc.). Stricter than ISO 8601: requires full date+time,
 // requires seconds, requires UTC offset or 'Z', disallows IANA zone
@@ -157,7 +155,6 @@ export function formatRFC3339(value: unknown): string {
   return s;
 }
 
-// ===== RFC 2822 =====
 // RFC 2822 date-time (used in email Message-ID headers, etc.). Format:
 //   day-of-week, day month year hour:minute:second zone
 // e.g. "Mon, 04 Aug 2026 15:45:30 +0000"
@@ -268,7 +265,6 @@ function formatRFC2822FromMs(ms: number): string {
   /* c8 ignore stop @preserve */
 }
 
-// ===== HTTP-date (RFC 7231) =====
 // RFC 7231 defines three formats: IMF-fixdate, RFC 850, asctime.
 // The canonical format is IMF-fixdate (RFC 2822-like with required
 // seconds and UTC-only). Delegates to Date.parse for parsing and to
@@ -303,7 +299,6 @@ export function formatHTTPDate(value: unknown): string {
   return `${wd}, ${dd} ${mon} ${yyyy} ${hh}:${mm}:${ss} GMT`;
 }
 
-// ===== Epoch conversions =====
 // All epoch conversions go through Temporal.Instant, which has spec
 // methods for each epoch granularity. Wrapped here for the
 // temporal-fmt surface so callers don't have to import Temporal

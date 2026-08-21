@@ -234,7 +234,6 @@ test('parseSQL: throws on an unrecognized format', () => {
   assert.throws(() => parseSQL('garbage'), /not a recognized SQL date\/time format/);
 });
 
-// ============== Section U: serialization ==============
 test('parseISO: parses a date', () => {
   const r = parseISO('2026-08-04');
   assert.equal(r.toString(), '2026-08-04');
@@ -329,7 +328,6 @@ test('formatSQL: formats datetime as YYYY-MM-DD HH:MM:SS', () => {
   assert.equal(formatSQL(dt), '2026-08-04 15:45:30');
 });
 
-// ============== Section I: duration ==============
 test('parseISODuration: parses P[n]Y[n]M[n]D', () => {
   const d = parseISODuration('P3Y6M4D');
   assert.equal(d.years, 3);

@@ -375,7 +375,6 @@ test('mergeIntervals: an empty list returns an empty array', () => {
   assert.deepEqual(mergeIntervals([]), []);
 });
 
-// ============== Section P: intervals ==============
 test('interval: constructs a closed interval', () => {
   const a = Temporal.PlainDate.from('2026-01-01');
   const b = Temporal.PlainDate.from('2026-12-31');

@@ -185,7 +185,6 @@ test('compileFormat: formatToParts() throws when the temporal value is missing t
   assert.throws(() => compiled.formatToParts(time), /requires "year"/);
 });
 
-// ============== Section X: extensibility ==============
 test('createFormatter: default formatter matches builtin format()', () => {
   const fmt = createFormatter();
   const date = Temporal.PlainDate.from('2026-08-04');

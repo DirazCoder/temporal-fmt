@@ -15,7 +15,6 @@ import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 setTemporal(Temporal);
 
-// ============== Section Q: timezone ==============
 test('resolveZoned: constructs a ZonedDateTime', () => {
   const r = resolveZoned({ year: 2026, month: 8, day: 4, hour: 15, minute: 45, second: 30 }, 'UTC');
   assert.ok(r !== undefined);

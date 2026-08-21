@@ -12,7 +12,6 @@ import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 setTemporal(Temporal);
 
-// ============== Section G: numbering ==============
 test('convertDigits: latn → latn is identity', () => {
   assert.equal(convertDigits('2026', 'latn'), '2026');
 });

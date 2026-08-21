@@ -179,7 +179,6 @@ export function between(start: unknown, rule: RecurrenceRule, rangeStart: unknow
   return result;
 }
 
-// ===== RRULE (RFC 5545) interop =====
 // Parses an RRULE string like "FREQ=DAILY;INTERVAL=2;COUNT=5" into a
 // RecurrenceRule. Doesn't support every RRULE feature (BYSETPOS,
 // BYHOUR, BYMINUTE, BYSECOND are parsed but not enforced by the

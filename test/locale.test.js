@@ -11,7 +11,6 @@ import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 setTemporal(Temporal);
 
-// ============== Section F: locale registration ==============
 test('registerLocale / hasLocale / getLocale', () => {
   registerLocale('test-locale-1', {
     monthLong: ['Mo1','Mo2','Mo3','Mo4','Mo5','Mo6','Mo7','Mo8','Mo9','Mo10','Mo11','Mo12'],

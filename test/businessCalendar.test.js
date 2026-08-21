@@ -152,7 +152,6 @@ test('createBusinessCalendar: halfDays option is stored as a Set', () => {
   assert.ok(!cal.halfDays.has(1));
 });
 
-// ============== Section R: business calendar ==============
 test('createBusinessCalendar: defaults to Sat/Sun weekend', () => {
   const cal = createBusinessCalendar();
   // Tuesday (Aug 4, 2026) is a business day.

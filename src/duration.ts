@@ -23,7 +23,6 @@ import { InvalidDurationError, FormatSyntaxError } from './errors.js';
 export { roundDuration };
 export type { DurationFields };
 
-// ===== formatDurationToParts =====
 // Mirrors formatToParts in format.ts. Returns the same piece list
 // formatDuration() would consume, but split into parts instead of
 // joined. Useful for callers building custom UIs (one DOM node per
@@ -177,7 +176,6 @@ function findNextLiteralStart(
   return full.length;
 }
 
-// ===== parseISODuration =====
 // ISO 8601 duration format: P[n]Y[n]M[n]W[n]DT[n]H[n]M[n]S
 // e.g. "P3Y6M4DT12H30M5S", "PT1H30M", "P1W", "P0D".
 // Parsed into a DurationFields bag.
@@ -205,7 +203,6 @@ export function parseISODuration(input: string): DurationFields {
   };
 }
 
-// ===== formatISODuration =====
 export function formatISODuration(duration: DurationFields): string {
   const parts: string[] = ['P'];
   const years = duration.years ?? 0;
@@ -225,12 +222,12 @@ export function formatISODuration(duration: DurationFields): string {
     if (minutes) parts.push(`${minutes}M`);
     if (seconds) parts.push(`${seconds}S`);
   }
-  // Zero duration: P0D
+  // parts is just ['P'] when every field is zero -- ISO has no empty
+  // duration, so fall back to P0D.
   if (parts.length === 1) parts.push('0D');
   return parts.join('');
 }
 
-// ===== parseDuration =====
 // Parses a duration-format string (the tokenized format formatDuration
 // accepts) into a DurationFields bag. Inverse of formatDuration().
 export function parseDuration(input: string, formatStr: string, options: { locale?: string } = {}): DurationFields {
@@ -297,7 +294,6 @@ export function parseDuration(input: string, formatStr: string, options: { local
   return fields;
 }
 
-// ===== balanceDuration =====
 // Balances a duration's absolute fields (days/hours/minutes/seconds/ms/µs/ns)
 // so each carries its natural range and excess carries into the next
 // larger unit. Doesn't touch calendar-bound fields (years/months/weeks)
@@ -329,7 +325,6 @@ export function balanceDuration(duration: DurationFields): DurationFields {
   return result;
 }
 
-// ===== totalDuration =====
 // Sums all absolute fields into a single number expressed in the
 // requested unit. Throws for calendar-bound target units (years/months/
 // weeks) since those need a relativeTo.
@@ -355,7 +350,6 @@ export function totalDuration(duration: DurationFields, unit: 'days' | 'hours' |
   return Number(totalNs) / Number(divisor);
 }
 
-// ===== compareDuration =====
 // Compares two durations by their total absolute length. Returns -1/0/1.
 export function compareDuration(a: DurationFields, b: DurationFields): number {
   const aNs = totalDurationNs(a);
@@ -383,7 +377,6 @@ function totalDurationNs(d: DurationFields): bigint {
   return total;
 }
 
-// ===== addDuration / subtractDuration =====
 // Adds two durations field-by-field. Doesn't balance — call
 // balanceDuration() afterwards if you want a balanced result.
 export function addDuration(a: DurationFields, b: DurationFields): DurationFields {

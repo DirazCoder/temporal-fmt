@@ -1,15 +1,15 @@
-// Phase 1/2 capability smoke test. Exercises a representative sample from
-// each completed section — formatting/parsing across Temporal types, the
-// new compile/to-parts APIs, the analyzer surface, type guards, typed
-// errors, calendar utilities, date arithmetic, comparison helpers, and
-// the analyzer integration in the ESLint plugin.
+// Capability smoke test. Exercises a representative sample of the public
+// API — formatting/parsing across Temporal types, the compile/to-parts
+// APIs, the analyzer surface, type guards, typed errors, calendar
+// utilities, date arithmetic, comparison helpers, and the analyzer
+// integration in the ESLint plugin.
 //
 // Distinct from the existing smoke-test/run.mjs (which exercises the
 // package's install/resolution/types shape as a real consumer would):
 // this one is about API surface coverage, not packaging. Runs against
 // the local dist/ build, not a packed tarball.
 //
-// Run with: node smoke-test/phase1-capabilities.mjs
+// Run with: node smoke-test/capabilities.mjs
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 import {
   format, formatToParts, compileFormat,
@@ -69,7 +69,6 @@ function checkOk(label, ok, detail) {
   }
 }
 
-// ===== Section B: formatting =====
 console.log('Section B: formatting');
 const date = Temporal.PlainDate.from('2026-08-04');
 const dt = Temporal.PlainDateTime.from('2026-08-04T15:45:30');
@@ -89,7 +88,6 @@ const compiled = compileFormat('yyyy-MM-dd');
 check('compileFormat.format', compiled.format(date), '2026-08-04');
 check('compileFormat.formatToParts length', compiled.formatToParts(date).length, 5);
 
-// ===== Section C: parsing =====
 console.log('Section C: parsing');
 const parsed = parse('yyyy-MM-dd', '2026-08-04');
 check('parse returns PlainDate', parsed.toString(), '2026-08-04');
@@ -116,7 +114,6 @@ check('parseToParts[0].raw', parts2[0].raw, '2026');
 const compiledParser = compileParser('yyyy-MM-dd');
 check('compileParser.parse', compiledParser.parse('2026-08-04').toString(), '2026-08-04');
 
-// ===== Section D: typed errors =====
 console.log('Section D: typed errors');
 const err1 = new UnknownTokenError({ token: 'XYZ', format: 'XYZ-MM-dd' });
 checkOk('UnknownTokenError is TemporalFmtError', err1 instanceof TemporalFmtError);
@@ -126,7 +123,6 @@ check('UnknownTokenError token', err1.token, 'XYZ');
 const ambErr = safeParse('Md', '121');
 checkOk('ambiguous input classified', !ambErr.ok && ambErr.error instanceof AmbiguousInputError);
 
-// ===== Section E: analyzer =====
 console.log('Section E: analyzer');
 const analysis = analyzeFormat('yyyy-MM-dd HH:mm');
 check('analyzeFormat tokens', analysis.tokens.length, 5);
@@ -147,7 +143,6 @@ check('isValidFormat invalid string', isValidFormat("yyyy 'at"), false);
 check('fieldForToken yyyy', fieldForToken('yyyy'), 'year');
 check('fieldForToken HH', fieldForToken('HH'), 'hour');
 
-// ===== Section V: type guards =====
 console.log('Section V: type guards');
 checkOk('isPlainDate(PlainDate)', isPlainDate(date));
 checkOk('isPlainDate(PlainTime) is false', !isPlainDate(Temporal.PlainTime.from('15:45:30')));
@@ -160,7 +155,6 @@ checkOk('isPlainMonthDay', isPlainMonthDay(Temporal.PlainMonthDay.from('08-04'))
 checkOk('isDuration', isDuration(Temporal.Duration.from({ hours: 2 })));
 checkOk('isTemporal catches all', isTemporal(date) && isTemporal(dt) && isTemporal(zdt));
 
-// ===== Section L: calendar utilities =====
 console.log('Section L: calendar utilities');
 check('daysInMonth Feb leap', daysInMonth(Temporal.PlainDate.from('2024-02-15')), 29);
 check('daysInMonth Feb nonleap', daysInMonth(Temporal.PlainDate.from('2026-02-15')), 28);
@@ -181,7 +175,6 @@ const endOfMonth = endOf(dt, 'month');
 check('endOf month day', endOfMonth.day, 31);
 check('endOf month hour', endOfMonth.hour, 23);
 
-// ===== Section M: date arithmetic =====
 console.log('Section M: date arithmetic');
 check('add 1 year', add(date, 1, 'years').year, 2027);
 check('add 1 month', add(date, 1, 'months').month, 9);
@@ -200,7 +193,6 @@ check('addDays wrapper', addDays(date, 1).day, 5);
 check('addHours wrapper', addHours(dt, 1).hour, 16);
 check('differenceInDays', differenceInDays(Temporal.PlainDate.from('2026-01-01'), Temporal.PlainDate.from('2026-01-08')), 7);
 
-// ===== Section O: comparison =====
 console.log('Section O: comparison');
 const a = Temporal.PlainDate.from('2026-08-04');
 const b = Temporal.PlainDate.from('2026-08-05');
@@ -232,7 +224,6 @@ checkOk('isSameYear 2026 and 2026', isSameYear(date, Temporal.PlainDate.from('20
 checkOk('isWeekend Sat', isWeekend(Temporal.PlainDate.from('2026-08-08')));
 checkOk('isWeekday Tue', isWeekday(date));
 
-// ===== Adversarial cases =====
 console.log('Adversarial cases');
 check('analyzeFormat pathological length', (() => {
   try { analyzeFormat('x'.repeat(1001)); return 'did not throw'; } catch (e) { return e.message; }
@@ -244,7 +235,6 @@ check('safeParse at input cap', (() => {
   return r.ok ? 'ok' : 'err';
 })(), 'ok');
 
-// ===== Round-trip tests =====
 console.log('Round-trip tests');
 const fmts = ['yyyy-MM-dd', 'yyyy-MM-dd HH:mm', 'yyyy-MM-dd HH:mm:ss', 'HH:mm:ss', 'MMMM d, yyyy'];
 for (const fmt of fmts) {
@@ -254,9 +244,8 @@ for (const fmt of fmts) {
   checkOk(`round-trip ${fmt}: ${formatted} === ${reformatted}`, formatted === reformatted);
 }
 
-// ===== Summary =====
 console.log('');
-console.log(`Phase 1/2 capability smoke test: ${passed} passed, ${failed} failed`);
+console.log(`Capability smoke test: ${passed} passed, ${failed} failed`);
 if (failed > 0) {
   process.exit(1);
 }

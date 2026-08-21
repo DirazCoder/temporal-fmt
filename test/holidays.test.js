@@ -12,7 +12,6 @@ import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 setTemporal(Temporal);
 
-// ============== Section S: holiday framework ==============
 test('createHolidayCalendar: detects fixed-date holidays', () => {
   const cal = createHolidayCalendar([
     { month: 1, day: 1, name: 'New Year' },

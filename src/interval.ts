@@ -241,7 +241,6 @@ function fromMs(ms: number, base: DateFieldView & { hour?: number; minute?: numb
   };
 }
 
-// ===== formatRange / formatRangeToParts =====
 // Formats an interval as a single string, collapsing shared fields.
 // E.g. "August 4 – August 6, 2026" rather than "August 4, 2026 – August 6, 2026".
 // Uses Intl.DateTimeFormat's formatRange when available (most engines),

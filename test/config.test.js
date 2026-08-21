@@ -10,7 +10,6 @@ import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 setTemporal(Temporal);
 
-// ============== Section H: config ==============
 test('createConfig: returns frozen config with defaults', () => {
   const c = createConfig();
   assert.equal(c.locale, 'en-US');

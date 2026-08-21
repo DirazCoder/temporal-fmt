@@ -13,7 +13,6 @@ import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 setTemporal(Temporal);
 
-// ============== Section J: relative time ==============
 test('formatRelative: same day → "now"-ish', () => {
   const today = Temporal.Now.plainDateISO();
   const r = formatRelative(today, today);
@@ -80,7 +79,6 @@ test('formatRelative: Intl.RelativeTimeFormat instances are cached and evicted p
   }
 });
 
-// ============== Section K: grammar registration ==============
 test('registerRelativeGrammar: registers and lists a grammar', () => {
   registerRelativeGrammar({
     language: 'test-lang',

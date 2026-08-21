@@ -13,7 +13,6 @@ import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 setTemporal(Temporal);
 
-// ============== Section N: rounding ==============
 test('round: rounds to nearest day', () => {
   const dt = Temporal.PlainDateTime.from('2026-08-04T15:45:30.123');
   const r = round(dt, { unit: 'day' });
