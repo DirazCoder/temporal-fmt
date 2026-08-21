@@ -1,10 +1,36 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  add, subtract, subtractWeeks, subtractMinutes, subtractSeconds, subtractMilliseconds,
-  difference, differenceInYears, differenceInMonths, differenceInWeeks, differenceInDays,
-  differenceInHours, differenceInMinutes, differenceInSeconds, differenceInMilliseconds,
+  add,
+  addDays,
+  addHours,
+  addMilliseconds,
+  addMinutes,
+  addMonths,
+  addSeconds,
+  addWeeks,
+  addYears,
+  clamp,
+  compare,
+  difference,
+  differenceInDays,
+  differenceInHours,
+  differenceInMilliseconds,
+  differenceInMinutes,
+  differenceInMonths,
+  differenceInSeconds,
+  differenceInWeeks,
+  differenceInYears,
   setTemporal,
+  subtract,
+  subtractDays,
+  subtractHours,
+  subtractMilliseconds,
+  subtractMinutes,
+  subtractMonths,
+  subtractSeconds,
+  subtractWeeks,
+  subtractYears,
 } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
@@ -187,4 +213,112 @@ test('add: months normalizes when the running total goes negative past month 1 (
   assert.equal(result.year, 2024);
   assert.equal(result.month, 12);
   assert.equal(result.day, 15);
+});
+
+test('add: years, months, days, weeks add to the right unit', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(add(date, 1, 'years').year, 2027);
+  assert.equal(add(date, 1, 'years').month, 8);
+  assert.equal(add(date, 1, 'months').month, 9);
+  assert.equal(add(date, 1, 'weeks').day, 11); // 4 + 7
+  assert.equal(add(date, 1, 'days').day, 5);
+});
+
+test('add: months overflow to next year correctly', () => {
+  const date = Temporal.PlainDate.from('2026-11-04');
+  const result = add(date, 3, 'months');
+  assert.equal(result.year, 2027);
+  assert.equal(result.month, 2);
+});
+
+test('add: years clamp Feb 29 on non-leap year (Temporal "constrain" overflow mode)', () => {
+  // 2024-02-29 + 1 year = 2025-02-28 (clamp), not 2025-02-29 (invalid)
+  // or 2025-03-01 (reject-style overflow).
+  const date = Temporal.PlainDate.from('2024-02-29');
+  const result = add(date, 1, 'years');
+  assert.equal(result.year, 2025);
+  assert.equal(result.month, 2);
+  assert.equal(result.day, 28);
+});
+
+test('add: hours overflow to next day correctly', () => {
+  const dt = Temporal.PlainDateTime.from('2026-08-04T23:30:00');
+  const result = add(dt, 1, 'hours');
+  assert.equal(result.day, 5);
+  assert.equal(result.hour, 0);
+  assert.equal(result.minute, 30);
+});
+
+test('add: subtracting via negative amount works', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(add(date, -1, 'days').day, 3);
+  assert.equal(add(date, -7, 'days').day, 28);
+  assert.equal(add(date, -7, 'days').month, 7);
+});
+
+test('subtract: is add(value, -amount, unit)', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.deepEqual(subtract(date, 1, 'days'), add(date, -1, 'days'));
+});
+
+test('addYears / addMonths / etc.: per-unit convenience wrappers match add(value, n, unit)', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.deepEqual(addYears(date, 1), add(date, 1, 'years'));
+  assert.deepEqual(addMonths(date, 1), add(date, 1, 'months'));
+  assert.deepEqual(addWeeks(date, 1), add(date, 1, 'weeks'));
+  assert.deepEqual(addDays(date, 1), add(date, 1, 'days'));
+  assert.deepEqual(addHours(date, 1), add(date, 1, 'hours'));
+  assert.deepEqual(addMinutes(date, 1), add(date, 1, 'minutes'));
+  assert.deepEqual(addSeconds(date, 1), add(date, 1, 'seconds'));
+  assert.deepEqual(addMilliseconds(date, 1), add(date, 1, 'milliseconds'));
+});
+
+test('subtractYears / subtractMonths / etc.: per-unit convenience wrappers match subtract', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.deepEqual(subtractYears(date, 1), subtract(date, 1, 'years'));
+  assert.deepEqual(subtractMonths(date, 1), subtract(date, 1, 'months'));
+  assert.deepEqual(subtractDays(date, 1), subtract(date, 1, 'days'));
+  assert.deepEqual(subtractHours(date, 1), subtract(date, 1, 'hours'));
+});
+
+test('difference: years, months, weeks, days, hours, minutes, seconds, ms', () => {
+  const a = Temporal.PlainDate.from('2026-01-01');
+  const b = Temporal.PlainDate.from('2027-06-15');
+  assert.equal(difference(a, b, 'years'), 1);
+  assert.equal(difference(a, b, 'months'), 17);
+  assert.equal(difference(a, b, 'weeks'), 75); // 530 days / 7 = 75.71 → 75
+  assert.equal(difference(a, b, 'days'), 530); // 365 + 31 + 28 + 31 + 30 + 31 + 15 = 531, but Jan 1 to Jan 1 next year is 365, then to Jun 15 is 165 (31+28+31+30+31+15) = 530
+});
+
+test('difference: returns negative when b < a', () => {
+  const a = Temporal.PlainDate.from('2027-06-15');
+  const b = Temporal.PlainDate.from('2026-01-01');
+  assert.equal(difference(a, b, 'years'), -1);
+  assert.equal(difference(a, b, 'days'), -530);
+});
+
+test('difference: time-only differences with full datetime', () => {
+  const a = Temporal.PlainDateTime.from('2026-08-04T00:00:00');
+  const b = Temporal.PlainDateTime.from('2026-08-04T03:30:15');
+  assert.equal(difference(a, b, 'hours'), 3);
+  assert.equal(difference(a, b, 'minutes'), 210); // 3*60 + 30
+  assert.equal(difference(a, b, 'seconds'), 12615); // 3*3600 + 30*60 + 15
+});
+
+test('differenceInYears / Months / Days: per-unit wrappers', () => {
+  const a = Temporal.PlainDate.from('2026-01-01');
+  const b = Temporal.PlainDate.from('2027-03-15');
+  assert.equal(differenceInYears(a, b), 1);
+  assert.equal(differenceInMonths(a, b), 14);
+  assert.equal(differenceInDays(a, b), 438); // 365 + 31 + 28 + 15 - 1
+});
+
+test('compare: leap-year day-of-year offset (March onward in a leap year)', () => {
+  // toComparableMs's leap-year +1 day adjustment only applies for
+  // month > 2 in a leap year — every other compare test in this file
+  // uses non-leap-year dates, so this exercises that specific branch.
+  const mar1 = Temporal.PlainDate.from('2024-03-01');
+  const feb28 = Temporal.PlainDate.from('2024-02-28');
+  assert.equal(compare(mar1, feb28), 1);
+  assert.equal(compare(feb28, mar1), -1);
 });

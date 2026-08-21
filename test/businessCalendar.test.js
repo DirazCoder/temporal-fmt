@@ -1,9 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  createBusinessCalendar, isBusinessDay, nextBusinessDay, previousBusinessDay,
-  addBusinessDays, subtractBusinessDays, differenceInBusinessDays,
-  createHolidayCalendar, setTemporal,
+  addBusinessDays,
+  createBusinessCalendar,
+  createHolidayCalendar,
+  differenceInBusinessDays,
+  isBusinessDay,
+  nextBusinessDay,
+  previousBusinessDay,
+  setTemporal,
+  subtractBusinessDays,
 } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
@@ -144,4 +150,47 @@ test('createBusinessCalendar: halfDays option is stored as a Set', () => {
   const cal = createBusinessCalendar({ halfDays: [5] });
   assert.ok(cal.halfDays.has(5));
   assert.ok(!cal.halfDays.has(1));
+});
+
+// ============== Section R: business calendar ==============
+test('createBusinessCalendar: defaults to Sat/Sun weekend', () => {
+  const cal = createBusinessCalendar();
+  // Tuesday (Aug 4, 2026) is a business day.
+  assert.ok(isBusinessDay(cal, Temporal.PlainDate.from('2026-08-04')));
+  // Saturday is not.
+  assert.ok(!isBusinessDay(cal, Temporal.PlainDate.from('2026-08-08')));
+});
+
+test('nextBusinessDay: skips weekend', () => {
+  const cal = createBusinessCalendar();
+  const friday = Temporal.PlainDate.from('2026-08-07');
+  const next = nextBusinessDay(cal, friday);
+  // Friday Aug 7 2026 → next business day is Monday Aug 10 (Aug 8/9 are weekend).
+  // next is a field bag, not PlainDate; check the date fields.
+  assert.equal(`${next.year}-${String(next.month).padStart(2,'0')}-${String(next.day).padStart(2,'0')}`, '2026-08-10');
+});
+
+test('addBusinessDays: adds business days only', () => {
+  const cal = createBusinessCalendar();
+  const friday = Temporal.PlainDate.from('2026-08-07');
+  // Friday + 1 business day → Monday.
+  const r = addBusinessDays(cal, friday, 1);
+  assert.equal(`${r.year}-${String(r.month).padStart(2,'0')}-${String(r.day).padStart(2,'0')}`, '2026-08-10');
+  // Friday + 3 business days → Wednesday next week.
+  const r2 = addBusinessDays(cal, friday, 3);
+  assert.equal(`${r2.year}-${String(r2.month).padStart(2,'0')}-${String(r2.day).padStart(2,'0')}`, '2026-08-12');
+});
+
+test('subtractBusinessDays: subtracts business days only', () => {
+  const cal = createBusinessCalendar();
+  const monday = Temporal.PlainDate.from('2026-08-10');
+  const r = subtractBusinessDays(cal, monday, 1);
+  // Monday - 1 business day → Friday.
+  assert.equal(`${r.year}-${String(r.month).padStart(2,'0')}-${String(r.day).padStart(2,'0')}`, '2026-08-07');
+});
+
+test('createBusinessCalendar: custom weekend (Sun-only)', () => {
+  const cal = createBusinessCalendar({ weekend: [7] });
+  // Saturday is now a business day.
+  assert.ok(isBusinessDay(cal, Temporal.PlainDate.from('2026-08-08')));
 });

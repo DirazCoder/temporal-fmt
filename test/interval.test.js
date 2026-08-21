@@ -1,11 +1,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  interval, intervalContains as contains, overlaps, intersects,
-  intervalIsBefore as isBefore, intervalIsAfter as isAfter,
-  intersection, union, intervalDifference as difference, intervalSubtract as subtract,
-  mergeIntervals, splitInterval,
-  formatRange, formatRangeToParts, setTemporal,
+  formatRange,
+  formatRangeToParts,
+  intersection,
+  intersects,
+  interval,
+  intervalContains,
+  intervalContains as contains,
+  intervalDifference as difference,
+  intervalIsAfter as isAfter,
+  intervalIsBefore as isBefore,
+  intervalSubtract as subtract,
+  mergeIntervals,
+  overlaps,
+  setTemporal,
+  splitInterval,
+  union,
 } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
@@ -362,4 +373,80 @@ test('formatRange: an endpoint with no usable date shape throws — via the form
 
 test('mergeIntervals: an empty list returns an empty array', () => {
   assert.deepEqual(mergeIntervals([]), []);
+});
+
+// ============== Section P: intervals ==============
+test('interval: constructs a closed interval', () => {
+  const a = Temporal.PlainDate.from('2026-01-01');
+  const b = Temporal.PlainDate.from('2026-12-31');
+  const iv = interval(a, b);
+  assert.equal(iv.bounds, 'closed');
+});
+
+test('interval: throws on inverted endpoints', () => {
+  const a = Temporal.PlainDate.from('2026-12-31');
+  const b = Temporal.PlainDate.from('2026-01-01');
+  assert.throws(() => interval(a, b), /start must be ≤ end/);
+});
+
+test('interval contains: respects bounds', () => {
+  const a = Temporal.PlainDate.from('2026-01-01');
+  const b = Temporal.PlainDate.from('2026-12-31');
+  const iv = interval(a, b, 'closed');
+  // Open interval: endpoints excluded.
+  const openIv = interval(a, b, 'open');
+  assert.equal(intervalContains(iv, a), true);
+  assert.equal(intervalContains(openIv, a), false);
+  // Middle always included.
+  const mid = Temporal.PlainDate.from('2026-06-15');
+  assert.equal(intervalContains(iv, mid), true);
+  assert.equal(intervalContains(openIv, mid), true);
+});
+
+test('intersection: returns overlap', () => {
+  const a = interval(Temporal.PlainDate.from('2026-01-01'), Temporal.PlainDate.from('2026-06-30'));
+  const b = interval(Temporal.PlainDate.from('2026-04-01'), Temporal.PlainDate.from('2026-12-31'));
+  const inter = intersection(a, b);
+  assert.ok(inter !== null);
+  assert.equal(inter?.start.toString(), '2026-04-01');
+  assert.equal(inter?.end.toString(), '2026-06-30');
+});
+
+test('intersection: returns null for non-overlapping', () => {
+  const a = interval(Temporal.PlainDate.from('2026-01-01'), Temporal.PlainDate.from('2026-02-28'));
+  const b = interval(Temporal.PlainDate.from('2026-04-01'), Temporal.PlainDate.from('2026-12-31'));
+  assert.equal(intersection(a, b), null);
+});
+
+test('union: merges overlapping intervals', () => {
+  const a = interval(Temporal.PlainDate.from('2026-01-01'), Temporal.PlainDate.from('2026-06-30'));
+  const b = interval(Temporal.PlainDate.from('2026-04-01'), Temporal.PlainDate.from('2026-12-31'));
+  const u = union(a, b);
+  assert.equal(u?.start.toString(), '2026-01-01');
+  assert.equal(u?.end.toString(), '2026-12-31');
+});
+
+test('mergeIntervals: combines overlapping into disjoint list', () => {
+  const a = interval(Temporal.PlainDate.from('2026-01-01'), Temporal.PlainDate.from('2026-02-28'));
+  const b = interval(Temporal.PlainDate.from('2026-02-15'), Temporal.PlainDate.from('2026-04-30'));
+  const c = interval(Temporal.PlainDate.from('2026-06-01'), Temporal.PlainDate.from('2026-08-31'));
+  const merged = mergeIntervals([a, b, c]);
+  assert.equal(merged.length, 2);
+});
+
+test('splitInterval: produces N equal sub-intervals', () => {
+  const a = Temporal.PlainDateTime.from('2026-01-01T00:00:00');
+  const b = Temporal.PlainDateTime.from('2026-01-05T00:00:00');
+  const iv = interval(a, b);
+  const split = splitInterval(iv, 4);
+  assert.equal(split.length, 4);
+});
+
+test('formatRange: produces a non-empty string', () => {
+  const a = Temporal.PlainDate.from('2026-01-01');
+  const b = Temporal.PlainDate.from('2026-01-05');
+  const iv = interval(a, b);
+  const s = formatRange(iv, 'yyyy-MM-dd');
+  assert.equal(typeof s, 'string');
+  assert.ok(s.length > 0);
 });

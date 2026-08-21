@@ -1,12 +1,35 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parseISO, formatISO, parseRFC3339, formatRFC3339,
-  parseRFC2822, formatRFC2822, parseHTTPDate, formatHTTPDate,
-  fromUnixMicroseconds, fromUnixNanoseconds, fromUnixSeconds,
-  toUnixSeconds, toUnixMilliseconds, toUnixMicroseconds, toUnixNanoseconds,
+  addDuration,
+  balanceDuration,
+  compareDuration,
+  format,
+  formatHTTPDate,
+  formatISO,
+  formatISODuration,
+  formatRFC2822,
+  formatRFC3339,
+  formatSQL,
+  fromUnixMicroseconds,
+  fromUnixMilliseconds,
+  fromUnixNanoseconds,
+  fromUnixSeconds,
+  parseDuration,
+  parseHTTPDate,
+  parseISO,
+  parseISODuration,
+  parseRFC2822,
+  parseRFC3339,
   parseSQL,
+  round,
   setTemporal,
+  subtractDuration,
+  toUnixMicroseconds,
+  toUnixMilliseconds,
+  toUnixNanoseconds,
+  toUnixSeconds,
+  totalDuration,
 } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
@@ -209,4 +232,167 @@ test('parseSQL: detects the ISO-T datetime format', () => {
 
 test('parseSQL: throws on an unrecognized format', () => {
   assert.throws(() => parseSQL('garbage'), /not a recognized SQL date\/time format/);
+});
+
+// ============== Section U: serialization ==============
+test('parseISO: parses a date', () => {
+  const r = parseISO('2026-08-04');
+  assert.equal(r.toString(), '2026-08-04');
+});
+
+test('parseISO: parses a date-time without zone', () => {
+  const r = parseISO('2026-08-04T15:45:30');
+  assert.equal(r.toString(), '2026-08-04T15:45:30');
+});
+
+test('parseISO: parses a date-time with Z', () => {
+  const r = parseISO('2026-08-04T15:45:30Z');
+  assert.match(r.toString(), /2026-08-04T15:45:30/);
+});
+
+test('parseISO: throws on garbage input', () => {
+  assert.throws(() => parseISO('not-a-date'), /doesn't look like an ISO 8601/);
+});
+
+test('formatISO: round-trips through parseISO', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  const formatted = formatISO(date);
+  const reparsed = parseISO(formatted);
+  assert.equal(reparsed.toString(), date.toString());
+});
+
+test('parseRFC3339: parses a valid RFC 3339 string', () => {
+  const r = parseRFC3339('2026-08-04T15:45:30Z');
+  assert.ok(r !== undefined);
+});
+
+test('parseRFC3339: throws on missing timezone', () => {
+  // RFC 3339 requires a zone.
+  assert.throws(() => parseRFC3339('2026-08-04T15:45:30'), /does not match RFC 3339/);
+});
+
+test('parseRFC2822: parses a valid RFC 2822 string', () => {
+  const r = parseRFC2822('Mon, 04 Aug 2026 15:45:30 +0000');
+  assert.ok(r !== undefined);
+});
+
+test('formatRFC2822: produces RFC 2822-shaped output', () => {
+  const inst = Temporal.Instant.from('2026-08-04T15:45:30Z');
+  const s = formatRFC2822(inst);
+  assert.match(s, /\w{3}, \d{2} \w{3} \d{4} \d{2}:\d{2}:\d{2} [+-]\d{4}/);
+});
+
+test('parseHTTPDate: parses an IMF-fixdate', () => {
+  const r = parseHTTPDate('Mon, 04 Aug 2026 15:45:30 GMT');
+  assert.ok(r !== undefined);
+});
+
+test('formatHTTPDate: produces IMF-fixdate output', () => {
+  const inst = Temporal.Instant.from('2026-08-04T15:45:30Z');
+  const s = formatHTTPDate(inst);
+  assert.match(s, /^\w{3}, \d{2} \w{3} \d{4} \d{2}:\d{2}:\d{2} GMT$/);
+});
+
+test('fromUnixSeconds / toUnixSeconds round-trip', () => {
+  const inst = fromUnixSeconds(1700000000);
+  assert.equal(Math.round(toUnixSeconds(inst)), 1700000000);
+});
+
+test('fromUnixMilliseconds / toUnixMilliseconds round-trip', () => {
+  const inst = fromUnixMilliseconds(1700000000123);
+  assert.equal(toUnixMilliseconds(inst), 1700000000123);
+});
+
+test('fromUnixNanoseconds / toUnixNanoseconds round-trip', () => {
+  const ns = 1700000000_000_000_000n;
+  const inst = fromUnixNanoseconds(ns);
+  assert.equal(toUnixNanoseconds(inst), ns);
+});
+
+test('parseSQL: detects date format', () => {
+  const r = parseSQL('2026-08-04');
+  assert.equal(r.toString(), '2026-08-04');
+});
+
+test('parseSQL: detects datetime format', () => {
+  const r = parseSQL('2026-08-04 15:45:30');
+  assert.match(r.toString(), /2026-08-04T15:45:30/);
+});
+
+test('formatSQL: formats date as YYYY-MM-DD', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(formatSQL(date), '2026-08-04');
+});
+
+test('formatSQL: formats datetime as YYYY-MM-DD HH:MM:SS', () => {
+  const dt = Temporal.PlainDateTime.from('2026-08-04T15:45:30');
+  assert.equal(formatSQL(dt), '2026-08-04 15:45:30');
+});
+
+// ============== Section I: duration ==============
+test('parseISODuration: parses P[n]Y[n]M[n]D', () => {
+  const d = parseISODuration('P3Y6M4D');
+  assert.equal(d.years, 3);
+  assert.equal(d.months, 6);
+  assert.equal(d.days, 4);
+});
+
+test('parseISODuration: parses PT[n]H[n]M[n]S', () => {
+  const d = parseISODuration('PT12H30M5S');
+  assert.equal(d.hours, 12);
+  assert.equal(d.minutes, 30);
+  assert.equal(d.seconds, 5);
+});
+
+test('parseISODuration: throws on empty', () => {
+  assert.throws(() => parseISODuration('P'), /duration has no fields/);
+});
+
+test('formatISODuration: round-trips through parseISODuration', () => {
+  const d = { years: 3, months: 6, weeks: 0, days: 4, hours: 12, minutes: 30, seconds: 5 };
+  const formatted = formatISODuration(d);
+  const reparsed = parseISODuration(formatted);
+  // weeks stays at 0 (parseISODuration initializes it to 0).
+  assert.deepEqual(reparsed, d);
+});
+
+test('formatISODuration: zero duration → P0D', () => {
+  assert.equal(formatISODuration({}), 'P0D');
+});
+
+test('parseDuration: parses tokenized format', () => {
+  const d = parseDuration('2 years 30 minutes', 'yyy mmm');
+  assert.equal(d.years, 2);
+  assert.equal(d.minutes, 30);
+});
+
+test('balanceDuration: carries excess units up', () => {
+  const balanced = balanceDuration({ hours: 25, minutes: 70 });
+  // 25h70m = 1 day 2 hours 10 minutes (25h + 70m/60 = 25h + 1h10m = 26h10m = 1d2h10m)
+  assert.equal(balanced.days, 1);
+  assert.equal(balanced.hours, 2);
+  assert.equal(balanced.minutes, 10);
+});
+
+test('totalDuration: sums absolute fields into target unit', () => {
+  assert.equal(totalDuration({ days: 1, hours: 12 }, 'hours'), 36);
+  assert.equal(totalDuration({ minutes: 60 }, 'hours'), 1);
+});
+
+test('compareDuration: returns -1/0/1 by total length', () => {
+  assert.equal(compareDuration({ hours: 1 }, { hours: 2 }), -1);
+  assert.equal(compareDuration({ hours: 2 }, { hours: 2 }), 0);
+  assert.equal(compareDuration({ hours: 3 }, { hours: 2 }), 1);
+});
+
+test('addDuration: sums field-by-field', () => {
+  const r = addDuration({ hours: 2, minutes: 30 }, { hours: 1, minutes: 15 });
+  assert.equal(r.hours, 3);
+  assert.equal(r.minutes, 45);
+});
+
+test('subtractDuration: subtracts field-by-field', () => {
+  const r = subtractDuration({ hours: 3, minutes: 30 }, { hours: 1, minutes: 15 });
+  assert.equal(r.hours, 2);
+  assert.equal(r.minutes, 15);
 });

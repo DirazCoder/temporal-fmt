@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createFormatter, setTemporal } from '../dist/index.js';
+import { compileFormat, createFormatter, format, setTemporal } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
@@ -183,4 +183,46 @@ test('compileFormat: formatToParts() throws when the temporal value is missing t
   const compiled = fmt.compileFormat('yyyy');
   const time = Temporal.PlainTime.from('10:30:00');
   assert.throws(() => compiled.formatToParts(time), /requires "year"/);
+});
+
+// ============== Section X: extensibility ==============
+test('createFormatter: default formatter matches builtin format()', () => {
+  const fmt = createFormatter();
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(fmt.format(date, 'yyyy-MM-dd'), '2026-08-04');
+});
+
+test('createFormatter: custom token adds to the table', () => {
+  const fmt = createFormatter({
+    tokens: [
+      {
+        name: 'YYYYYY',
+        handler: (t) => String(t.year).padStart(6, '0'),
+        field: 'year',
+      },
+    ],
+  });
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(fmt.format(date, 'YYYYYY'), '002026');
+});
+
+test('createFormatter: custom token overrides builtin', () => {
+  const fmt = createFormatter({
+    tokens: [
+      {
+        name: 'yyyy',
+        handler: (t) => `Y${String(t.year).slice(-2)}`,
+        field: 'year',
+      },
+    ],
+  });
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(fmt.format(date, 'yyyy'), 'Y26');
+});
+
+test('createFormatter: compileFormat pre-tokenizes', () => {
+  const fmt = createFormatter();
+  const compiled = fmt.compileFormat('yyyy-MM-dd');
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(compiled.format(date), '2026-08-04');
 });

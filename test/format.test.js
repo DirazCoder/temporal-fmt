@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { format, parse, setTemporal } from '../dist/index.js';
+import { compileFormat, format, formatToParts, parse, setTemporal } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
 // Use native Temporal when available (Node 26+), polyfill otherwise —
@@ -460,4 +460,95 @@ test('_getPieces: exposes the shared tokenization cache via the format.js subpat
     { kind: 'literal', value: '-' },
     { kind: 'token', value: 'dd' },
   ]);
+});
+
+// formatToParts mirrors Intl.DateTimeFormat.formatToParts. Each entry
+// is either a literal (carrying no token info) or a token piece with
+// the token string and the formatted value.
+test('formatToParts: basic date splits into literal+token+literal+...', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  const parts = formatToParts(date, 'yyyy-MM-dd');
+  assert.deepEqual(parts, [
+    { type: 'token', value: '2026', token: 'yyyy' },
+    { type: 'literal', value: '-' },
+    { type: 'token', value: '08', token: 'MM' },
+    { type: 'literal', value: '-' },
+    { type: 'token', value: '04', token: 'dd' },
+  ]);
+});
+
+test('formatToParts: adjacent literals collapse into one literal piece', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  // The "at " and " " are two adjacent literals between MMM and d — they
+  // should collapse into one literal entry, mirroring how format() walks
+  // pieces internally.
+  const parts = formatToParts(date, "MMM 'at' d");
+  assert.deepEqual(parts, [
+    { type: 'token', value: 'Aug', token: 'MMM' },
+    { type: 'literal', value: ' at ' },
+    { type: 'token', value: '4', token: 'd' },
+  ]);
+});
+
+test('formatToParts: throws on missing field the same way format() does', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  // PlainDate has no hour field — formatToParts should throw with the same
+  // shape of message format() throws, so callers switching between them
+  // get consistent errors.
+  assert.throws(
+    () => formatToParts(date, 'HH:mm'),
+    /token "HH" requires "hour"/,
+  );
+});
+
+// compileFormat: pre-tokenizes once, exposes a tiny object with format()
+// and formatToParts() methods. Useful for callers who want to hold the
+// compiled form explicitly.
+test('compileFormat: returned object has format, formatToParts, pieces, formatStr', () => {
+  const compiled = compileFormat('yyyy-MM-dd');
+  assert.equal(compiled.formatStr, 'yyyy-MM-dd');
+  assert.equal(typeof compiled.format, 'function');
+  assert.equal(typeof compiled.formatToParts, 'function');
+  assert.ok(Array.isArray(compiled.pieces));
+  assert.equal(compiled.pieces.length, 5); // yyyy, '-', MM, '-', dd
+});
+
+test('compileFormat: format() output matches format() directly', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  const compiled = compileFormat('yyyy-MM-dd');
+  assert.equal(compiled.format(date), format(date, 'yyyy-MM-dd'));
+  assert.equal(compiled.format(date), '2026-08-04');
+});
+
+test('compileFormat: formatToParts() output matches formatToParts() directly', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  const compiled = compileFormat('yyyy-MM-dd');
+  assert.deepEqual(compiled.formatToParts(date), formatToParts(date, 'yyyy-MM-dd'));
+});
+
+test('compileFormat: validates the format string at compile time, not lazily', () => {
+  // Unterminated quote — surfaces at compileFormat, not at first format() call.
+  // This is the point of compiling up front: fail fast on bad input.
+  assert.throws(() => compileFormat("yyyy-MM-dd 'at HH:mm"), /unterminated quote/);
+  assert.throws(() => compileFormat('x'.repeat(1001)), /exceeds maximum length/);
+});
+
+test('formatToParts: format string over the max length throws', () => {
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.throws(() => formatToParts(date, 'y'.repeat(1001)), /exceeds maximum length/);
+});
+
+test('compileFormat: format() throws on missing field the same way format() does', () => {
+  const time = Temporal.PlainTime.from('10:30:00');
+  const compiled = compileFormat('yyyy-MM-dd');
+  // PlainTime has no year/month/day fields — compileFormat's own format()
+  // closure duplicates the field check rather than delegating to the
+  // top-level format(), so it needs its own coverage of the same throw.
+  assert.throws(() => compiled.format(time), /token "yyyy" requires "year"/);
+});
+
+test('compileFormat: formatToParts() throws on missing field the same way formatToParts() does', () => {
+  const time = Temporal.PlainTime.from('10:30:00');
+  const compiled = compileFormat('yyyy-MM-dd');
+  assert.throws(() => compiled.formatToParts(time), /token "yyyy" requires "year"/);
 });

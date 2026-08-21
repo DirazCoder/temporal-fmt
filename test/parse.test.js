@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parse, setTemporal } from '../dist/index.js';
+import { AmbiguousInputError, InvalidDateError, InvalidTimeZoneError, ParseMismatchError, TemporalFmtError, compileParser, format, parse, parseToParts, safeParse, setTemporal, tryParse } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
 // parse() needs a Temporal implementation to construct its result (unlike
@@ -496,4 +496,194 @@ test('numeric yyyy-MM-dd round-trips fine even in a Hebrew leap year (the numeri
 test('the same token appearing twice in a format string: the last occurrence wins', () => {
   const result = parse('MM-yyyy-MM-dd', '01-2026-08-04');
   assert.equal(result.month, 8);
+});
+
+// safeParse: returns a discriminated union instead of throwing. Lets
+// callers handle parse failures without try/catch — useful in
+// functional-style code where exceptions break the flow.
+test('safeParse: success returns { ok: true, value }', () => {
+  const result = safeParse('yyyy-MM-dd', '2026-08-04');
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.value.toString(), '2026-08-04');
+  }
+});
+
+test('safeParse: failure returns { ok: false, error } with a TemporalFmtError', () => {
+  const result = safeParse('yyyy-MM-dd', 'not-a-date');
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.ok(result.error instanceof TemporalFmtError);
+    assert.ok(result.error instanceof ParseMismatchError);
+    assert.equal(result.error.input, 'not-a-date');
+    assert.equal(result.error.format, 'yyyy-MM-dd');
+    // The wrapped reason carries the original throw message, so callers
+    // reading the typed surface still see what failed underneath.
+    assert.match(result.error.reason ?? '', /no valid pattern matches/);
+  }
+});
+
+test('safeParse: wraps construction-time errors (Feb 30) as InvalidDateError', () => {
+  const result = safeParse('yyyy-MM-dd', '2026-02-30');
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.ok(result.error instanceof InvalidDateError);
+  }
+});
+
+test('safeParse: classifies ambiguous-input throws as AmbiguousInputError', () => {
+  // "Md" against "121" is the canonical ambiguous case from the parse.ts
+  // docs — strict mode throws rather than guess.
+  const result = safeParse('Md', '121');
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.ok(result.error instanceof AmbiguousInputError);
+  }
+});
+
+test('safeParse: passes through an already-typed error unchanged (invalid time zone)', () => {
+  // parse() throws InvalidTimeZoneError directly (not via
+  // wrapUntypedError) for a zzz group whose captured text isn't a real
+  // IANA zone id — this is the "err instanceof TemporalFmtError" pass-
+  // through branch, distinct from every other safeParse test above,
+  // which all exercise the wrapUntypedError fallback instead.
+  const result = safeParse('yyyy-MM-dd HH:mm zzz', '2026-08-04 15:45 Not/A_Zone');
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.ok(result.error instanceof InvalidTimeZoneError);
+    assert.match(result.error.reason ?? '', /not a recognized IANA time zone/);
+  }
+});
+
+test('safeParse: lenient mode resolves ambiguity and returns ok', () => {
+  // yyyyMd has full date (year+month+day) plus the ambiguous M+d run at the
+  // end. Lenient mode picks a split via the documented heuristic so the
+  // parse succeeds; strict mode (default) would throw on the ambiguity.
+  const result = safeParse('yyyyMd', '2026121', { lenient: true });
+  assert.equal(result.ok, true);
+});
+
+// tryParse: best-effort variant. Returns the value or undefined. No
+// diagnostic surface — when callers need the reason, they should use
+// safeParse.
+test('tryParse: success returns the parsed value', () => {
+  const result = tryParse('yyyy-MM-dd', '2026-08-04');
+  assert.ok(result !== undefined);
+  assert.equal(result.toString(), '2026-08-04');
+});
+
+test('tryParse: failure returns undefined', () => {
+  assert.equal(tryParse('yyyy-MM-dd', 'not-a-date'), undefined);
+  assert.equal(tryParse('yyyy-MM-dd', '2026-02-30'), undefined);
+});
+
+// parseToParts: returns the matched groups with token labels before
+// Temporal construction. Useful for callers building non-Temporal
+// results or doing their own cross-checks.
+test('parseToParts: returns the matched group per token, with raw text and position', () => {
+  const parts = parseToParts('yyyy-MM-dd', '2026-08-04');
+  assert.deepEqual(parts, [
+    { token: 'yyyy', raw: '2026', position: 0 },
+    { token: 'MM', raw: '08', position: 5 }, // after "2026-"
+    { token: 'dd', raw: '04', position: 8 }, // after "2026-08-"
+  ]);
+});
+
+test('parseToParts: throws on no-match the same way parse() does', () => {
+  assert.throws(
+    () => parseToParts('yyyy-MM-dd', 'not-a-date'),
+    /no valid pattern matches/,
+  );
+});
+
+test('parseToParts: throws on ambiguous input in strict mode', () => {
+  assert.throws(() => parseToParts('Md', '121'), /ambiguous/);
+  // Lenient mode resolves — same behavior parse() has.
+  const parts = parseToParts('Md', '121', { lenient: true });
+  assert.equal(parts.length, 2);
+});
+
+test('parseToParts: does NOT throw on construction-time errors (Feb 30)', () => {
+  // parseToParts doesn't construct anything, so it can't fail at the
+  // Temporal construction step. Feb 30 still parses to parts; the caller
+  // is responsible for cross-checking fields themselves.
+  const parts = parseToParts('yyyy-MM-dd', '2026-02-30');
+  assert.deepEqual(parts.map((p) => p.raw), ['2026', '02', '30']);
+});
+
+test('parseToParts: parseNumberingSystem transliterates non-ASCII digits before matching', () => {
+  // Same transliteration parse() applies (see numberingSystem.wiring.test.js)
+  // — parseToParts has its own call site for this, since it never goes
+  // through parse()'s code path.
+  const parts = parseToParts('yyyy-MM-dd', '٢٠٢٦-٠٨-٠٤', { parseNumberingSystem: 'arab' });
+  assert.deepEqual(parts.map((p) => p.raw), ['2026', '08', '04']);
+});
+
+test('parseToParts: format string exceeding max length throws (own copy of the same check parse() has)', () => {
+  assert.throws(() => parseToParts('x'.repeat(1001), 'irrelevant'), /exceeds maximum length/);
+});
+
+test('parseToParts: input exceeding max length throws (own copy of the same check parse() has)', () => {
+  assert.throws(
+    () => parseToParts('yyyy-MM-dd', '9'.repeat(100_001)),
+    /input exceeds maximum length/,
+  );
+});
+
+test('parseToParts: empty/literal-only format string throws "no tokens" (own copy of the same check parse() has)', () => {
+  assert.throws(() => parseToParts('', ''), /no tokens/);
+  assert.throws(() => parseToParts("'just literal'", 'just literal'), /no tokens/);
+});
+
+test('parseToParts: throws InvalidTimeZoneError for a bogus zzz zone (own copy of the same check parse() has)', () => {
+  assert.throws(
+    () => parseToParts('yyyy-MM-dd HH:mm zzz', '2026-08-04 15:45 Not/A_Zone'),
+    /not a recognized IANA time zone/,
+  );
+});
+
+// compileParser: pre-compiles a format string into an object with
+// parse/safeParse/tryParse/parseToParts methods.
+test('compileParser: returned object exposes parse, safeParse, tryParse, parseToParts, pattern, formatStr', () => {
+  const compiled = compileParser('yyyy-MM-dd');
+  assert.equal(compiled.formatStr, 'yyyy-MM-dd');
+  assert.equal(typeof compiled.parse, 'function');
+  assert.equal(typeof compiled.safeParse, 'function');
+  assert.equal(typeof compiled.tryParse, 'function');
+  assert.equal(typeof compiled.parseToParts, 'function');
+  assert.ok(compiled.pattern);
+  assert.ok(compiled.pattern.regex instanceof RegExp);
+  assert.ok(Array.isArray(compiled.pattern.groups));
+});
+
+test('compileParser: parse() output matches parse() directly', () => {
+  const compiled = compileParser('yyyy-MM-dd');
+  assert.equal(
+    compiled.parse('2026-08-04').toString(),
+    parse('yyyy-MM-dd', '2026-08-04').toString(),
+  );
+});
+
+test('compileParser: safeParse()/tryParse()/parseToParts() methods actually delegate to the module-level functions', () => {
+  // The previous test only checks these are functions; this calls each
+  // one and checks the output matches calling the top-level export
+  // directly with the same pre-baked formatStr/locale.
+  const compiled = compileParser('yyyy-MM-dd');
+
+  const safe = compiled.safeParse('2026-08-04');
+  assert.equal(safe.ok, true);
+  if (safe.ok) assert.equal(safe.value.toString(), '2026-08-04');
+  const safeFail = compiled.safeParse('not-a-date');
+  assert.equal(safeFail.ok, false);
+
+  assert.equal(compiled.tryParse('2026-08-04').toString(), '2026-08-04');
+  assert.equal(compiled.tryParse('not-a-date'), undefined);
+
+  const parts = compiled.parseToParts('2026-08-04');
+  assert.deepEqual(parts.map((p) => p.raw), ['2026', '08', '04']);
+});
+
+test('compileParser: validates the format string at compile time', () => {
+  assert.throws(() => compileParser("yyyy-MM-dd 'at"), /unterminated quote/);
+  assert.throws(() => compileParser('x'.repeat(1001)), /exceeds maximum length/);
 });

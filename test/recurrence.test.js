@@ -1,6 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { recurrence, take, skip, between, parseRRule, formatRRule, setTemporal } from '../dist/index.js';
+import {
+  between,
+  formatRRule,
+  parseRRule,
+  recurrence,
+  round,
+  setTemporal,
+  skip,
+  take,
+} from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
@@ -316,4 +325,49 @@ test('between: the iterator exhausting itself (r.done) ends the loop before rang
 test('parseRRule: a BYDAY entry that fails the weekday regex maps to 0 instead of throwing', () => {
   const rule = parseRRule('FREQ=WEEKLY;BYDAY=MO,bogus,WE');
   assert.deepEqual(rule.byWeekday, [1, 0, 3]);
+});
+
+// ============== Section T: recurrence ==============
+test('recurrence + take: returns N occurrences', () => {
+  const start = Temporal.PlainDate.from('2026-01-01');
+  const rule = { frequency: 'daily', interval: 1 };
+  const iter = recurrence(start, rule);
+  const occurrences = take(iter, 5);
+  assert.equal(occurrences.length, 5);
+  // First occurrence is the start itself.
+  assert.equal(occurrences[0].toString(), '2026-01-01');
+  // Subsequent occurrences are field bags from add() — convert to ISO string.
+  assert.equal(`${occurrences[4].year}-${String(occurrences[4].month).padStart(2,'0')}-${String(occurrences[4].day).padStart(2,'0')}`, '2026-01-05');
+});
+
+test('recurrence: respects interval', () => {
+  const start = Temporal.PlainDate.from('2026-01-01');
+  const rule = { frequency: 'daily', interval: 7 }; // weekly
+  const iter = recurrence(start, rule);
+  const occurrences = take(iter, 3);
+  assert.equal(`${occurrences[1].year}-${String(occurrences[1].month).padStart(2,'0')}-${String(occurrences[1].day).padStart(2,'0')}`, '2026-01-08');
+});
+
+test('recurrence: respects count', () => {
+  const start = Temporal.PlainDate.from('2026-01-01');
+  const rule = { frequency: 'daily', interval: 1, count: 3 };
+  const iter = recurrence(start, rule);
+  const occurrences = take(iter, 100);
+  assert.equal(occurrences.length, 3);
+});
+
+test('parseRRule: parses FREQ=DAILY;INTERVAL=2;COUNT=5', () => {
+  const r = parseRRule('FREQ=DAILY;INTERVAL=2;COUNT=5');
+  assert.equal(r.frequency, 'daily');
+  assert.equal(r.interval, 2);
+  assert.equal(r.count, 5);
+});
+
+test('formatRRule: round-trips through parseRRule', () => {
+  const rule = { frequency: 'weekly', interval: 2, count: 10 };
+  const formatted = formatRRule(rule);
+  const reparsed = parseRRule(formatted);
+  assert.equal(reparsed.frequency, rule.frequency);
+  assert.equal(reparsed.interval, rule.interval);
+  assert.equal(reparsed.count, rule.count);
 });

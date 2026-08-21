@@ -1,10 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  safeParse, registerLocale, InvalidLocaleError, InvalidDurationError,
-  InvalidDateError, InvalidOffsetError, InvalidTimeZoneError, AmbiguousInputError,
-  FormatSyntaxError, ParseMismatchError, TemporalFmtError, UnknownTokenError, setTemporal,
-} from '../dist/index.js';
+import { AmbiguousInputError, FormatSyntaxError, InvalidDateError, InvalidDurationError, InvalidLocaleError, InvalidOffsetError, InvalidTimeZoneError, ParseMismatchError, TemporalFmtError, UnknownTokenError, format, registerLocale, safeParse, setTemporal } from '../dist/index.js';
 import { Temporal } from 'temporal-polyfill/full';
 
 setTemporal(Temporal);
@@ -261,4 +257,79 @@ test('registerLocale: empty tag throws InvalidLocaleError', () => {
     () => registerLocale('', { monthLong: [] }),
     (err) => err instanceof InvalidLocaleError && err.code === 'INVALID_LOCALE',
   );
+});
+
+// Typed errors — the structured diagnostic surface.
+test('TemporalFmtError: base class carries all structured fields', () => {
+  const err = new TemporalFmtError('test message', {
+    code: 'PARSE_MISMATCH',
+    input: 'foo',
+    format: 'yyyy',
+    token: 'yyyy',
+    position: 0,
+    expected: '4 digits',
+    actual: 'foo',
+    reason: 'no match',
+  });
+  assert.equal(err.message, 'test message');
+  assert.equal(err.code, 'PARSE_MISMATCH');
+  assert.equal(err.input, 'foo');
+  assert.equal(err.format, 'yyyy');
+  assert.equal(err.token, 'yyyy');
+  assert.equal(err.position, 0);
+  assert.equal(err.expected, '4 digits');
+  assert.equal(err.actual, 'foo');
+  assert.equal(err.reason, 'no match');
+  assert.equal(err.name, 'TemporalFmtError');
+});
+
+test('TemporalFmtError: toJSON serializes all fields', () => {
+  const err = new TemporalFmtError('test', { code: 'PARSE_MISMATCH', input: 'foo' });
+  const json = err.toJSON();
+  assert.equal(json.code, 'PARSE_MISMATCH');
+  assert.equal(json.input, 'foo');
+  assert.equal(json.message, 'test');
+  assert.equal(json.name, 'TemporalFmtError');
+});
+
+test('FormatSyntaxError: subclass fixes the code', () => {
+  const err = new FormatSyntaxError({ format: 'yyyy-MM-', reason: 'unterminated' });
+  assert.equal(err.code, 'FORMAT_SYNTAX_ERROR');
+  assert.equal(err.format, 'yyyy-MM-');
+  assert.equal(err.reason, 'unterminated');
+  assert.ok(err instanceof TemporalFmtError);
+  assert.match(err.message, /syntax error/);
+});
+
+test('UnknownTokenError: subclass fixes the code', () => {
+  const err = new UnknownTokenError({ token: 'YYYY', format: 'YYYY-MM-dd' });
+  assert.equal(err.code, 'UNKNOWN_TOKEN');
+  assert.equal(err.token, 'YYYY');
+  assert.ok(err instanceof TemporalFmtError);
+  assert.match(err.message, /token "YYYY"/);
+});
+
+test('ParseMismatchError: subclass fixes the code', () => {
+  const err = new ParseMismatchError({ input: 'foo', format: 'yyyy' });
+  assert.equal(err.code, 'PARSE_MISMATCH');
+  assert.equal(err.input, 'foo');
+});
+
+test('InvalidDateError: subclass fixes the code', () => {
+  const err = new InvalidDateError({ input: '2026-02-30', reason: 'Feb 30 does not exist' });
+  assert.equal(err.code, 'INVALID_DATE');
+  assert.equal(err.input, '2026-02-30');
+});
+
+test('InvalidOffsetError: subclass fixes the code', () => {
+  const err = new InvalidOffsetError({ actual: '+99:99', reason: 'out of range' });
+  assert.equal(err.code, 'INVALID_OFFSET');
+  assert.equal(err.actual, '+99:99');
+});
+
+test('AmbiguousInputError: subclass fixes the code', () => {
+  const err = new AmbiguousInputError({ input: '121', format: 'Md' });
+  assert.equal(err.code, 'AMBIGUOUS_INPUT');
+  assert.equal(err.input, '121');
+  assert.equal(err.format, 'Md');
 });
