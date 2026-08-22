@@ -503,9 +503,13 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   release notes unless you'd rather stay anonymous" note. Not mentioned
   in the original release notes, which only covered the rename below.
 ### Changed
-- Package renamed to match an npm username change (`package.json` +
-  npm page). Dev dependencies pinned to exact versions in the same
-  commit.
+- GitHub username changed from `NovaByteOfficial` to `DirazCoder` —
+  `package.json`'s author/repository/homepage URLs and the GitHub
+  profile updated to match. npm username stays `novabyteofficial`
+  permanently, since npm doesn't allow renaming an existing account;
+  the npm package page will keep showing that name regardless of the
+  GitHub-side rename. Dev dependencies pinned to exact versions in the
+  same commit.
 
 ## 0.5.1 — 2026-08-06 (`413efdb`)
 ### Added
