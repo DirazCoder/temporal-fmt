@@ -108,7 +108,12 @@ For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
 ## 0.8.91 — 2026-08-20 (`2734169`)
 ### Security
-- Removed a polynomial ReDoS in locale error classification.
+- `wrapUntypedError()`'s locale-error classification used a regex with
+  unbounded `.*` between two alternated words
+  (`/locale.*produced no|locale.*not a valid/i`) — flagged by CodeQL as
+  polynomial ReDoS-prone on adversarial input. Replaced with plain
+  substring checks (`.includes(...)`), same classification, no regex
+  backtracking risk.
 ### Fixed
 - `cli.mjs` was missing from `package.json`'s `files`.
 
@@ -332,11 +337,16 @@ Large feature pass — biggest release since 0.8.82. Highlights:
 
 ## 0.7.95 — 2026-08-11 (`2861c7e`)
 ### Changed
-- TypeScript 7 upgrade; `.d.ts` generation disabled as a result.
+- TypeScript upgraded from 6 to 7. `.d.ts` generation disabled as a
+  result — TS 7.0.2 doesn't have a stable declaration-emit API yet;
+  the plan is to re-enable it once 7.1 ships. README updated to match.
 
 ## 0.7.9 — 2026-08-10 (`9f7ea7e`)
 ### Fixed
-- A README code example had a wrong Markdown-escaped snippet.
+- The README's glued-numeric-token ambiguity example used a bare `Md`
+  format string, which throws anyway (missing year) regardless of the
+  ambiguity it was meant to demonstrate — fixed to use `yyyy-Md`, with a
+  note explaining why a standalone `Md`/`dM`/`Hm` always throws.
 ### Changed
 - Comments in the adversarial and combinatorial test suites refactored
   for clarity, no test-behavior change.
@@ -490,11 +500,13 @@ Large feature pass — biggest release since 0.8.82. Highlights:
 
 ## 0.5.4 — 2026-08-06 (`13ef4f9`)
 ### Changed
-- Added a minification build step.
+- `tsup.config.ts` gets `minify: true` — output bundles are now
+  minified, cutting install/download size.
 
 ## 0.5.3 — 2026-08-06 (`68ae18d`)
 ### Changed
-- License name change only.
+- `LICENSE`'s copyright holder updated from `NovaByte Official` to
+  `DirazCoder`, matching the GitHub username change from 0.5.2.
 
 ## 0.5.2 — 2026-08-06 (`4c30d5a`)
 ### Added
@@ -513,7 +525,9 @@ Large feature pass — biggest release since 0.8.82. Highlights:
 
 ## 0.5.1 — 2026-08-06 (`413efdb`)
 ### Added
-- "Special thanks" section in the README.
+- New "Thanks" section in the README, crediting FoxxMD for
+  `matchesFormat()` — built to drop a `date-fns` dependency in
+  [pino-roll](https://github.com/mcollina/pino-roll).
 
 ## 0.5.0 — 2026-08-06 (`ff518d5`)
 ### Added
@@ -572,8 +586,9 @@ audit to help catch the bugs it fixes._
 
 ## 0.2.4 — 2026-08-04 (`761589f`)
 ### Fixed
-- A test file had a duplicated comment explanation, accidentally
-  introduced in 0.2.3 — cleaned up, no behavior change.
+- `test/format.test.js` had a 5-line regression-test comment duplicating
+  the full explanation already in `tokens.ts`'s `intlPart()` — trimmed
+  to a one-line pointer at that function instead. No behavior change.
 
 ## 0.2.3 — 2026-08-04 (`5ac4aa1`)
 ### Changed
@@ -584,7 +599,8 @@ audit to help catch the bugs it fixes._
 
 ## 0.2.2 — 2026-08-04 (`11baa23`)
 ### Changed
-- Added missing `author` field to `package.json`.
+- `package.json` gets an `author` field for the first time:
+  `NovaByte Official` (`https://github.com/NovaByteOfficial`).
 
 ## 0.2.1 — 2026-08-04 (`85f2d06`)
 ### Changed
