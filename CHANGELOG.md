@@ -7,7 +7,8 @@ For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 ## 0.9.1 — 2026-08-22 (`c38fdc4`)
 ### Added
 - `tsup.config.ts` minification is back, gated behind a `TSUP_MINIFY` env
-  var instead of the hardcoded `false` it's had since 0.5.4 was reverted.
+  var instead of the hardcoded `false` it's had since 0.8.96 raised the
+  coverage gate to 100% and disabled it.
   Turns out esbuild's inlining breaks c8's function-coverage attribution
   — reported coverage on a minified build dropped to 30.94% against a
   real ~90%, since `test:all`/`test:coverage` and the published package
