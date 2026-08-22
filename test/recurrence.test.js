@@ -31,6 +31,16 @@ test('recurrence: previous() walks back through history after next()', () => {
   assert.equal(iso(back2.value), '2026-01-02');
 });
 
+
+test('recurrence: history remains bounded when advancing beyond the history cap', () => {
+  const start = Temporal.PlainDate.from('2026-01-01');
+  const iter = recurrence(start, { frequency: 'daily', interval: 1 });
+  for (let i = 0; i < 10_002; i++) iter.next();
+  const result = iter.previous();
+  assert.equal(result.done, false);
+  assert.equal(iso(result.value), '2053-05-20');
+});
+
 test('recurrence: previous() returns done once history is exhausted', () => {
   const start = Temporal.PlainDate.from('2026-01-01');
   const iter = recurrence(start, { frequency: 'daily', interval: 1 });
@@ -180,6 +190,41 @@ test('recurrence: yearly frequency advances by one year', () => {
 test('parseRRule: ignores an RRULE: prefix', () => {
   const r = parseRRule('RRULE:FREQ=WEEKLY');
   assert.equal(r.frequency, 'weekly');
+});
+
+test('parseRRule: rejects unsupported frequencies', () => {
+  assert.throws(
+    () => parseRRule('FREQ=FORTNIGHTLY'),
+    /unsupported RRULE frequency/i,
+  );
+});
+
+test('parseRRule: rejects invalid intervals', () => {
+  assert.throws(
+    () => parseRRule('FREQ=DAILY;INTERVAL=0'),
+    /RRULE INTERVAL must be a positive safe integer/i,
+  );
+});
+
+test('parseRRule: rejects invalid counts', () => {
+  assert.throws(
+    () => parseRRule('FREQ=DAILY;COUNT=-1'),
+    /RRULE COUNT must be a positive safe integer/i,
+  );
+});
+
+test('parseRRule: rejects out-of-range BYMONTHDAY values', () => {
+  assert.throws(
+    () => parseRRule('FREQ=MONTHLY;BYMONTHDAY=32'),
+    /RRULE BYMONTHDAY contains an out-of-range value/i,
+  );
+});
+
+test('parseRRule: rejects out-of-range BYMONTH values', () => {
+  assert.throws(
+    () => parseRRule('FREQ=YEARLY;BYMONTH=13'),
+    /RRULE BYMONTH contains an out-of-range value/i,
+  );
 });
 
 test('parseRRule: skips blank segments and parts with no "=" sign', () => {

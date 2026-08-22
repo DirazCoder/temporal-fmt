@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { format, parse, registerLocaleVocab, setTemporal } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
@@ -188,4 +189,44 @@ test('registerLocaleVocab: custom vocab is honored by the short/standalone token
   assert.equal(format(date, 'LLL', { locale: CUSTOM_LOCALE }), 'Eig');
   assert.equal(format(date, 'cccc', { locale: CUSTOM_LOCALE }), 'Moonday');
   assert.equal(format(date, 'ccc', { locale: CUSTOM_LOCALE }), 'Moo');
+});
+test('registerLocaleVocab: rejects oversized locale tags and entries', () => {
+  const valid = validVocab();
+  assert.throws(
+    () => registerLocaleVocab('x'.repeat(257), valid),
+    /locale is too long/
+  );
+  assert.throws(
+    () => registerLocaleVocab('en-x-long', {
+      ...valid,
+      monthLong: [...valid.monthLong.slice(0, 11), 'x'.repeat(257)],
+    }),
+    /too long/
+  );
+});
+
+
+test('registerLocaleVocab: enforces the bounded custom-vocab registry', () => {
+  const source = `
+    import { registerLocaleVocab } from './dist/index.js';
+    const validVocab = () => ({
+      monthLong: ['Firstmo','Secondmo','Thirdmo','Fourthmo','Fifthmo','Sixthmo','Seventhmo','Eighthmo','Ninthmo','Tenthmo','Eleventhmo','Twelfthmo'],
+      monthShort: ['Fir','Sec','Thi','Fou','Fif','Six','Sev','Eig','Nin','Ten','Ele','Twe'],
+      weekdayLong: ['Moonday','Tuesday','Wedday','Thursday','FridAy','Satday','Sunday'],
+      weekdayShort: ['Moo','Tue','Wed','Thu','Fri','Sat','Sun'],
+      dayPeriod: ['AM-X','PM-X'],
+    });
+    for (let i = 0; i < 500; i++) registerLocaleVocab('en-x-vocab-cap-' + i, validVocab());
+    try {
+      registerLocaleVocab('en-x-vocab-cap-overflow', validVocab());
+      process.exit(2);
+    } catch (error) {
+      if (!(error instanceof RangeError) || !String(error.message).includes('500-locale limit')) process.exit(3);
+    }
+  `;
+  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', source], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
 });

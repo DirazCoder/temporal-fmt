@@ -84,6 +84,22 @@ test('fuzzy: explicit English locale behaves the same as omitting locale', () =>
   assert.equal(parseRelative('tommorow', today, { fuzzy: true, locale: 'en' }).toString(), '2026-08-05');
 });
 
+
+test('fuzzy: rejects oversized input before expensive correction work', () => {
+  assert.throws(
+    () => parseRelative('x'.repeat(4097), today, { fuzzy: true }),
+    /input is too large.*4096 characters/
+  );
+});
+
+test('fuzzy: rejects too many words inside the fuzzy correction pass', () => {
+  const manyWords = Array.from({ length: 33 }, () => 'x').join(' ');
+  assert.throws(
+    () => parseRelative(manyWords, today, { fuzzy: true }),
+    /fuzzy input is too large.*32 words/,
+  );
+});
+
 test('fuzzy: max edit distance of 2 is a real boundary — a too-mangled word does not get corrected', () => {
   // "tmwrrw" is edit-distance 4+ from "tomorrow", well past the
   // FUZZY_MAX_DISTANCE=2 cutoff, so it's left uncorrected and the

@@ -16,6 +16,9 @@ export interface LocaleVocab {
 // same locale string spelling variants fold together — same convention
 // as the Intl-derived vocab cache above.
 const customVocabs = new Map<string, LocaleVocab>();
+const MAX_CUSTOM_VOCABS = 500;
+const MAX_LOCALE_TAG_LENGTH = 256;
+const MAX_VOCAB_ENTRY_LENGTH = 256;
 
 function assertValidVocab(vocab: Partial<LocaleVocab>, locale: string): void {
   // Strict shape validation at registration time, not lazily on first
@@ -52,6 +55,11 @@ function assertValidVocab(vocab: Partial<LocaleVocab>, locale: string): void {
       if (typeof entry !== 'string' || entry.length === 0) {
         throw new Error(
           `temporal-fmt: registerLocaleVocab for locale "${locale}": "${key}[${i}]" must be a non-empty string, got ${String(entry)}.`
+        );
+      }
+      if (entry.length > MAX_VOCAB_ENTRY_LENGTH) {
+        throw new RangeError(
+          `temporal-fmt: registerLocaleVocab for locale "${locale}": "${key}[${i}]" is too long (maximum ${MAX_VOCAB_ENTRY_LENGTH} characters).`
         );
       }
     });
@@ -108,9 +116,15 @@ export function registerLocaleVocab(locale: string, vocab: Partial<LocaleVocab>)
   if (typeof locale !== 'string' || locale.length === 0) {
     throw new Error(`temporal-fmt: registerLocaleVocab requires a non-empty locale string, got ${String(locale)}.`);
   }
+  if (locale.length > MAX_LOCALE_TAG_LENGTH) {
+    throw new RangeError(`temporal-fmt: registerLocaleVocab locale is too long (maximum ${MAX_LOCALE_TAG_LENGTH} characters).`);
+  }
   assertValidVocab(vocab, locale);
 
   const cacheKey = canonicalCacheKey(locale);
+  if (!customVocabs.has(cacheKey) && customVocabs.size >= MAX_CUSTOM_VOCABS) {
+    throw new RangeError(`temporal-fmt: registerLocaleVocab reached the ${MAX_CUSTOM_VOCABS}-locale limit.`);
+  }
   customVocabs.set(cacheKey, {
     monthLong: [...vocab.monthLong!],
     monthShort: [...vocab.monthShort!],

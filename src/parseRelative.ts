@@ -110,6 +110,8 @@ function levenshtein(a: string, b: string): number {
 // the lenient opt-in) is to bound how much guessing is allowed and make
 // the caller ask for it explicitly.
 const FUZZY_MAX_DISTANCE = 2;
+const MAX_RELATIVE_INPUT_LENGTH = 4096;
+const MAX_RELATIVE_WORDS = 32;
 
 // English-only fuzzy vocabulary. Anything a matcher's regex treats as a
 // fixed keyword (not a captured number) belongs here — weekday names,
@@ -141,9 +143,9 @@ function buildEnglishFuzzyVocabulary(): string[] {
 
 // Lazily built and cached — the vocabulary is static per process, no
 // need to rebuild the normalized list on every fuzzy call.
-let englishFuzzyVocabulary: string[] | undefined;
-function getEnglishFuzzyVocabulary(): string[] {
-  if (!englishFuzzyVocabulary) englishFuzzyVocabulary = buildEnglishFuzzyVocabulary();
+let englishFuzzyVocabulary: readonly string[] | undefined;
+function getEnglishFuzzyVocabulary(): readonly string[] {
+  if (!englishFuzzyVocabulary) englishFuzzyVocabulary = Object.freeze(buildEnglishFuzzyVocabulary());
   return englishFuzzyVocabulary;
 }
 
@@ -160,6 +162,11 @@ function getEnglishFuzzyVocabulary(): string[] {
 function fuzzyCorrectEnglish(normalized: string): string | undefined {
   const vocabulary = getEnglishFuzzyVocabulary();
   const words = normalized.split(' ');
+  if (normalized.length > MAX_RELATIVE_INPUT_LENGTH || words.length > MAX_RELATIVE_WORDS) {
+    throw new RangeError(
+      `temporal-fmt: parseRelative fuzzy input is too large (maximum ${MAX_RELATIVE_INPUT_LENGTH} characters and ${MAX_RELATIVE_WORDS} words).`,
+    );
+  }
   let changed = false;
   const corrected = words.map((word) => {
     // Pure digits, or digits with an ordinal suffix (st/nd/rd/th) —
@@ -988,6 +995,11 @@ export function parseRelative(
   const trimmed = (input ?? '').trim().replace(/\s+/g, ' ');
   if (trimmed.length === 0) {
     throw new Error('temporal-fmt: parseRelative got an empty input string.');
+  }
+  if (trimmed.length > MAX_RELATIVE_INPUT_LENGTH) {
+    throw new RangeError(
+      `temporal-fmt: parseRelative input is too large (maximum ${MAX_RELATIVE_INPUT_LENGTH} characters).`,
+    );
   }
   // For error messages, keep the user's original spelling (with accents)
   // so the echo in the "doesn't recognize" error matches what they

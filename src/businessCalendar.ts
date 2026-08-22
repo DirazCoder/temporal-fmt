@@ -83,10 +83,34 @@ export function previousBusinessDay(cal: BusinessCalendar, value: unknown): unkn
   throw new Error('temporal-fmt: previousBusinessDay() gave up after 14 days — likely a misconfigured calendar.');
 }
 
+const MAX_BUSINESS_DAY_TRAVERSAL = 100_000;
+
+function assertBusinessDayCount(days: number): void {
+  if (!Number.isSafeInteger(days)) {
+    throw new RangeError(
+      `temporal-fmt: business-day count must be a finite safe integer (got ${days}).`,
+    );
+  }
+}
+
+function compareDateFields(a: unknown, b: unknown): number {
+  const av = a as { year: number; month: number; day: number };
+  const bv = b as { year: number; month: number; day: number };
+  const ay = av.year * 10000 + av.month * 100 + av.day;
+  const by = bv.year * 10000 + bv.month * 100 + bv.day;
+  return ay - by;
+}
+
 export function addBusinessDays(cal: BusinessCalendar, value: unknown, days: number): unknown {
+  assertBusinessDayCount(days);
   if (days === 0) return value;
   const sign = days > 0 ? 1 : -1;
   const absDays = Math.abs(days);
+  if (absDays > MAX_BUSINESS_DAY_TRAVERSAL) {
+    throw new RangeError(
+      `temporal-fmt: addBusinessDays() exceeded the ${MAX_BUSINESS_DAY_TRAVERSAL}-day limit.`,
+    );
+  }
   let candidate = value;
   for (let i = 0; i < absDays; i++) {
     candidate = sign > 0 ? nextBusinessDay(cal, candidate) : previousBusinessDay(cal, candidate);
@@ -95,30 +119,29 @@ export function addBusinessDays(cal: BusinessCalendar, value: unknown, days: num
 }
 
 export function subtractBusinessDays(cal: BusinessCalendar, value: unknown, days: number): unknown {
+  assertBusinessDayCount(days);
   return addBusinessDays(cal, value, -days);
 }
 
 export function differenceInBusinessDays(cal: BusinessCalendar, a: unknown, b: unknown): number {
-  // Count business days strictly between a and b (exclusive of a, inclusive of b if b > a).
-  // Direction follows b - a.
-  const cmp = (a: unknown, b: unknown) => {
-    const av = a as { year: number; month: number; day: number };
-    const bv = b as { year: number; month: number; day: number };
-    const ay = av.year * 10000 + av.month * 100 + av.day;
-    const by = bv.year * 10000 + bv.month * 100 + bv.day;
-    return ay - by;
-  };
-  const direction = cmp(b, a) >= 0 ? 1 : -1;
+  const rawDirection = compareDateFields(b, a);
+  if (rawDirection === 0) return 0;
+
+  const direction = rawDirection > 0 ? 1 : -1;
   let candidate = a;
   let count = 0;
-  while (cmp(candidate, b) !== 0) {
-    candidate = direction > 0 ? nextBusinessDay(cal, candidate) : previousBusinessDay(cal, candidate);
-    if (isBusinessDay(cal, candidate)) {
-      // Only count the candidate if it's a business day; we're moving
-      // through days regardless.
+  let traversedDays = 0;
+
+  while (compareDateFields(candidate, b) !== 0) {
+    candidate = add(candidate, direction, 'days');
+    traversedDays++;
+    if (traversedDays > MAX_BUSINESS_DAY_TRAVERSAL) {
+      throw new RangeError(
+        `temporal-fmt: differenceInBusinessDays() exceeded the ${MAX_BUSINESS_DAY_TRAVERSAL}-day traversal limit.`,
+      );
     }
-    count += direction;
-    if (Math.abs(count) > 1000) break;
+    if (isBusinessDay(cal, candidate)) count += direction;
   }
+
   return count;
 }

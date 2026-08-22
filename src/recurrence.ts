@@ -48,7 +48,7 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
   // Track past values for previous() — keeps a ring buffer of the last
   // N occurrences so previous() can walk back without recomputing.
   const history: unknown[] = [];
-  const future: unknown[] = [];
+  const MAX_HISTORY = 10_000;
   let atEnd = false;
   let atStart = true;
 
@@ -77,6 +77,11 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
       : rule.frequency === 'monthly' ? 'months'
       : 'years';
     return add(value, steps * rule.interval, unit as Parameters<typeof add>[2]);
+  }
+
+  function recordHistory(value: unknown): void {
+    history.push(value);
+    if (history.length > MAX_HISTORY) history.shift();
   }
 
   function nextMatch(value: unknown): { value: unknown; found: boolean } {
@@ -117,7 +122,7 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
             return { value: undefined, done: true };
           }
           // Include rDates that match the current value.
-          history.push(current);
+          recordHistory(current);
           return { value: current, done: false };
         }
         // If start doesn't match, advance to first match.
@@ -126,7 +131,7 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
         current = advanced.value;
         count++;
         if (rule.count !== undefined && count >= rule.count) atEnd = true;
-        history.push(current);
+        recordHistory(current);
         return { value: current, done: false };
       }
       const advanced = nextMatch(current);
@@ -134,13 +139,12 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
       current = advanced.value;
       count++;
       if (rule.count !== undefined && count >= rule.count) atEnd = true;
-      history.push(current);
+      recordHistory(current);
       return { value: current, done: false };
     },
     previous() {
       if (history.length === 0) return { value: undefined, done: true };
       const v = history.pop()!;
-      future.push(v);
       return { value: v, done: false };
     },
   };
@@ -186,6 +190,9 @@ export function between(start: unknown, rule: RecurrenceRule, rangeStart: unknow
 export function parseRRule(input: string): RecurrenceRule {
   const parts = input.trim().toUpperCase().replace(/^RRULE:/, '').split(';');
   const rule: RecurrenceRule = { frequency: 'daily', interval: 1 };
+  const frequencies: ReadonlySet<string> = new Set([
+    'SECONDLY', 'MINUTELY', 'HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY',
+  ]);
   for (const part of parts) {
     if (!part) continue;
     const eq = part.indexOf('=');
@@ -194,16 +201,29 @@ export function parseRRule(input: string): RecurrenceRule {
     const value = part.slice(eq + 1);
     switch (key) {
       case 'FREQ':
+        if (!frequencies.has(value)) {
+          throw new RangeError(`temporal-fmt: unsupported RRULE frequency "${value}".`);
+        }
         rule.frequency = value.toLowerCase() as RecurrenceFrequency;
         break;
-      case 'INTERVAL':
-        rule.interval = Number(value);
+      case 'INTERVAL': {
+        const interval = Number(value);
+        if (!Number.isSafeInteger(interval) || interval < 1) {
+          throw new RangeError(`temporal-fmt: RRULE INTERVAL must be a positive safe integer (got "${value}").`);
+        }
+        rule.interval = interval;
         break;
-      case 'COUNT':
-        rule.count = Number(value);
+      }
+      case 'COUNT': {
+        const count = Number(value);
+        if (!Number.isSafeInteger(count) || count < 1) {
+          throw new RangeError(`temporal-fmt: RRULE COUNT must be a positive safe integer (got "${value}").`);
+        }
+        rule.count = count;
         break;
+      }
       case 'UNTIL':
-        rule.until = value; // ISO 8601 string; caller converts if needed
+        rule.until = value;
         break;
       case 'BYDAY':
         rule.byWeekday = value.split(',').map((d) => {
@@ -214,12 +234,22 @@ export function parseRRule(input: string): RecurrenceRule {
           return map[wd!] ?? 0;
         });
         break;
-      case 'BYMONTHDAY':
-        rule.byMonthDay = value.split(',').map(Number);
+      case 'BYMONTHDAY': {
+        const values = value.split(',').map(Number);
+        if (values.some((day) => !Number.isInteger(day) || day === 0 || day < -31 || day > 31)) {
+          throw new RangeError(`temporal-fmt: RRULE BYMONTHDAY contains an out-of-range value.`);
+        }
+        rule.byMonthDay = values;
         break;
-      case 'BYMONTH':
-        rule.byMonth = value.split(',').map(Number);
+      }
+      case 'BYMONTH': {
+        const values = value.split(',').map(Number);
+        if (values.some((month) => !Number.isInteger(month) || month < 1 || month > 12)) {
+          throw new RangeError(`temporal-fmt: RRULE BYMONTH contains an out-of-range value.`);
+        }
+        rule.byMonth = values;
         break;
+      }
     }
   }
   return rule;

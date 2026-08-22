@@ -68,3 +68,25 @@ test('registerLocale: extended-field validation rejects non-array, wrong-length,
     /"ordinals\[1\]" must be a non-empty string/,
   );
 });
+
+
+test('registerLocale: rejects oversized locale tags and extended strings', () => {
+  const base = {
+    monthLong: ['Mo1','Mo2','Mo3','Mo4','Mo5','Mo6','Mo7','Mo8','Mo9','Mo10','Mo11','Mo12'],
+    monthShort: ['M1','M2','M3','M4','M5','M6','M7','M8','M9','M10','M11','M12'],
+    weekdayLong: ['Day1','Day2','Day3','Day4','Day5','Day6','Day7'],
+    weekdayShort: ['D1','D2','D3','D4','D5','D6','D7'],
+    dayPeriod: ['AM','PM'],
+  };
+  assert.throws(
+    () => registerLocale('x'.repeat(257), base),
+    /locale tag must be at most 256 characters/,
+  );
+  assert.throws(
+    () => registerLocale('test-locale-long-value', {
+      ...base,
+      quartersLong: [ 'a'.repeat(257), 'Q2', 'Q3', 'Q4' ],
+    }),
+    /quartersLong\[0\].*at most 256 characters/,
+  );
+});

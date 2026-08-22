@@ -47,6 +47,8 @@ export interface ExtendedLocaleVocab extends BaseLocaleVocab {
 }
 
 const extendedVocabs = new Map<string, ExtendedLocaleVocab>();
+const MAX_LOCALE_TAG_LENGTH = 256;
+const MAX_VOCAB_STRING_LENGTH = 256;
 
 function canonicalKey(locale: string): string {
   try {
@@ -59,6 +61,9 @@ function canonicalKey(locale: string): string {
 export function registerLocale(locale: string, vocab: ExtendedLocaleVocab): void {
   if (typeof locale !== 'string' || locale.length === 0) {
     throw new InvalidLocaleError({ actual: String(locale), reason: 'locale string must be non-empty' });
+  }
+  if (locale.length > MAX_LOCALE_TAG_LENGTH) {
+    throw new InvalidLocaleError({ actual: String(locale.length), reason: `locale tag must be at most ${MAX_LOCALE_TAG_LENGTH} characters` });
   }
   // Validate the base vocab fields (months/weekdays/day-periods) via
   // the existing registerLocaleVocab — it has the strict-shape checks.
@@ -81,6 +86,9 @@ function validateExtended(vocab: ExtendedLocaleVocab, locale: string): void {
     for (let i = 0; i < val.length; i++) {
       if (typeof val[i] !== 'string' || val[i]!.length === 0) {
         throw new InvalidLocaleError({ actual: String(val[i]), reason: `locale "${locale}": "${key}[${i}]" must be a non-empty string` });
+      }
+      if (val[i]!.length > MAX_VOCAB_STRING_LENGTH) {
+        throw new InvalidLocaleError({ actual: String(val[i]!.length), reason: `locale "${locale}": "${key}[${i}]" must be at most ${MAX_VOCAB_STRING_LENGTH} characters` });
       }
     }
   };

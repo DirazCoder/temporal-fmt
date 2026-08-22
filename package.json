@@ -175,12 +175,12 @@
     "vitest": "^4.1.11"
   },
   "overrides": {
-    "esbuild": "0.28.1"
+    "esbuild": "0.28.2"
   },
   "engines": {
     "node": ">=20"
   },
   "allowScripts": {
-    "esbuild@0.28.1": true
+    "esbuild@0.28.2": true
   }
 }

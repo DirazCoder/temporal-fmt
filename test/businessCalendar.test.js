@@ -100,21 +100,29 @@ test('differenceInBusinessDays: zero when a and b are the same date', () => {
   assert.equal(differenceInBusinessDays(cal, a, a), 0);
 });
 
-test('differenceInBusinessDays: bails out via the safety counter when b is not itself a business day', () => {
-  // next/previousBusinessDay only ever land on business days, so if b is
-  // a weekend (or holiday), the loop's cmp(candidate, b) !== 0 condition
-  // can never become false -- it always overshoots. The 1000-iteration
-  // safety counter catches this rather than looping forever, but note
-  // it returns a plausible-looking (though not meaningful) count instead
-  // of throwing -- same "silent bailout" shape found elsewhere in this
-  // codebase (recurrence.ts's nextMatch had the same issue before it was
-  // fixed to report done:true). Documenting the current behavior here,
-  // not asserting it's the ideal behavior.
+test('differenceInBusinessDays: counts business days even when b is a weekend', () => {
   const cal = createBusinessCalendar();
   const a = Temporal.PlainDate.from('2026-08-10'); // Monday
-  const b = Temporal.PlainDate.from('2026-08-15'); // Saturday -- never a business day
-  const result = differenceInBusinessDays(cal, a, b);
-  assert.equal(result, 1001);
+  const b = Temporal.PlainDate.from('2026-08-15'); // Saturday
+  assert.equal(differenceInBusinessDays(cal, a, b), 4);
+});
+
+test('addBusinessDays: rejects non-integer and oversized counts', () => {
+  const cal = createBusinessCalendar();
+  const d = Temporal.PlainDate.from('2026-08-10');
+  assert.throws(() => addBusinessDays(cal, d, 1.5), /business-day count must be a finite safe integer/);
+  assert.throws(() => addBusinessDays(cal, d, Infinity), /business-day count must be a finite safe integer/);
+  assert.throws(() => addBusinessDays(cal, d, 100001), /exceeded the 100000-day limit/);
+});
+
+test('differenceInBusinessDays: rejects traversal beyond the safety limit', () => {
+  const cal = createBusinessCalendar();
+  const a = Temporal.PlainDate.from('1900-01-01');
+  const b = a.add({ days: 100001 });
+  assert.throws(
+    () => differenceInBusinessDays(cal, a, b),
+    /differenceInBusinessDays\(\) exceeded the 100000-day traversal limit/,
+  );
 });
 
 test('isBusinessDay: derives weekday from year/month/day on a plain field bag lacking dayOfWeek', () => {
