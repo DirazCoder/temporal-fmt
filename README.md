@@ -1,4 +1,12 @@
-# temporal-fmt 🥶🔥
+> [!WARNING]
+> ## 0.7.x is End of Life on 22/08/2026
+>
+> This version is no longer maintained and does not receive security updates.
+>
+> This README documents the 0.7.x release and is kept for historical and
+> compatibility reference. The 0.7-lts tag in npmjs.com is now removed.
+
+# temporal-fmt 🥶🔥 (v0.7.98)
 
 Format `Temporal.PlainDate` / `PlainTime` / `PlainDateTime` / `ZonedDateTime` objects
 using date-fns-style token strings.

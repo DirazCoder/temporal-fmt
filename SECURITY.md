@@ -1,22 +1,28 @@
 # Security Policy
 
-For which versions get fixes (including which ones are fixes-only, only
-when backportable, or fully end-of-life) and behavior changes across
-versions that affect whether upgrading actually resolves something you're
-hitting, see [VERSIONS.md](VERSIONS.md).
+## Supported versions
+
+| Version | Supported |
+| ------- | --------- |
+| 0.7.x   | :x:       |
+| < 0.7   | :x:       |
+
+`0.7.x` is now **End of Life** and is no longer maintained. Do not open
+issues for bugs, security problems, or other problems specific to the
+`0.7.x` branch.
 
 ## Reporting a vulnerability
 
 Please don't open a public issue for a security problem — use
 [private vulnerability reporting](../../security/advisories/new) instead.
-That gets it to us without publishing the details (or the exploit) before
-there's a fix.
+
+For vulnerabilities specific to the `0.7.x` branch, please do not open an
+issue for the branch. Report the vulnerability privately if you believe it
+also affects a supported version.
 
 Include what you'd include in a normal bug report: the token string and
 input that trigger it, what you expected, what actually happened. If it's
-specific to a runtime or `Temporal` polyfill version, mention that too —
-that's what tells us whether it needs to be fixed on `0.8.x` or
-backported to `0.7.x`.
+specific to a runtime or `Temporal` polyfill version, mention that too.
 
 We'll acknowledge reports within a few days and let you know if it's
 confirmed as a real issue. Once there's a fix, we'll credit you in the
