@@ -265,6 +265,18 @@ export class InvalidDurationError extends TemporalFmtError {
 // migrated to typed errors yet. Carries the original message in
 // `reason` so callers reading the typed surface still see what
 // failed. Used by safeParse() in parse.ts.
+//
+// As of the 0.9.0 migration, every throw site on the parse/format data
+// path throws a TemporalFmtError directly, so safeParse's `instanceof
+// TemporalFmtError` check always passes before this function would be
+// called — nothing in the current test suite reaches any branch below.
+// Kept as the safety net for wrapping a future unmigrated throw site
+// (see the c8-ignored call in parse.ts's safeParse), same reasoning as
+// that call site: removing this would silently drop the "safeParse
+// always returns a TemporalFmtError" contract the moment anyone adds a
+// throw new Error(...) without wiring a typed class for it.
+/* c8 ignore start @preserve -- unreachable from the current test suite,
+   see rationale above */
 export function wrapUntypedError(err: Error, context: { input?: string; format?: string }): TemporalFmtError {
   // Try to classify by inspecting the message — covers the existing
   // parse()/format() throw sites without modifying them. Anything
@@ -286,15 +298,6 @@ export function wrapUntypedError(err: Error, context: { input?: string; format?:
   if (/doesn't describe a valid date\/time|incomplete date|weekday token|quarter token/.test(msg)) {
     return new InvalidDateError({ input: context.input, format: context.format, reason: msg });
   }
-  /* c8 ignore start @preserve -- both triggers for this branch are
-     currently unreachable through safeParse(), which is the only way
-     wrapUntypedError gets called. localeVocab.ts's "produced no" throw
-     needs Intl to omit a part for a valid locale (Intl-dependent, same
-     category as the dead branches in serialization.ts); tokens.ts's
-     "produced no" throw and formatDistance's "cutoffs must be" throw
-     both happen on the format() side, which doesn't route through
-     safeParse's catch at all. Kept, not deleted, since a future
-     parse()-path locale validation could legitimately land here. */
   const lowerMsg = msg.toLowerCase();
   const mentionsLocale = lowerMsg.includes('locale');
   if (
@@ -303,9 +306,9 @@ export function wrapUntypedError(err: Error, context: { input?: string; format?:
   ) {
     return new InvalidLocaleError({ input: context.input, format: context.format, reason: msg });
   }
-  /* c8 ignore stop @preserve */
   if (/format string exceeds maximum length|input exceeds maximum length|unterminated quote|isn't a recognized token/i.test(msg)) {
     return new FormatSyntaxError({ input: context.input, format: context.format, reason: msg });
   }
   return new ParseMismatchError({ input: context.input, format: context.format, reason: msg });
 }
+/* c8 ignore stop @preserve */

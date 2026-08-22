@@ -4,7 +4,7 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
-## 0.9.0 — 2026-08-22 (`PENDING_COMMIT_HASH`)
+## 0.9.0 — 2026-08-22 (`f15542f`)
 ### Changed
 - **Breaking:** `parse()`, `safeParse()`, `tryParse()`, `parseToParts()`,
   `format()`, and `formatToParts()` now throw the typed `TemporalFmtError`

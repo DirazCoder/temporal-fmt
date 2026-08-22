@@ -10,8 +10,7 @@ setTemporal(Temporal);
 // numbering.ts all construct their own typed errors directly). This file
 // fills in what's left: each class's default message template (as
 // opposed to the caller-supplied `message` override those files usually
-// pass), toJSON(), and wrapUntypedError's regex-classification branches
-// in safeParse's catch path.
+// pass), toJSON(), and safeParse's typed-error pass-through path.
 //
 // Three of the eleven exported error classes are never constructed
 // anywhere in this package: InvalidTimeError, InvalidTimeZoneError, and
@@ -119,10 +118,15 @@ test('InvalidDurationError: default message with no input/actual fields at all',
   assert.equal(bare.message, 'duration is invalid.');
 });
 
-// wrapUntypedError isn't exported — it's only reachable through
-// safeParse()'s catch path, same as production code reaches it. Each
-// case below is a real message an actual parse() call throws, not a
-// synthetic string built to match the regex.
+// wrapUntypedError is no longer what these run through — as of the
+// 0.9.0 migration, parse() throws each of these as a typed
+// TemporalFmtError directly, so safeParse's `instanceof TemporalFmtError`
+// pass-through is what returns them, not the regex classifier. Kept as
+// safeParse-level tests (rather than moved to unit-construct each class)
+// because they're still the most direct way to confirm the real
+// production call path produces the right code end to end. Each case
+// below is a real message an actual parse() call throws, not a
+// synthetic string built to match a regex.
 
 test('safeParse: incomplete date classifies as InvalidDateError', () => {
   const r = safeParse('yyyy-MM', '2026-08');
@@ -143,18 +147,21 @@ test('safeParse: offset out of range classifies as InvalidOffsetError', () => {
 });
 
 test('safeParse: format string with no tokens falls through to ParseMismatchError', () => {
-  // "has no tokens" doesn't match any of wrapUntypedError's regex
-  // branches, so this lands on the default case. Not a FormatSyntaxError
-  // despite the name suggesting a format-string problem — the
-  // classification is message-pattern-based, not throw-site-based.
+  // "has no tokens" is thrown directly as ParseMismatchError from
+  // parse.ts now, matching the same code wrapUntypedError's fallback
+  // used to assign it before the migration. Not a FormatSyntaxError
+  // despite the name suggesting a format-string problem — this class
+  // was chosen deliberately to match the pre-existing classifier
+  // contract this test already pinned down (see CHANGELOG 0.9.0).
   const r = safeParse('literal only', 'literal only');
   assert.equal(r.ok, false);
   assert.equal(r.error.code, 'PARSE_MISMATCH');
 });
 
 test('safeParse: unterminated quote classifies as FormatSyntaxError', () => {
-  // tokenize.ts throws a plain Error here; wrapUntypedError's
-  // "unterminated quote" regex is what turns it into FormatSyntaxError.
+  // tokenize.ts throws FormatSyntaxError directly for this now (see
+  // the 0.9.0 migration) — safeParse passes it through unchanged rather
+  // than reclassifying it via wrapUntypedError.
   const r = safeParse("yyyy-'MM-dd", '2026-08-04');
   assert.equal(r.ok, false);
   assert.equal(r.error.code, 'FORMAT_SYNTAX_ERROR');
@@ -192,10 +199,10 @@ test('safeParse: exceeds max input length classifies as FormatSyntaxError', () =
 
 test('safeParse: format string with no tokens at all falls through to ParseMismatchError', () => {
   // A quoted, purely-literal format string compiles to zero capture
-  // groups. That "has no tokens" message doesn't match any of
-  // wrapUntypedError's regexes, so it lands on the final default —
-  // unlike the "no valid pattern matches" case above, which is a
-  // distinct message that does have its own named branch.
+  // groups. parse.ts throws this directly as ParseMismatchError,
+  // matching the classification wrapUntypedError assigned before the
+  // 0.9.0 migration (this exact case is the one that caught a wrong
+  // classification attempt during that migration — see CHANGELOG).
   const r = safeParse("'hello world'", 'hello world');
   assert.equal(r.ok, false);
   assert.equal(r.error.code, 'PARSE_MISMATCH');
@@ -205,8 +212,7 @@ test('safeParse: overlong token run classifies as UnknownTokenError', () => {
   // HH is the longest registered H-token; one more H forms a run that
   // isn't itself a valid token (tokenize.ts treats this as "did you
   // mean HH?" rather than splicing HH + a stray literal H onto the
-  // match). That message matches wrapUntypedError's "isn't a
-  // recognized token" branch.
+  // match). tokenize.ts throws UnknownTokenError directly for this now.
   const r = safeParse('HHH', '01');
   assert.equal(r.ok, false);
   assert.equal(r.error.code, 'UNKNOWN_TOKEN');

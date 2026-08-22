@@ -778,11 +778,25 @@ export function safeParse(formatStr: string, input: string, options: NumberingPa
     // Pass through typed errors unchanged — preserves the structured
     // fields (code/token/position/etc.) the existing typed-error
     // surface already populated.
+    //
+    // Every reachable throw site in parse()'s call graph now throws a
+    // TemporalFmtError directly, so this condition is always true in the
+    // current test suite; the false path (falling through to
+    // wrapUntypedError below) is kept as a safety net for any throw site
+    // added later without being migrated to a typed class immediately —
+    // removing it would silently break the "safeParse always returns a
+    // TemporalFmtError" contract documented above. Ignoring the whole
+    // if/else as one unit is harmless for the true branch (real tests
+    // still execute and count it — c8 just excludes it from the
+    // denominator), and it's the only shape that actually suppresses the
+    // false-branch marker, since c8 has no standalone "ignore else".
+    /* c8 ignore start @preserve */
     if (err instanceof TemporalFmtError) {
       return { ok: false, error: err };
     }
     return { ok: false, error: wrapUntypedError(err as Error, { input, format: formatStr }) };
   }
+  /* c8 ignore stop @preserve */
 }
 
 // tryParse: best-effort variant. Returns the parsed value or undefined.
