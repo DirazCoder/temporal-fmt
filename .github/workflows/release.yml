@@ -45,6 +45,33 @@ jobs:
 
       - run: npm run test:all
 
+      # npm publish (below) triggers prepublishOnly automatically, which
+      # rebuilds dist/ with minification on and reruns the functional
+      # tests against that build — a separate rebuild from the
+      # unminified one test:all just checked. Coverage isn't re-verified
+      # against the minified build; test:all above is the real
+      # correctness/coverage gate, and prepublishOnly's job is only to
+      # catch "did minification break something at runtime" before it
+      # ships. See tsup.config.ts for why coverage requires unminified
+      # output.
+      #
+      # The step below rebuilds minified explicitly (rather than relying
+      # on prepublishOnly's implicit rebuild during npm publish) so a
+      # broken minification config fails CI here, before publishing,
+      # instead of silently shipping an unminified — or partially built
+      # — tarball. If TSUP_MINIFY gets removed from build:publish, or
+      # tsup's minify option stops working, this step catches it.
+      - run: npm run build:publish
+
+      - name: Verify the published build is actually minified
+        run: |
+          if grep -rlq "function safeParse" dist/chunk-*.js 2>/dev/null; then
+            echo "dist/ still has readable function names — minification didn't run."
+            echo "Check TSUP_MINIFY is set in build:publish (package.json) and that"
+            echo "tsup.config.ts's minify option still reads it correctly."
+            exit 1
+          fi
+
       # Sets 'latest' for main branch builds and tagged LTS tags for older release branches
       - name: Determine npm dist-tag
         id: dist-tag

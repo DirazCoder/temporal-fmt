@@ -23,13 +23,16 @@ export default defineConfig({
   dts: false,
   clean: true,
   sourcemap: true,
-  // Minify off: esbuild's minification inlines small functions, which
-  // breaks c8's function-coverage attribution (inlined functions aren't
-  // counted as separate entries, so function coverage reads artificially
-  // low — 30.94% instead of the real ~90%). The bundle is ~20KB larger
-  // without minification, which is an acceptable tradeoff for accurate
-  // coverage. Re-enable for a production publish if size matters.
-  minify: false,
+  // Minify only for the actual npm publish (TSUP_MINIFY=true, see
+  // build:publish in package.json). Off by default because esbuild's
+  // minification inlines small functions, which breaks c8's
+  // function-coverage attribution — inlined functions aren't counted as
+  // separate entries, so function coverage reads artificially low
+  // (30.94% instead of the real ~90%). test:all and CI both build
+  // against this default, unminified output, so the coverage gate stays
+  // meaningful; only the published tarball takes the ~20KB size hit of
+  // going without minification during everyday builds.
+  minify: process.env.TSUP_MINIFY === 'true',
   target: 'esnext',
   // Preserve /* c8 ignore */ comments through the build so c8's coverage
   // report actually respects them. esbuild strips all comments except

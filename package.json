@@ -136,6 +136,7 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsup && tsc --declaration --emitDeclarationOnly && node scripts/emit-cjs-types.mjs && node scripts/emit-node10-shims.mjs",
+    "build:publish": "cross-env TSUP_MINIFY=true npm run build",
     "dev": "tsup --watch",
     "test": "node scripts/run-tests.mjs",
     "test:unit": "vitest run",
@@ -146,7 +147,7 @@
     "test:smoke": "node smoke-test/run.mjs",
     "test:all": "npm run build && npm test && npm run test:coverage && npm run test:unit && npm run test:types && npm run test:pack && npm run test:smoke",
     "cli": "node scripts/cli.mjs",
-    "prepublishOnly": "npm run build && npm test"
+    "prepublishOnly": "npm run build:publish && npm test"
   },
   "keywords": [
     "temporal",
@@ -171,6 +172,7 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
     "c8": "^12.0.0",
+    "cross-env": "^10.1.0",
     "publint": "^0.3.24",
     "tsup": "^8.5.1",
     "typescript": "^7.0.2",
