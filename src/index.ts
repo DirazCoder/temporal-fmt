@@ -157,3 +157,9 @@ export {
   type TokenAutocompleteEntry, type TokenHoverDoc,
   type InlineDiagnostic, type TokenConversionHint,
 } from './ideData.js';
+
+// Day.js / date-fns format-string translation — backs the CLI's
+// `translate` subcommand (see scripts/cli.mjs).
+export {
+  translateDayjsFormatString, translateDateFnsFormatString,
+} from './codemod.js';

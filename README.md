@@ -834,7 +834,7 @@ A handful of functions exist specifically to feed editor tooling — autocomplet
 
 ## CLI
 
-The CLI ships in this package (`scripts/cli.mjs`) and reads/writes stdin/stdout. Run it via `npm run cli` inside a checkout of this repo, or `node scripts/cli.mjs` directly:
+The CLI ships in this package (`scripts/cli.mjs`) and reads/writes stdin/stdout. Run it via `npm run cli` inside a checkout of this repo, or `node scripts/cli.mjs` directly. Called with a subcommand it runs once and exits, same as any Unix tool — fine for scripts and CI:
 
 ```sh
 temporal-fmt format "2026-08-04T15:45:30" "yyyy-MM-dd HH:mm:ss"
@@ -852,7 +852,23 @@ temporal-fmt translate dayjs "YYYY-MM-DD HH:mm:ss"
 | `validate <format-string>` | Prints `valid` or `invalid`. |
 | `translate <source-lib> <format-string>` | Translates a Day.js or date-fns format string to `temporal-fmt` tokens. |
 
-The `translate` subcommand imports a separate `temporal-fmt-codemod` package at runtime — it isn't bundled in this repo, so `translate` will fail with a module-not-found error unless that package is installed and resolvable. Every other subcommand works standalone.
+`translate` is implemented in-repo (`src/codemod.ts`) against the same token tables the IDE tooling data uses — no external package, no runtime dependency beyond this library itself. It throws on tokens with no `temporal-fmt` equivalent (`Do`/`P`/etc. — see the [migration table](#token-mapping)) rather than guessing.
+
+### Interactive mode
+
+Run `temporal-fmt` with no arguments to start a REPL:
+
+```
+$ temporal-fmt
+temporal-fmt interactive mode. Type a subcommand, "help", or "exit".
+temporal-fmt> format
+ISO input: 2026-08-04T15:45:30
+Format string: yyyy-MM-dd HH:mm:ss
+2026-08-04 15:45:30
+temporal-fmt> exit
+```
+
+Type a subcommand with all its arguments inline (`validate yyyy-MM-dd`) or just the subcommand name — the REPL prompts for whatever's missing, one field at a time. Errors print and the session keeps going; `exit`, `quit`, or Ctrl+D ends it. This is the same subcommand logic as one-shot mode, just wrapped in a loop that asks instead of exiting on a missing argument — one-shot stays there for scripting, and doesn't touch the REPL machinery.
 
 ## Subpath imports
 
@@ -977,7 +993,7 @@ Migrate file by file, dropping the wrapper once nothing calls the old path anymo
 Neither of these ships as part of this repository — separate packages, install them on their own:
 
 - [`eslint-plugin-temporal-fmt`](https://www.npmjs.com/package/eslint-plugin-temporal-fmt) — lints format strings for common mistakes (e.g. `hh` without `a`). This is what backs the `analyzeFormat(formatStr).warnings` check mentioned in [Introspection and the analyzer](#introspection-and-the-analyzer) — same underlying metadata, surfaced as a lint diagnostic instead of a runtime call.
-- [`temporal-fmt-codemod`](https://www.npmjs.com/package/temporal-fmt-codemod) — one-time migration tool that rewrites Day.js/date-fns calls to `temporal-fmt`. The CLI's `translate` subcommand (see [CLI](#cli)) imports this package at runtime, so `translate` needs it installed to work.
+- [`temporal-fmt-codemod`](https://github.com/DirazCoder/temporal-fmt-codemod) — a jscodeshift AST codemod that rewrites `dayjs(x).format(...)`/date-fns `format(...)` *call sites* across a codebase, not just format-string literals. A different job from the CLI's `translate` subcommand (see [CLI](#cli)), which only translates a format string you hand it and doesn't touch call sites; use this instead if you're migrating an entire codebase and want the calls themselves rewritten.
 
 ## Testing
 

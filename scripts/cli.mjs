@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 // temporal-fmt CLI (plan section AD). Subcommands: format, parse, inspect,
-// validate, translate. Reads from stdin or args, writes to stdout.
+// validate, translate. Two modes:
+//   - one-shot: `temporal-fmt <subcommand> [args...]` runs once and exits,
+//     same as always — this is what scripts and CI should use.
+//   - interactive: running `temporal-fmt` with no arguments drops into a
+//     REPL that prompts for a subcommand, then prompts for whichever of
+//     that subcommand's arguments weren't given inline, and loops until
+//     you type `exit`/`quit` or hit Ctrl+D.
 //
 // Run with: temporal-fmt <subcommand> [options] <args>
 //   temporal-fmt format "2026-08-04" "yyyy-MM-dd"
@@ -9,15 +15,22 @@
 //   temporal-fmt validate "yyyy-MM-dd"
 //   temporal-fmt translate dayjs "YYYY-MM-DD"
 
-import { format, parse, explainFormat, isValidFormat, setTemporal } from '../dist/index.js';
-import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
+import { createInterface } from 'node:readline/promises';
+import {
+  format, parse, explainFormat, isValidFormat, setTemporal,
+  translateDayjsFormatString, translateDateFnsFormatString,
+} from '../dist/index.js';
 
-const Temporal = globalThis.Temporal ?? PolyfillTemporal;
+// Native Temporal (Node 26+) needs no extra install; older Node falls
+// back to the polyfill, imported lazily so a Node 26+ user running this
+// CLI never pays for loading it.
+const Temporal = globalThis.Temporal ?? (await import('temporal-polyfill/full')).Temporal;
 setTemporal(Temporal);
 
 const USAGE = `temporal-fmt CLI
 
 Usage:
+  temporal-fmt                                     Start the interactive REPL.
   temporal-fmt format <iso-input> <format-string> [--locale=LOCALE]
   temporal-fmt parse <format-string> <input> [--locale=LOCALE] [--lenient]
   temporal-fmt inspect <format-string>
@@ -41,19 +54,92 @@ Examples:
   temporal-fmt inspect "MMMM d, yyyy 'at' h:mm a"
   temporal-fmt validate "yyyy-MM-dd HH:mm:ss"
   temporal-fmt translate dayjs "YYYY-MM-DD HH:mm:ss"
+
+Running temporal-fmt with no arguments starts an interactive session where
+each subcommand prompts you for whatever arguments you don't supply.
 `;
 
-function parseArgs(argv) {
-  const args = argv.slice(2);
-  if (args.length === 0) {
-    process.stderr.write(USAGE);
-    process.exit(1);
+// Turns an ISO-ish string into the right Temporal type. format() only
+// accepts types with calendar fields (PlainDate/PlainTime/PlainDateTime/
+// ZonedDateTime) — a bare Instant has none, so a "Z"-suffixed input
+// becomes a UTC ZonedDateTime rather than an Instant. A numeric offset
+// alone (e.g. "+02:00") isn't a timezone either; Temporal.PlainDateTime
+// .from() is what actually accepts that shape, silently keeping the
+// wall-clock fields and dropping the offset annotation — which matches
+// what someone typing an offset into this CLI almost always wants:
+// format the date/time as written, not convert it to a UTC instant.
+function parseIsoInput(isoInput) {
+  if (/T.*[zZ]$/.test(isoInput)) {
+    return Temporal.Instant.from(isoInput).toZonedDateTimeISO('UTC');
   }
-  const subcommand = args[0];
+  if (/T/.test(isoInput)) {
+    return Temporal.PlainDateTime.from(isoInput);
+  }
+  return Temporal.PlainDate.from(isoInput);
+}
+
+// Each command takes { positional, options } and either returns the
+// output string or throws. Kept free of process.exit/stdout writes so
+// both one-shot mode and the REPL can call the same logic and just
+// handle success/failure differently.
+const COMMANDS = {
+  format: {
+    usage: 'format <iso-input> <format-string> [--locale=LOCALE]',
+    argNames: ['iso-input', 'format-string'],
+    run({ positional, options }) {
+      const [isoInput, formatStr] = positional;
+      const locale = typeof options.locale === 'string' ? options.locale : 'en-US';
+      let temporal;
+      try {
+        temporal = parseIsoInput(isoInput);
+      } catch (err) {
+        throw new Error(`could not parse "${isoInput}" as a Temporal value: ${err.message}`);
+      }
+      return format(temporal, formatStr, { locale });
+    },
+  },
+  parse: {
+    usage: 'parse <format-string> <input> [--locale=LOCALE] [--lenient]',
+    argNames: ['format-string', 'input'],
+    run({ positional, options }) {
+      const [formatStr, input] = positional;
+      const locale = typeof options.locale === 'string' ? options.locale : 'en-US';
+      const result = parse(formatStr, input, { locale, lenient: options.lenient === true });
+      return result.toString();
+    },
+  },
+  inspect: {
+    usage: 'inspect <format-string>',
+    argNames: ['format-string'],
+    run({ positional }) {
+      const [formatStr] = positional;
+      return explainFormat(formatStr);
+    },
+  },
+  validate: {
+    usage: 'validate <format-string>',
+    argNames: ['format-string'],
+    run({ positional }) {
+      const [formatStr] = positional;
+      return isValidFormat(formatStr) ? 'valid' : 'invalid';
+    },
+  },
+  translate: {
+    usage: 'translate <source-lib> <format-string>',
+    argNames: ['source-lib', 'format-string'],
+    run({ positional }) {
+      const [sourceLib, formatStr] = positional;
+      if (sourceLib === 'dayjs') return translateDayjsFormatString(formatStr);
+      if (sourceLib === 'date-fns' || sourceLib === 'datefns') return translateDateFnsFormatString(formatStr);
+      throw new Error(`unknown source library "${sourceLib}". Supported: dayjs, date-fns.`);
+    },
+  },
+};
+
+function parseArgs(args) {
   const positional = [];
   const options = {};
-  for (let i = 1; i < args.length; i++) {
-    const a = args[i];
+  for (const a of args) {
     if (a.startsWith('--')) {
       const eq = a.indexOf('=');
       if (eq >= 0) {
@@ -65,114 +151,112 @@ function parseArgs(argv) {
       positional.push(a);
     }
   }
-  return { subcommand, positional, options };
+  return { positional, options };
 }
 
-async function main() {
-  const { subcommand, positional, options } = parseArgs(process.argv);
-  const locale = typeof options.locale === 'string' ? options.locale : 'en-US';
+function runOneShot(argv) {
+  const args = argv.slice(2);
+  const subcommand = args[0];
 
-  switch (subcommand) {
-    case 'format': {
-      if (positional.length < 2) {
-        process.stderr.write('Usage: temporal-fmt format <iso-input> <format-string> [--locale=LOCALE]\n');
-        process.exit(1);
+  if (subcommand === '--help' || subcommand === '-h' || subcommand === 'help') {
+    process.stdout.write(USAGE);
+    return;
+  }
+
+  const command = COMMANDS[subcommand];
+  if (!command) {
+    process.stderr.write(`Unknown subcommand "${subcommand}". Run --help for usage.\n`);
+    process.exit(1);
+  }
+
+  const parsed = parseArgs(args.slice(1));
+  if (parsed.positional.length < command.argNames.length) {
+    process.stderr.write(`Usage: temporal-fmt ${command.usage}\n`);
+    process.exit(1);
+  }
+
+  try {
+    process.stdout.write(command.run(parsed) + '\n');
+  } catch (err) {
+    process.stderr.write(`Error: ${err.message}\n`);
+    process.exit(1);
+  }
+}
+
+async function runRepl() {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  process.stdout.write('temporal-fmt interactive mode. Type a subcommand, "help", or "exit".\n');
+
+  // rl.question() called repeatedly loses track of buffered input across
+  // awaits on some Node versions (readline/node#*, long-standing issue
+  // with the promises API under non-interactive or fast-piped stdin).
+  // Driving the whole session off one async iterator over lines sidesteps
+  // that entirely — each ask() just pulls the next line and only ever
+  // touches the iterator, never rl.question().
+  const lines = rl[Symbol.asyncIterator]();
+  async function ask(prompt) {
+    process.stdout.write(prompt);
+    const { value, done } = await lines.next();
+    if (done) return null;
+    return value.trim();
+  }
+
+  try {
+    while (true) {
+      const line = await ask('temporal-fmt> ');
+      if (line === null) break;
+      if (line === '') continue;
+      if (line === 'exit' || line === 'quit') break;
+      if (line === 'help' || line === '--help' || line === '-h') {
+        process.stdout.write(USAGE);
+        continue;
       }
-      const [isoInput, formatStr] = positional;
-      let temporal;
-      try {
-        if (/T.*[zZ]|[+-]\d{2}:?\d{2}$/.test(isoInput)) {
-          temporal = Temporal.Instant.from(isoInput.endsWith('Z') ? isoInput : isoInput + 'Z');
-        } else if (/T/.test(isoInput)) {
-          temporal = Temporal.PlainDateTime.from(isoInput);
-        } else {
-          temporal = Temporal.PlainDate.from(isoInput);
+
+      // Support both "format" (prompts for every arg) and
+      // "format 2026-08-04 yyyy-MM-dd" (prompts only for what's missing),
+      // so muscle memory from one-shot usage still works inside the REPL.
+      const [subcommand, ...rest] = line.split(/\s+/);
+      const command = COMMANDS[subcommand];
+      if (!command) {
+        process.stdout.write(`Unknown subcommand "${subcommand}". Type "help" for the list.\n`);
+        continue;
+      }
+
+      const typed = parseArgs(rest);
+      if (command.argNames.length > typed.positional.length) {
+        let aborted = false;
+        for (const name of command.argNames.slice(typed.positional.length)) {
+          const value = await ask(`  ${name}: `);
+          if (value === null) { aborted = true; break; }
+          typed.positional.push(value);
         }
-      } catch (err) {
-        process.stderr.write(`Error: could not parse "${isoInput}" as a Temporal value: ${err.message}\n`);
-        process.exit(1);
+        if (aborted) break;
       }
+
       try {
-        const out = format(temporal, formatStr, { locale });
-        process.stdout.write(out + '\n');
+        process.stdout.write(command.run(typed) + '\n');
       } catch (err) {
-        process.stderr.write(`Error: ${err.message}\n`);
-        process.exit(1);
+        process.stdout.write(`Error: ${err.message}\n`);
       }
-      break;
     }
-    case 'parse': {
-      if (positional.length < 2) {
-        process.stderr.write('Usage: temporal-fmt parse <format-string> <input> [--locale=LOCALE] [--lenient]\n');
-        process.exit(1);
-      }
-      const [formatStr, input] = positional;
-      try {
-        const result = parse(formatStr, input, { locale, lenient: options.lenient === true });
-        process.stdout.write(result.toString() + '\n');
-      } catch (err) {
-        process.stderr.write(`Error: ${err.message}\n`);
-        process.exit(1);
-      }
-      break;
-    }
-    case 'inspect': {
-      if (positional.length < 1) {
-        process.stderr.write('Usage: temporal-fmt inspect <format-string>\n');
-        process.exit(1);
-      }
-      const [formatStr] = positional;
-      try {
-        process.stdout.write(explainFormat(formatStr) + '\n');
-      } catch (err) {
-        process.stderr.write(`Error: ${err.message}\n`);
-        process.exit(1);
-      }
-      break;
-    }
-    case 'validate': {
-      if (positional.length < 1) {
-        process.stderr.write('Usage: temporal-fmt validate <format-string>\n');
-        process.exit(1);
-      }
-      const [formatStr] = positional;
-      const valid = isValidFormat(formatStr);
-      process.stdout.write(valid ? 'valid\n' : 'invalid\n');
-      break;
-    }
-    case 'translate': {
-      if (positional.length < 2) {
-        process.stderr.write('Usage: temporal-fmt translate <source-lib> <format-string>\n');
-        process.exit(1);
-      }
-      const [sourceLib, formatStr] = positional;
-      let translated;
-      try {
-        if (sourceLib === 'dayjs') {
-          const { translateDayjsFormatString } = await import('temporal-fmt-codemod');
-          translated = translateDayjsFormatString(formatStr);
-        } else if (sourceLib === 'date-fns' || sourceLib === 'datefns') {
-          const { translateDateFnsFormatString } = await import('temporal-fmt-codemod');
-          translated = translateDateFnsFormatString(formatStr);
-        } else {
-          process.stderr.write(`Error: unknown source library "${sourceLib}". Supported: dayjs, date-fns.\n`);
-          process.exit(1);
-        }
-        process.stdout.write(translated + '\n');
-      } catch (err) {
-        process.stderr.write(`Error: ${err.message}\n`);
-        process.exit(1);
-      }
-      break;
-    }
-    case '--help':
-    case '-h':
-    case 'help':
-      process.stdout.write(USAGE);
-      break;
-    default:
-      process.stderr.write(`Unknown subcommand "${subcommand}". Run --help for usage.\n`);
-      process.exit(1);
+  } finally {
+    rl.close();
+  }
+}
+
+// A downstream pipe closing early (e.g. `temporal-fmt | head -1`) makes
+// the next stdout write throw EPIPE. That's expected shell behavior,
+// not a real error — exit quietly instead of dumping a stack trace.
+process.stdout.on('error', (err) => {
+  if (err.code === 'EPIPE') process.exit(0);
+  throw err;
+});
+
+async function main() {
+  if (process.argv.length > 2) {
+    runOneShot(process.argv);
+  } else {
+    await runRepl();
   }
 }
 

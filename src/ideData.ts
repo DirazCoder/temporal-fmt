@@ -151,13 +151,17 @@ export function getInlineDiagnostics(formatStr: string): InlineDiagnostic[] {
 // falls back to inline tables otherwise.
 export interface TokenConversionHint {
   from: string;
-  to: string;
+  // null means "real token in the source library, no temporal-fmt
+  // equivalent" — the codemod throws on these rather than treating
+  // them as unrecognized text (see codemod.ts).
+  to: string | null;
   notes?: string;
 }
 
-// Common Day.js / date-fns → temporal-fmt mappings. The full tables
-// live in the codemod; this is a minimal subset for the IDE's
-// "as you type" suggestions.
+// Day.js → temporal-fmt mappings. Day.js uses Moment-style tokens:
+// `D`/`DD` are day-of-*month* here (unlike date-fns below, where the
+// same letters mean day-of-year). Assumes the AdvancedFormat plugin
+// for `Do`/`Q`/`k`/`kk`/`X`/`x` — see codemod.ts's doc comment for why.
 export const DAYJS_TO_TEMPORAL_FMT: TokenConversionHint[] = [
   { from: 'YYYY', to: 'yyyy' },
   { from: 'YY', to: 'yy' },
@@ -167,19 +171,108 @@ export const DAYJS_TO_TEMPORAL_FMT: TokenConversionHint[] = [
   { from: 'M', to: 'M' },
   { from: 'DD', to: 'dd' },
   { from: 'D', to: 'd' },
+  { from: 'Do', to: null, notes: 'Ordinal day (AdvancedFormat) — use temporal-fmt\'s own "do" token instead.' },
   { from: 'dddd', to: 'EEEE' },
   { from: 'ddd', to: 'EEE' },
+  { from: 'dd', to: null, notes: 'Min-name weekday (e.g. "Tu") — temporal-fmt has no equivalent width.' },
+  { from: 'd', to: null, notes: 'Numeric weekday (0-6) — no temporal-fmt equivalent; not the same as "d" here, which is day-of-month.' },
   { from: 'HH', to: 'HH' },
+  { from: 'H', to: 'H' },
+  { from: 'hh', to: 'hh' },
+  { from: 'h', to: 'h' },
+  { from: 'kk', to: null, notes: 'Hour 1-24 (AdvancedFormat) — no temporal-fmt equivalent.' },
+  { from: 'k', to: null, notes: 'Hour 1-24 (AdvancedFormat) — no temporal-fmt equivalent.' },
   { from: 'mm', to: 'mm' },
+  { from: 'm', to: 'm' },
   { from: 'ss', to: 'ss' },
-  { from: 'A', to: 'a' },
+  { from: 's', to: 's' },
+  { from: 'SSS', to: 'SSS' },
+  { from: 'A', to: 'a', notes: 'Uppercase AM/PM in Day.js — temporal-fmt is always lowercase.' },
   { from: 'a', to: 'a' },
-  { from: 'Z', to: 'XXX' },
+  { from: 'ZZ', to: 'XX', notes: 'Numeric UTC offset, no colon.' },
+  { from: 'Z', to: 'XXX', notes: 'Numeric UTC offset with colon.' },
+  { from: 'X', to: null, notes: 'Unix timestamp (seconds) — use fromUnixSeconds() instead.' },
+  { from: 'x', to: null, notes: 'Unix timestamp (ms) — use fromUnixMilliseconds() instead.' },
+  { from: 'Qo', to: null, notes: 'Ordinal quarter (AdvancedFormat) — no temporal-fmt equivalent.' },
+  { from: 'Q', to: 'Q' },
+  { from: 'Mo', to: null, notes: 'Ordinal month (AdvancedFormat) — no temporal-fmt equivalent.' },
+  { from: 'ww', to: 'ww' },
+  { from: 'wo', to: null, notes: 'Ordinal ISO week (AdvancedFormat) — no temporal-fmt equivalent.' },
+  { from: 'w', to: null, notes: 'Unpadded ISO week — temporal-fmt\'s "ww" is always 2-digit.' },
+  { from: 'gggg', to: 'RRRR', notes: 'Week-numbering year, not the calendar year — same caveat as temporal-fmt\'s RRRR.' },
+  { from: 'L', to: null, notes: 'Localized date format (AdvancedFormat) — write the format string out explicitly.' },
+  { from: 'LL', to: null, notes: 'Localized date format (AdvancedFormat) — write the format string out explicitly.' },
+  { from: 'LLL', to: null, notes: 'Localized date format (AdvancedFormat) — write the format string out explicitly.' },
+  { from: 'LLLL', to: null, notes: 'Localized date format (AdvancedFormat) — write the format string out explicitly.' },
+  { from: 'LT', to: null, notes: 'Localized time format (AdvancedFormat) — write the format string out explicitly.' },
+  { from: 'LTS', to: null, notes: 'Localized time format (AdvancedFormat) — write the format string out explicitly.' },
 ];
 
+// date-fns → temporal-fmt mappings. date-fns already uses Unicode/LDML
+// -style tokens close to temporal-fmt's own vocabulary — most strings
+// pass through unchanged. The catch: `D`/`DD` here mean day-of-*year*
+// (same as temporal-fmt's `D`/`DD`), not day-of-month like Day.js's
+// `D`/`DD` above — don't reuse the Day.js table for this, they collide.
 export const DATE_FNS_TO_TEMPORAL_FMT: TokenConversionHint[] = [
-  ...DAYJS_TO_TEMPORAL_FMT, // most tokens are identical
-  // date-fns-specific differences noted inline.
+  { from: 'yyyy', to: 'yyyy' },
+  { from: 'yy', to: 'yy' },
+  { from: 'y', to: null, notes: 'Unpadded calendar year, opt-in via useAdditionalWeekYearTokens — temporal-fmt has no unpadded-year token; use "yyyy".' },
+  { from: 'MMMM', to: 'MMMM' },
+  { from: 'MMM', to: 'MMM' },
+  { from: 'MM', to: 'MM' },
+  { from: 'M', to: 'M' },
+  { from: 'LLLL', to: 'LLLL' },
+  { from: 'LLL', to: 'LLL' },
+  { from: 'dd', to: 'dd' },
+  { from: 'd', to: 'd' },
+  { from: 'do', to: 'do' },
+  { from: 'DDD', to: 'DDD' },
+  { from: 'DD', to: 'DD' },
+  { from: 'D', to: 'D', notes: 'Day-of-year, opt-in via useAdditionalDayOfYearTokens — matches temporal-fmt\'s own "D" already.' },
+  { from: 'EEEE', to: 'EEEE' },
+  { from: 'EEE', to: 'EEE' },
+  { from: 'eeee', to: null, notes: 'Locale-aware numeric weekday — no temporal-fmt equivalent.' },
+  { from: 'cccc', to: 'cccc' },
+  { from: 'ccc', to: 'ccc' },
+  { from: 'HH', to: 'HH' },
+  { from: 'H', to: 'H' },
+  { from: 'hh', to: 'hh' },
+  { from: 'h', to: 'h' },
+  { from: 'mm', to: 'mm' },
+  { from: 'm', to: 'm' },
+  { from: 'ss', to: 'ss' },
+  { from: 's', to: 's' },
+  { from: 'SSS', to: 'SSS' },
+  { from: 'a', to: 'a' },
+  { from: 'aaa', to: 'a' },
+  { from: 'XXX', to: 'XXX' },
+  { from: 'XX', to: 'XX' },
+  { from: 'X', to: 'X', notes: 'Opt-in via useAdditionalDayOfYearTokens-adjacent rules in date-fns v3+; matches temporal-fmt\'s own "X" already.' },
+  { from: 'xxx', to: 'xxx' },
+  { from: 'xx', to: 'xx' },
+  { from: 'x', to: 'x' },
+  { from: 'zzzz', to: 'zzzz' },
+  { from: 'zzz', to: 'zzz' },
+  { from: 'z', to: 'z' },
+  { from: 'QQQ', to: 'QQQ' },
+  { from: 'Q', to: 'Q' },
+  { from: 'GGGG', to: 'GGGG' },
+  { from: 'GGG', to: null, notes: 'Abbreviated era — temporal-fmt only has "G" (short) and "GGGG" (long).' },
+  { from: 'GG', to: null, notes: 'Abbreviated era — temporal-fmt only has "G" (short) and "GGGG" (long).' },
+  { from: 'G', to: 'G' },
+  { from: 'ww', to: 'ww' },
+  { from: 'w', to: null, notes: 'Unpadded local week number — temporal-fmt\'s "ww" is ISO-week and always 2-digit.' },
+  { from: 'RRRR', to: 'RRRR' },
+  { from: 'R', to: null, notes: 'Unpadded ISO week-numbering year — temporal-fmt\'s "RRRR" is always 4-digit.' },
+  { from: 'Y', to: null, notes: 'Week-numbering year (locale week rules), opt-in — no temporal-fmt equivalent; "RRRR" is ISO week-numbering, a different rule set.' },
+  { from: 'PPPP', to: null, notes: 'Localized composite format — write the format string out explicitly.' },
+  { from: 'PPP', to: null, notes: 'Localized composite format — write the format string out explicitly.' },
+  { from: 'PP', to: null, notes: 'Localized composite format — write the format string out explicitly.' },
+  { from: 'P', to: null, notes: 'Localized composite format — write the format string out explicitly.' },
+  { from: 'pppp', to: null, notes: 'Localized composite format — write the format string out explicitly.' },
+  { from: 'ppp', to: null, notes: 'Localized composite format — write the format string out explicitly.' },
+  { from: 'pp', to: null, notes: 'Localized composite format — write the format string out explicitly.' },
+  { from: 'p', to: null, notes: 'Localized composite format — write the format string out explicitly.' },
 ];
 
 // Format preview — for a given format string and a sample Temporal
