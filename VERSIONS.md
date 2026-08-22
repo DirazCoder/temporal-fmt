@@ -4,20 +4,22 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.8.x   | :white_check_mark: |
-| 0.7.x   | :white_check_mark: |
-| 0.6.x   | :x:                |
-| < 0.6   | :x:                |
+| 0.9.x   | :white_check_mark: |
+| 0.8.x   | :white_check_mark: (LTS) |
+| 0.7.x   | :x:                |
+| < 0.7   | :x:                |
 
-`0.8.x` is the current active release line. New features, bug fixes,
+`0.9.x` is the current active release line. New features, bug fixes,
 security fixes, and parser hardening land here first.
 
-`0.7.x` is still supported and is the previous maintained release line.
-Security fixes continue to land there where they are appropriate for the
-branch.
+`0.8.x` is now the LTS line, kept specifically for consumers who don't
+want (or can't yet take) the typed-error throw behavior introduced in
+`0.9.0` — see the breaking-change entry below. It still receives bug
+fixes and security fixes; it just doesn't get new features or the typed
+throws.
 
-`0.6.x` and everything before it is end of life and no longer receives
-fixes. Upgrade to `0.8.x` or `0.7.x` instead.
+`0.7.x` and everything before it is end of life and no longer receives
+fixes. Upgrade to `0.9.x` or `0.8.x` instead.
 
 ## Breaking / behavior changes by version
 
@@ -63,3 +65,14 @@ on, or that could change existing behavior:
 - **`0.8.6`** — none. `formatDuration`, `parseRelative`, and
   `formatDistance` gained locale/cutoff options that are opt-in; every
   existing call without the new options is byte-identical to `0.8.5`.
+
+- **`0.9.0`** — `parse()`, `safeParse()`, `tryParse()`, `parseToParts()`,
+  `format()`, and `formatToParts()` throw typed `TemporalFmtError`
+  subclasses directly instead of plain `Error`. Message text is
+  unchanged, and every thrown error still satisfies `instanceof Error`,
+  so `try/catch` blocks and message-regex checks keep working unmodified.
+  What breaks: code that checks `err.constructor === Error` or
+  `err.name === 'Error'` specifically will see a different result now
+  (`err.name` reports the subclass name instead, e.g.
+  `'FormatSyntaxError'`). If that matters to you, stay on `0.8.x`, which
+  is now LTS and keeps the old plain-`Error` behavior.
