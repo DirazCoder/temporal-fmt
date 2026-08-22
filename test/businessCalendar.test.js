@@ -16,9 +16,7 @@ import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 setTemporal(Temporal);
 
-// phase2-final.test.js covers the happy-path basics (default weekend,
-// nextBusinessDay, addBusinessDays/subtractBusinessDays, a custom weekend).
-// This fills in previousBusinessDay, holiday-calendar wiring, the 14-day
+// Covers previousBusinessDay, holiday-calendar wiring, the 14-day
 // give-up throws, differenceInBusinessDays, and isBusinessDay's plain
 // year/month/day fallback path.
 

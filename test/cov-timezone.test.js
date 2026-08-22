@@ -124,7 +124,7 @@ test('cov: resolveZoned reject', () => assert.ok(resolveZoned({ year: 2026, mont
 test('cov: resolveZoned earlier', () => assert.ok(resolveZoned({ year: 2026, month: 8, day: 4, hour: 15 }, 'UTC', { disambiguation: 'earlier' }) !== undefined));
 test('cov: resolveZoned later', () => assert.ok(resolveZoned({ year: 2026, month: 8, day: 4, hour: 15 }, 'UTC', { disambiguation: 'later' }) !== undefined));
 
-// New token family tests (Section B)
+// Stand-alone month/weekday and era token family tests.
 import { format, tokenInfo, analyzeFormat, FORMAT_ONLY_TOKENS } from '../dist/index.js';
 
 test('cov: LLLL format', () => {

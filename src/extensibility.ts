@@ -1,4 +1,4 @@
-// Extensibility (plan section X). Controlled extensibility via
+// Extensibility. Controlled extensibility via
 // createFormatter({ tokens: ... }) rather than uncontrolled global
 // mutation. Custom tokens are passed at formatter-creation time;
 // built-in behavior stays deterministic regardless of what's registered.

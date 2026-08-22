@@ -23,10 +23,8 @@ import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 setTemporal(Temporal);
 
-// phase2-final.test.js covers interval/contains/intersection/union/
-// mergeIntervals/splitInterval/formatRange happy paths. This fills in
-// overlaps, intersects, isBefore, isAfter, difference/subtract (all
-// shapes: no overlap, cut-before, cut-after, cut-both-sides), the
+// Covers overlaps, intersects, isBefore, isAfter, difference/subtract
+// (all shapes: no overlap, cut-before, cut-after, cut-both-sides), the
 // flipEndBounds branches, the open/half-open bounds combinations for
 // intersection/union, formatRangeToParts, and toJSDate's fallback paths.
 

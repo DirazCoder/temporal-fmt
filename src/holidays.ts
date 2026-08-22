@@ -1,8 +1,8 @@
-// Holiday framework (plan section S). Core provides the abstraction
-// only — country-specific holiday datasets stay out of core (plan's
-// section AJ: "These can be separate ecosystem packages"). A holiday
-// calendar is a function from a date → boolean ("is this a holiday?")
-// plus iteration helpers (nextHoliday, previousHoliday, holidaysBetween).
+// Holiday framework. Core provides the abstraction only —
+// country-specific holiday datasets stay out of core; those can be
+// separate ecosystem packages built on top of this. A holiday calendar
+// is a function from a date → boolean ("is this a holiday?") plus
+// iteration helpers (nextHoliday, previousHoliday, holidaysBetween).
 
 import { add } from './arithmetic.js';
 import { compare } from './comparison.js';

@@ -1,4 +1,4 @@
-// Numbering systems (plan section G). Default: latn (ASCII digits).
+// Numbering systems. Default: latn (ASCII digits).
 // Optional: arab, deva, beng, etc. Configurable on formatting.
 //
 // The library's existing tokens always render ASCII digits (see
@@ -10,17 +10,16 @@
 // On the parse side: parse() only accepts ASCII digits, matching how
 // the existing NUMERIC_FRAGMENTS regex is built. A parseNumberingSystem
 // option could convert input digits to ASCII before matching — but
-// that's a per-call opt-in, not silent acceptance, per the plan's
-// "explicit semantics rather than silently accepting every numeral
-// system" instruction.
+// that's a per-call opt-in, not silent acceptance of every numeral
+// system.
 
 import { DEFAULT_LOCALE, type FormatOptions } from './tokens.js';
 import { InvalidLocaleError } from './errors.js';
 
 export type NumberingSystem = 'latn' | 'arab' | 'deva' | 'beng' | 'guru' | 'gujr' | 'orya' | 'tamldec' | 'telu' | 'knda' | 'mlym' | 'fullwide' | 'hanidec';
 
-// All NumberingSystem values the plan calls out as supported. latn is
-// the default and what the rest of the library produces natively.
+// All supported NumberingSystem values. latn is the default and what
+// the rest of the library produces natively.
 export const SUPPORTED_NUMBERING_SYSTEMS: ReadonlySet<string> = new Set([
   'latn', 'arab', 'deva', 'beng', 'guru', 'gujr', 'orya', 'tamldec',
   'telu', 'knda', 'mlym', 'fullwide', 'hanidec',

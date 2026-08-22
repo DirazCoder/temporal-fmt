@@ -1,4 +1,4 @@
-// Serialization / interop helpers (plan section U). Standardized
+// Serialization / interop helpers. Standardized
 // parse/format pairs for ISO 8601, RFC 3339, RFC 2822, HTTP-date,
 // plus epoch conversions to/from unix seconds/ms/µs/ns.
 //

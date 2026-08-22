@@ -1,4 +1,4 @@
-// Duration extensions (plan section I). The existing formatDuration()
+// Duration extensions. The existing formatDuration()
 // in formatDuration.ts stays as-is; this module adds the rest of the
 // duration surface: parseDuration, parseISODuration, formatISODuration,
 // formatDurationToParts, balanceDuration, roundDuration (re-exported

@@ -1,4 +1,4 @@
-// Time-zone subsystem (plan section Q). Wraps Temporal.ZonedDateTime's
+// Time-zone subsystem. Wraps Temporal.ZonedDateTime's
 // timezone introspection surface in temporal-fmt's field-based convention.
 // Includes disambiguation modes (compatible/earlier/later/reject) for
 // DST gaps and overlaps, plus transition queries (getNextTransition,

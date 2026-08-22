@@ -1,4 +1,4 @@
-// Rounding helpers (plan section N). Pure functions over field bags,
+// Rounding helpers. Pure functions over field bags,
 // same convention as arithmetic.ts/calendarUtils.ts.
 
 import { asDateFieldView, type DateFieldView } from './calendarUtils.js';

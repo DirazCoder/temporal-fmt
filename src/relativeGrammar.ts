@@ -1,4 +1,4 @@
-// Relative-grammar registration (plan section K). Extends the existing
+// Relative-grammar registration. Extends the existing
 // parseRelative.ts with an extension point for registering additional
 // grammars beyond the four built in (English, Spanish, French, German).
 //

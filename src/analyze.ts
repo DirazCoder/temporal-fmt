@@ -1,6 +1,6 @@
 // Format-string analysis and introspection. Single source of truth for
 // "what does this format string need / accept / produce" — consumed by
-// the ESLint plugin and the codemod (Phase 3, per the plan's section AA)
+// the ESLint plugin and the codemod
 // so they don't each carry their own token table that drifts out of
 // sync with the runtime. Everything here reads from TOKENS in
 // tokens.ts and TOKEN_METADATA in tokenMetadata.ts, so adding a token
@@ -15,8 +15,7 @@ import { UNPADDED_NUMERIC_TOKENS, FORMAT_ONLY_TOKENS } from './pattern.js';
 import { MAX_FORMAT_LENGTH } from './constants.js';
 
 // Re-exported so callers can import everything analyzer-related from a
-// single entry point — analyze.ts is the "introspection surface" the
-// plan's section E describes.
+// single entry point — analyze.ts is the introspection surface.
 export type { TokenMetadata, TemporalType } from './tokenMetadata.js';
 export type { Piece } from './tokenize.js';
 
@@ -282,7 +281,9 @@ export function explainFormat(formatStr: string): string {
 // isValidFormat: true iff tokenize() accepts the string without
 // throwing. Distinct from analyzeFormat's `parseable` flag — a format
 // string can be valid (tokenizes cleanly) but not parseable (contains
-// a format-only token like `do`). The plan's section W asks for both.
+// a format-only token like `do`). Both checks are exposed since callers
+// want different things: validity for "will format() throw", parseability
+// for "will parse() throw".
 export function isValidFormat(formatStr: string): boolean {
   if (formatStr.length > MAX_FORMAT_LENGTH) return false;
   try {

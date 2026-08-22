@@ -1,4 +1,4 @@
-// Recurrence engine (plan section T). Deterministic RRULE-like
+// Recurrence engine. Deterministic RRULE-like
 // recurrence without pulling in a runtime dependency. Supports
 // secondly/minutely/hourly/daily/weekly/monthly/yearly frequencies,
 // interval, count, until, weekdays, monthDays, positional rules,

@@ -1,4 +1,4 @@
-// Locale registration and lookup (plan section F). Extends the
+// Locale registration and lookup. Extends the
 // existing registerLocaleVocab() surface in localeVocab.ts with
 // registerLocale() / getLocale() / hasLocale() and a richer LocaleVocab
 // that covers quarters, eras, ordinals, duration units, and relative-

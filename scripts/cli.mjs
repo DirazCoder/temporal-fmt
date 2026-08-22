@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// temporal-fmt CLI (plan section AD). Subcommands: format, parse, inspect,
+// temporal-fmt CLI. Subcommands: format, parse, inspect,
 // validate, translate. Two modes:
 //   - one-shot: `temporal-fmt <subcommand> [args...]` runs once and exits,
 //     same as always — this is what scripts and CI should use.

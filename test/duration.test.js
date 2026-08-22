@@ -5,10 +5,9 @@ import {
   balanceDuration, totalDuration, compareDuration, addDuration, subtractDuration,
 } from '../dist/index.js';
 
-// phase2-final.test.js covers the basic happy paths for most of these;
-// this fills in formatDurationToParts (untested there), the ISO-duration
-// grammar's weeks/fractional/all-unit paths, parseDuration's short/long
-// forms and error branches, and totalDuration's unsupported-unit throw.
+// Covers formatDurationToParts, the ISO-duration grammar's
+// weeks/fractional/all-unit paths, parseDuration's short/long forms
+// and error branches, and totalDuration's unsupported-unit throw.
 
 test('formatDurationToParts: splits a simple token/literal format into parts', () => {
   // 'h' is numeric hours, 'mm' is minutes in short-suffix form (a duration

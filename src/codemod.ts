@@ -1,13 +1,13 @@
-// Day.js / date-fns format-string translation (plan section AD, CLI
-// `translate` subcommand). This used to shell out to a separate
-// `temporal-fmt-codemod` package; as of 0.9 the mapping tables already
-// live in ideData.ts for the IDE tooling, so translation is folded in
-// here instead of depending on an external, unpublished package.
+// Day.js / date-fns format-string translation — backs the CLI's
+// `translate` subcommand. The mapping tables already live in
+// ideData.ts for the IDE tooling, so this module builds the actual
+// string translator on top of them rather than depending on anything
+// external.
 //
 // Scope: format *strings* only (`"YYYY-MM-DD"` -> `"yyyy-MM-dd"`), not
-// an AST codemod that rewrites call sites. A tool that rewrites
+// an AST codemod that rewrites call sites. Rewriting
 // `dayjs(x).format(fmt)` call expressions across a codebase is a
-// separate, much bigger project than this library takes on.
+// separate, bigger job — see `temporal-fmt-codemod` for that.
 
 import { DAYJS_TO_TEMPORAL_FMT, DATE_FNS_TO_TEMPORAL_FMT, type TokenConversionHint } from './ideData.js';
 

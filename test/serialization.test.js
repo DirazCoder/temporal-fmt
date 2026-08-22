@@ -36,8 +36,7 @@ import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 setTemporal(Temporal);
 
-// phase2-final.test.js covers the happy paths for most of these. This
-// fills in the branches c8 flagged as uncovered: parseISO's time-only
+// Covers the branches c8 flagged as uncovered: parseISO's time-only
 // and garbage-input paths, formatISO's non-Temporal throw, RFC 3339's
 // offset-zone and fractional-second grammar, RFC 2822's three dispatch
 // shapes, HTTP-date's throws, and the epoch-conversion helpers'

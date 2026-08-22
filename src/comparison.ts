@@ -1,4 +1,4 @@
-// Comparison helpers (plan section O). Pure functions over the field
+// Comparison helpers. Pure functions over the field
 // shape, no Temporal namespace needed — same convention as
 // calendarUtils.ts. All comparisons are field-based, not identity-based,
 // so a polyfill PlainDate compares equal to a native PlainDate with the

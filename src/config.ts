@@ -1,4 +1,4 @@
-// Central configuration (plan section H). Per-call options are the
+// Central configuration. Per-call options are the
 // default convention throughout this library (see formatDistance's
 // cutoffs precedent — explicitly NOT a global). This module provides
 // a typed ConfigOptions surface that callers can build once and pass

@@ -1,4 +1,4 @@
-// Intervals / ranges (plan section P). An interval is a pair of
+// Intervals / ranges. An interval is a pair of
 // (start, end) Temporal values with bounds semantics: open, closed,
 // or half-open. Operations: contains, overlaps, intersects, isBefore,
 // isAfter, intersection, union, difference, subtract, mergeIntervals,
@@ -143,7 +143,8 @@ function flipEndBounds(startBounds: IntervalBounds, endBounds: IntervalBounds): 
   return 'closed';
 }
 
-// Alias for difference() to match the plan's listing.
+// Alias for difference() — "subtract" reads more naturally at some
+// call sites than "difference" does.
 export const subtract = difference;
 
 // Merges a list of intervals, combining overlapping ones. Returns a

@@ -1,8 +1,8 @@
-// Relative time helpers (plan section J). The existing formatDistance()
-// in formatDistance.ts stays; this module adds formatRelative() and
+// Relative time helpers. The existing formatDistance() in
+// formatDistance.ts stays; this module adds formatRelative() and
 // formatRelativeToNow().
 //
-// Semantic distinction (per the plan):
+// Semantic distinction:
 //   formatDistance(date1, date2) — "3 days ago" / "in 2 hours"
 //     Describes the gap between two values, delegating unit selection
 //     and pluralization to Intl.RelativeTimeFormat.

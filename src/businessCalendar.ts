@@ -1,7 +1,7 @@
-// Business calendar (plan section R). Customizable weekend definitions,
-// holiday set, observed holidays, working hours, optional half days.
-// The holiday check is delegated to a holiday calendar (Section S) so
-// this module stays focused on weekday-vs-weekend logic.
+// Business calendar. Customizable weekend definitions, holiday set,
+// observed holidays, working hours, optional half days. The holiday
+// check is delegated to a holiday calendar (holidays.ts) so this
+// module stays focused on weekday-vs-weekend logic.
 
 import { add } from './arithmetic.js';
 import type { HolidayCalendar } from './holidays.js';

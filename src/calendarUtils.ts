@@ -1,4 +1,4 @@
-// Calendar utility helpers (plan section L). These are pure functions
+// Calendar utility helpers. These are pure functions
 // over the TemporalLike shape — no Temporal namespace needed, same
 // approach as isoWeek.ts and the field-reading helpers in format.ts.
 // Letting callers compute dayOfYear/weekOfYear/etc. without going
@@ -78,7 +78,7 @@ export function isLeapYear(view: DateFieldView): boolean {
 // `isLeapMonth` would require knowing which month of a leap-year-aware
 // calendar is the leap month — Gregorian doesn't have one, so this
 // returns false unconditionally. Kept here so the public surface
-// matches the plan's section L listing; non-Gregorian calendars need
+// matches the module's listing; non-Gregorian calendars need
 // a different implementation.
 export function isLeapMonth(_view: DateFieldView): boolean {
   return false;
@@ -142,11 +142,11 @@ export function getQuarter(view: DateFieldView, options: QuarterOptions = {}): n
   return Math.ceil(shifted / 3);
 }
 
-// `getMonth` / `getWeekday` look trivial (just read the field) but the
-// plan's section L lists them explicitly, so they're here for surface
-// completeness. They also normalize: getWeekday returns 1-7 (Mon-Sun,
-// matching Temporal's spec) regardless of what numbering the caller's
-// underlying value uses.
+// `getMonth` / `getWeekday` look trivial (just read the field) but
+// they're kept as real functions for API surface consistency with the
+// rest of this module. They also normalize: getWeekday returns 1-7
+// (Mon-Sun, matching Temporal's spec) regardless of what numbering the
+// caller's underlying value uses.
 export function getMonth(view: DateFieldView): number {
   requireFields(view, ['month']);
   return view.month!;

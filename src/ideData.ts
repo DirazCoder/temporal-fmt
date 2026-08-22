@@ -1,13 +1,11 @@
-// IDE tooling data exports (plan section AC). Provides structured data
-// editor plugins can consume for: token autocomplete, hover docs,
-// inline diagnostics, quick fixes, format preview, token conversion
-// hints from Day.js/date-fns, documentation links.
+// IDE tooling data exports. Provides structured data editor plugins can
+// consume for: token autocomplete, hover docs, inline diagnostics,
+// quick fixes, format preview, token conversion hints from
+// Day.js/date-fns, documentation links.
 //
-// This is the data layer; an actual VS Code extension is out of scope
-// (per the plan's section AC: "build the data layer; an actual VS Code
-// extension is out of scope unless it already exists in one of the
-// three repos"). A separate package can build the extension on top of
-// these exports.
+// This is the data layer only — an actual VS Code extension is out of
+// scope for this package. A separate package can build the extension
+// on top of these exports.
 
 import { TOKEN_METADATA, ALL_TOKEN_NAMES } from './tokenMetadata.js';
 import { analyzeFormat, listTokens } from './analyze.js';
@@ -21,8 +19,8 @@ export interface TokenAutocompleteEntry {
   family: string;
 }
 
-// Token family grouping for autocomplete organization. Mirrors the
-// families the plan's section B calls out: year, month, day, etc.
+// Token family grouping for autocomplete organization: year, month,
+// day, etc.
 function tokenFamily(name: string): string {
   if (/^y+$/.test(name)) return 'Year';
   if (/^[ML]+$/.test(name)) return 'Month';

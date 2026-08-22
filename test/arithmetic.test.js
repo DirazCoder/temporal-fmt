@@ -37,8 +37,7 @@ import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 setTemporal(Temporal);
 
-// phase2.test.js covers add()/subtract() and most of the per-unit
-// wrappers; this fills in the three wrappers it skips plus the
+// Covers add()/subtract(), the per-unit wrappers, and the
 // dayOfWeek-recompute path (added to fix byWeekday recurrence rules
 // silently matching against a stale weekday after a date shift).
 

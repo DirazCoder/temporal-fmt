@@ -1,4 +1,4 @@
-// Date arithmetic helpers (plan section M). Pure functions returning
+// Date arithmetic helpers. Pure functions returning
 // field bags, same convention as calendarUtils.ts/comparison.ts — no
 // Temporal namespace needed. Callers can pass the result back into a
 // Temporal constructor to get a typed value, or chain operations
@@ -179,7 +179,7 @@ export function subtract(value: unknown, amount: number, unit: AddUnit): DateTim
   return add(value, -amount, unit);
 }
 
-// Per-unit convenience wrappers — matches the plan's listing of
+// Per-unit convenience wrappers — matches the grouping of
 // addYears / addMonths / ... / subtractNanoseconds. Nanosecond variants
 // aren't provided here because these helpers operate on field bags, and
 // the millisecond/microsecond/nanosecond split isn't preserved through

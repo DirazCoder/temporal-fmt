@@ -6,8 +6,8 @@ import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 setTemporal(Temporal);
 
-// Covers the createFormatter API paths that phase2-final.test.js doesn't
-// touch: formatToParts, quoted literals, error branches, defaultLocale,
+// Covers the createFormatter API paths not exercised elsewhere:
+// formatToParts, quoted literals, error branches, defaultLocale,
 // and compileFormat's own format/formatToParts closures (they duplicate
 // the top-level logic rather than delegating, so they need their own
 // tests to cover).

@@ -1,4 +1,4 @@
-// Per-token metadata: the structured descriptor the plan's section B
+// Per-token metadata: the structured descriptor this module
 // asks for (meaning, format-capable?, parse-capable?, locale-sensitive?,
 // calendar-sensitive?, timezone-sensitive?, supported Temporal types,
 // round-trip-safe?). One table, kept in sync with TOKENS in tokens.ts
@@ -6,7 +6,7 @@
 // a metadata entry, and vice versa).
 //
 // This is the single source of truth that analyzeFormat() (section E)
-// and the ESLint plugin / codemod (Phase 3) consume — never read the
+// and the ESLint plugin / codemod consume — never read the
 // TOKENS array directly for metadata; use TOKEN_METADATA here, or the
 // tokenInfo() / listTokens() wrappers in analyze.ts.
 

@@ -12,7 +12,7 @@ export type { FormatDistanceOptions, DistanceCutoffs } from './formatDistance.js
 export type { ParseRelativeOptions } from './parseRelative.js';
 export type { TemporalNamespace } from './temporalProvider.js';
 
-// Section A/V — type guards
+// type guards
 export {
   isTemporal, isInstant, isPlainDate, isPlainTime, isPlainDateTime,
   isZonedDateTime, isPlainYearMonth, isPlainMonthDay, isDuration,
@@ -21,7 +21,7 @@ export {
   assertPlainMonthDay, assertDuration,
 } from './typeGuards.js';
 
-// Section D — typed errors
+// typed errors
 export {
   TemporalFmtError, FormatSyntaxError, UnknownTokenError, ParseMismatchError,
   InvalidDateError, InvalidTimeError, InvalidOffsetError, InvalidTimeZoneError,
@@ -29,20 +29,20 @@ export {
   type TemporalFmtErrorFields, type TemporalFmtErrorCode,
 } from './errors.js';
 
-// Section E — analyzer / introspection
+// analyzer / introspection
 export {
   analyzeFormat, explainFormat, tokenizeFormat, listTokens, tokenInfo,
   isValidFormat, validateFormat, fieldForToken,
   type FormatAnalysis, type AnalyzedToken, type TokenMetadata, type TemporalType,
 } from './analyze.js';
 
-// Section B — token metadata (re-exported as a top-level surface for
+// token metadata (re-exported as a top-level surface for
 // callers like the ESLint plugin that want the table directly without
 // going through analyzeFormat)
 export { TOKEN_METADATA, ALL_TOKEN_NAMES } from './tokenMetadata.js';
 export { FORMAT_ONLY_TOKENS } from './pattern.js';
 
-// Section L — calendar utilities
+// calendar utilities
 export {
   daysInMonth, daysInYear, monthsInYear, isLeapYear, isLeapMonth,
   dayOfYearHelper as dayOfYear, weekOfYear, weekYear,
@@ -50,7 +50,7 @@ export {
   type DateFieldView, type StartOfUnit, type QuarterOptions,
 } from './calendarUtils.js';
 
-// Section M — date arithmetic
+// date arithmetic
 export {
   add, subtract, difference,
   addYears, addMonths, addWeeks, addDays, addHours, addMinutes, addSeconds, addMilliseconds,
@@ -59,7 +59,7 @@ export {
   type AddUnit, type DiffUnit,
 } from './arithmetic.js';
 
-// Section O — comparison
+// comparison
 export {
   compare, isEqual, isBefore, isAfter, min, max, clamp, isBetween,
   isToday, isTomorrow, isYesterday,
@@ -67,10 +67,10 @@ export {
   isWeekend, isWeekday,
 } from './comparison.js';
 
-// Section N — rounding
+// rounding
 export { round, floor, ceil, truncate, roundDuration, type RoundOptions, type DurationFields } from './rounding.js';
 
-// Section U — serialization
+// serialization
 export {
   parseISO, formatISO,
   parseRFC3339, formatRFC3339,
@@ -81,32 +81,32 @@ export {
   parseSQL, formatSQL,
 } from './serialization.js';
 
-// Section I — duration (extended)
+// duration (extended)
 export {
   formatDurationToParts, parseDuration, parseISODuration, formatISODuration,
   balanceDuration, totalDuration, compareDuration, addDuration, subtractDuration,
 } from './duration.js';
 export { roundDuration as roundDurationAlias } from './rounding.js';
 
-// Section J — relative time
+// relative time
 export { formatRelative, formatRelativeToNow, type FormatRelativeOptions } from './relativeTime.js';
 
-// Section F — locale registration
+// locale registration
 export { registerLocale, getLocale, hasLocale, type ExtendedLocaleVocab } from './localeRegistry.js';
 
-// Section G — numbering systems
+// numbering systems
 export {
   convertDigits, convertDigitsToAscii, applyNumbering, applyParseNumbering,
   SUPPORTED_NUMBERING_SYSTEMS, type NumberingSystem, type NumberingFormatOptions,
 } from './numbering.js';
 
-// Section H — config
+// config
 export { createConfig, mergeWithConfig, DEFAULT_CONFIG, type TemporalFmtConfig } from './config.js';
 
-// Section K — relative-grammar registration
+// relative-grammar registration
 export { registerRelativeGrammar, listRegisteredGrammars, type RelativeGrammar, type RelativeGrammarMatch } from './relativeGrammar.js';
 
-// Section P — intervals
+// intervals
 export {
   interval, contains as intervalContains, overlaps, intersects,
   isBefore as intervalIsBefore, isAfter as intervalIsAfter,
@@ -116,40 +116,40 @@ export {
   type Interval, type IntervalBounds,
 } from './interval.js';
 
-// Section T — recurrence
+// recurrence
 export {
   recurrence, take, skip, between,
   parseRRule, formatRRule,
   type RecurrenceRule, type RecurrenceFrequency, type RecurrenceIterator,
 } from './recurrence.js';
 
-// Section R — business calendar
+// business calendar
 export {
   createBusinessCalendar, isBusinessDay, addBusinessDays, subtractBusinessDays,
   differenceInBusinessDays, nextBusinessDay, previousBusinessDay,
   type BusinessCalendar, type BusinessCalendarOptions,
 } from './businessCalendar.js';
 
-// Section S — holiday framework
+// holiday framework
 export {
   createHolidayCalendar, nextHoliday, previousHoliday, holidaysBetween,
   type HolidayCalendar, type HolidaySpec,
 } from './holidays.js';
 
-// Section Q — timezone subsystem
+// timezone subsystem
 export {
   resolveZoned, getTimeZone, getOffset, getOffsetNanoseconds, isDST,
   getNextTransition, getPreviousTransition, getTransitions, possibleInstantsFor,
   type DisambiguationMode, type ResolveZonedOptions,
 } from './timezone.js';
 
-// Section X — extensibility
+// extensibility
 export {
   createFormatter,
   type Formatter, type FormatterOptions, type CustomToken, type TokenHandler, type TokenField,
 } from './extensibility.js';
 
-// Section AC — IDE tooling data
+// IDE tooling data
 export {
   getAutocompleteData, getHoverDocs, getInlineDiagnostics,
   previewFormat, getDocUrl,
