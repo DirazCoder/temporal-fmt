@@ -4,14 +4,14 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
-## 0.8.982 — 2026-08-22 (HOTFIX)
+## 0.8.982 — 2026-08-22 (`e6b7fa7` — HOTFIX)
 ### Fixed
 - Offset tokens (`X`/`XX`/`XXX`/`x`/`xx`/`xxx`) threw a generic error on
   numeric-offset ISO input (`+02:00`) instead of explaining that the
   offset is intentionally dropped during parsing and that offset tokens
   only work on `Z`-suffixed input.
 
-## 0.8.981 — 2026-08-22
+## 0.8.981 — 2026-08-22 (`59ec5c5`)
 ### Changed
 - Comment cleanup across ~30 files, no logic touched. The concrete
   change in `index.ts`: dropped the `// Section A/V —`, `// Section D —`
@@ -20,7 +20,7 @@ For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
   naming the group, no lettered/numbered section markers. Other files
   got smaller wording trims of the same kind.
 
-## 0.8.98 — 2026-08-22
+## 0.8.98 — 2026-08-22 (`7ef3b41`)
 ### Added
 - CLI `translate` subcommand is now a real in-repo implementation
   (previously depended on an external `temporal-fmt-codemod` package).
@@ -35,7 +35,7 @@ For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 - CLI's ISO-input detection blindly appended `Z` even to input that
   already had a numeric offset, producing malformed strings.
 
-## 0.8.97 — 2026-08-22
+## 0.8.97 — 2026-08-22 (`7162b16`)
 ### Fixed
 - `addBusinessDays()` / `differenceInBusinessDays()` now validate input
   (reject non-finite, fractional, unsafe-integer values) and bound large
@@ -50,7 +50,7 @@ For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 - Hardened public APIs against resource-exhaustion input generally.
 - Bumped esbuild 0.28.1 → 0.28.2.
 
-## 0.8.96 — 2026-08-21
+## 0.8.96 — 2026-08-21 (`a0b2f40`)
 ### Fixed
 - `startOf()`/`endOf()` now recompute `dayOfWeek` after a month/year
   boundary change instead of carrying over the stale value from the
@@ -74,12 +74,12 @@ For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 - c8 coverage gate raised to 100% (statements/branches/functions/lines)
   across `src/` and `dist/`, enforced via `package.json`.
 
-## 0.8.95 — 2026-08-21
+## 0.8.95 — 2026-08-21 (`8bbbe69`)
 ### Fixed
 - Same `startOf()`/`endOf()` `dayOfWeek` fix as 0.8.96, landed here first
   for this release line.
 
-## 0.8.94 — 2026-08-21
+## 0.8.94 — 2026-08-21 (`fbe521d`)
 ### Added
 - `format()`/`parse()` now actually apply the `numberingSystem` /
   `parseNumberingSystem` options — the conversion helpers existed but
@@ -91,7 +91,7 @@ For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 - `parseRelative({ fuzzy: true })` — typo-tolerant matching, English-only,
   opt-in, max edit distance 2.
 
-## 0.8.93 / 0.8.92 — 2026-08-20
+## 0.8.93 / 0.8.92 — 2026-08-20 (`bd280ec/dcd9a0f`)
 ### Changed
 - 0.8.92 fully restructured the README (588 insertions, 684 deletions)
   — new Contents/table of contents, sections renamed for clarity
@@ -106,13 +106,13 @@ For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
   `format()`/`parse()` — plus a new "Testing" section describing the
   `node:test`/`vitest`/conformance/smoke-test split.
 
-## 0.8.91 — 2026-08-20
+## 0.8.91 — 2026-08-20 (`2734169`)
 ### Security
 - Removed a polynomial ReDoS in locale error classification.
 ### Fixed
 - `cli.mjs` was missing from `package.json`'s `files`.
 
-## 0.8.82 — 2026-08-20
+## 0.8.82 — 2026-08-20 (`c79d01e`)
 ### Fixed
 - DST overlap: `offset: 'prefer'` could silently resolve to the wrong
   occurrence when an explicit offset token disagreed with it — now throws
@@ -122,7 +122,7 @@ For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
   present to disagree with the shift.
   _(Reported in #8.)_
 
-## 0.8.81 — 2026-08-20
+## 0.8.81 — 2026-08-20 (`ba6935e`)
 ### Added
 - `conformance/` test suite — a fixtures-based test file
   (`conformance.test.js`) plus a README explaining the format, added
@@ -141,7 +141,7 @@ For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 ### Docs
 - README tool links point at package pages instead of GitHub.
 
-## 0.8.9 — 2026-08-20
+## 0.8.9 — 2026-08-20 (`8fa86d2`)
 ### Added
 Large feature pass — biggest release since 0.8.82. Highlights:
 - New format-only tokens: `LLLL`/`LLL` (standalone month), `cccc`/`ccc`
@@ -197,13 +197,13 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   resolution failure even though modern resolvers (`node16`, `bundler`)
   were fine.
 
-## 0.8.8 — 2026-08-19
+## 0.8.8 — 2026-08-19 (`72d617c`)
 ### Changed
 - Removed a leftover README note about a botched npm publish on a
   related tool (`eslint-plugin-temporal-fmt`) that had since been
   republished and was no longer blocked.
 
-## 0.8.7 — 2026-08-19
+## 0.8.7 — 2026-08-19 (`afc0800`)
 ### Added
 - Six UTC offset tokens: `X`, `XX`, `XXX`, `x`, `xx`, `xxx`. Uppercase
   emits `Z` at UTC; lowercase always writes the numeric offset.
@@ -211,7 +211,7 @@ Large feature pass — biggest release since 0.8.82. Highlights:
 - `zzz` and an offset token can coexist in one pattern; cross-checked
   against each other, mismatch throws.
 
-## 0.8.6 — 2026-08-19
+## 0.8.6 — 2026-08-19 (`5da93b6`)
 ### Added
 - Locale-aware `formatDuration` — word-form tokens now route through
   `Intl.NumberFormat`'s `style: 'unit'` mode. Default locale unchanged,
@@ -226,7 +226,7 @@ Large feature pass — biggest release since 0.8.82. Highlights:
 - French duration/distance output correctly uses NBSP per typographic
   convention (was previously flagged as a test mismatch).
 
-## 0.8.5 — 2026-08-19
+## 0.8.5 — 2026-08-19 (`52dd2e8`)
 ### Added
 - `S` through `SSSSSSSSS` — fractional-second tokens now go to full
   nanosecond precision, not just fixed 3-digit `SSS`. Format truncates,
@@ -236,7 +236,7 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   (bundler minification decoupled call sites from the declaration) —
   moved the helper onto `pad()` (`pad.fraction`). No behavior change.
 
-## 0.8.4 — 2026-08-19
+## 0.8.4 — 2026-08-19 (`cf3ae0c`)
 ### Fixed
 - The `a` (AM/PM) token was case-sensitive with no real reason —
   `parse('h:mm a', '3:45 pm')` now succeeds instead of throwing.
@@ -245,7 +245,7 @@ Large feature pass — biggest release since 0.8.82. Highlights:
 - `HH`/`H` combined with `a` was already supported/cross-checked but
   undocumented — now written down and directly tested.
 
-## 0.8.3 — 2026-08-18
+## 0.8.3 — 2026-08-18 (`d6b90a6`)
 ### Added
 - `do` ordinal-day token (English-only suffix rules).
 - `Q`/`QQQ` quarter tokens, cross-checked against month/date tokens
@@ -266,13 +266,13 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   Test runner switched from the plain `node --test` glob to a dedicated
   `scripts/run-tests.mjs`.
 
-## 0.8.2 — 2026-08-16
+## 0.8.2 — 2026-08-16 (`46470d3`)
 ### Fixed
 - `require()` resolved to an ESM-shaped `.d.ts` for a CJS file, which
   Node16+ TypeScript resolution flagged as "masquerading as ESM." Build
   now generates a matching `.d.cts` twin.
 
-## 0.8.1 — 2026-08-16
+## 0.8.1 — 2026-08-16 (`fafa568`)
 ### Security
 - Same `zzz` regex-expansion DoS as the 0.7.98 backport (see below),
   fixed the same way in the 0.8.x line.
@@ -289,7 +289,7 @@ Large feature pass — biggest release since 0.8.82. Highlights:
 - Locale-keyed caches now canonicalize locale strings (`en-US` /
   `en-us` / `en_US` → one cache key) instead of three separate slots.
 
-## 0.7.98 — 2026-08-16 (backport of 0.8.1's security fix)
+## 0.7.98 — 2026-08-16 (`da23e0d` — backport of 0.8.1's security fix)
 ### Security
 - `zzz` built its regex by inlining the entire `Intl.supportedValuesOf
   ('timeZone')` list per occurrence — repeating `zzz` enough times in a
@@ -297,7 +297,7 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   bounded zone-id shape matched first, validated against the real list
   after. ~760ms → <100ms for 160 repeated `zzz` tokens.
 
-## 0.8.0 — 2026-08-15
+## 0.8.0 — 2026-08-15 (`f71378a`)
 ### Fixed
 - `parse()` now caps input at 100,000 characters.
 - Unknown day-period (`a`) strings now throw immediately instead of
@@ -312,14 +312,14 @@ Large feature pass — biggest release since 0.8.82. Highlights:
 - CI pins `actions/checkout`/`actions/setup-node` to commit SHAs.
 - Removed the unpinned `npm install -g npm@latest` release step.
 
-## 0.7.97 — 2026-08-15 (backport of two 0.8.0 hardening fixes)
+## 0.7.97 — 2026-08-15 (`9ebd41c` — backport of two 0.8.0 hardening fixes)
 ### Fixed
 - `parse()` 100,000-character input cap.
 - Memoized, capped `enumerateValidSplits`.
 ### Security
 - Same CI SHA-pinning and npm-install removal as 0.8.0.
 
-## 0.7.96 — 2026-08-14
+## 0.7.96 — 2026-08-14 (`df56bc9`)
 ### Added
 - More vitest tests targeting bugs the `node:test` suite alone wasn't
   catching.
@@ -330,18 +330,18 @@ Large feature pass — biggest release since 0.8.82. Highlights:
 - `0.6.x` support policy tightened further; unused comments and stale
   dependencies cleaned up.
 
-## 0.7.95 — 2026-08-11
+## 0.7.95 — 2026-08-11 (`2861c7e`)
 ### Changed
 - TypeScript 7 upgrade; `.d.ts` generation disabled as a result.
 
-## 0.7.9 — 2026-08-10
+## 0.7.9 — 2026-08-10 (`9f7ea7e`)
 ### Fixed
 - A README code example had a wrong Markdown-escaped snippet.
 ### Changed
 - Comments in the adversarial and combinatorial test suites refactored
   for clarity, no test-behavior change.
 
-## 0.7.8 — 2026-08-09
+## 0.7.8 — 2026-08-09 (`ff4e921`)
 ### Added
 - New adversarial/perf test suites (pathological Unicode, malformed
   BCP47 tags, ReDoS/catastrophic-backtracking checks).
@@ -354,7 +354,7 @@ Large feature pass — biggest release since 0.8.82. Highlights:
 - Reordered unpadded-numeric regex alternations to try the longer
   branch first, fixing some silent mis-splits even in unambiguous cases.
 
-## 0.7.7 — 2026-08-09
+## 0.7.7 — 2026-08-09 (`cbbf094`)
 ### Fixed
 - `MMMM`/`MMM` produced text `parse()` couldn't read back for locales
   that render months with a separate suffix part (e.g. `ja-JP`'s 月).
@@ -369,13 +369,13 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   the wrong month/weekday for dates before ~1582 CE — an ICU/Julian-
   Gregorian cutover limitation (tc39/ecma402#1003), not fixable here.
 
-## 0.7.6 — 2026-08-09
+## 0.7.6 — 2026-08-09 (`d46dea4`)
 ### Fixed
 - `yyyy` produced a malformed string for negative years — `pad()` was
   padding the sign into the digit width. Sign now split off before
   padding.
 
-## 0.7.5 — 2026-08-09
+## 0.7.5 — 2026-08-09 (`5d7d414`)
 ### Fixed
 - `vocabCache` had no size cap, unlike the other three internal caches.
   Now capped the same way.
@@ -383,7 +383,7 @@ Large feature pass — biggest release since 0.8.82. Highlights:
 - `0.6.x` support policy changed from "critical fixes only" to "fixes
   only, if backportable."
 
-## 0.7.4 — 2026-08-09
+## 0.7.4 — 2026-08-09 (`6d420d1`)
 ### Added
 - `setTemporal()` (PR #6, FoxxMD) — an optional top-level export letting
   consumers inject their own Temporal implementation instead of relying
@@ -403,11 +403,11 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   dead the instant the next version ships — everything before `0.6.0`
   had no such window and is fully EOL.
 
-## 0.6.3 — 2026-08-09
+## 0.6.3 — 2026-08-09 (`8205912`)
 ### Fixed
 - Backport of the 0.7.6 `pad()` negative-year fix.
 
-## 0.6.2 — 2026-08-09
+## 0.6.2 — 2026-08-09 (`a7f32bb`)
 ### Fixed
 - Backport of the 0.7.5 `vocabCache` size-cap fix.
 ### Docs
@@ -415,7 +415,7 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   supported, `0.6.x` kept alive as a critical-fixes-only backport line,
   anything older unsupported.
 
-## 0.7.3 — 2026-08-08
+## 0.7.3 — 2026-08-08 (`c6d6d1c`)
 ### Changed
 - Comments trimmed in `format.ts`, `parse.ts`, `tokens.ts`,
   `localeVocab.ts`, and `tokenize.ts` — mostly cutting redundant
@@ -425,7 +425,7 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   `parse()`'s top-level doc comment also fixed a typo ("escribes an
   impossible date" → "describes an impossible date"). No logic changed.
 
-## 0.7.2 — 2026-08-08
+## 0.7.2 — 2026-08-08 (`64d368b`)
 ### Changed
 - `parse()` now throws whenever a format string mixes 24-hour (`HH`) and
   12-hour (`hh`/`a`) tokens (PR #5, jameswilloton2-hash) — regardless of
@@ -434,7 +434,7 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   types present at all as the problem, rather than silently letting `HH`
   win.
 
-## 0.7.1 — 2026-08-08
+## 0.7.1 — 2026-08-08 (`d310354`)
 ### Fixed
 - Type-safety fix: added an `unknown as` cast in `temporalGlobal.ts`.
 ### Docs
@@ -442,7 +442,7 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   critical-fixes-only) restored here after being accidentally reverted
   in 0.7.0.
 
-## 0.7.0 — 2026-08-08
+## 0.7.0 — 2026-08-08 (`de2a569`)
 ### Added
 - Support for Node 20+ without native Temporal (PR #4, FoxxMD) — removed
   the hard requirement for native `Intl`/Temporal interop on locale-aware
@@ -460,7 +460,7 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   form here — likely a stale merge rather than an intentional change,
   since the table reappears again by 0.7.5 with the same content.
 
-## 0.6.1 — 2026-08-08
+## 0.6.1 — 2026-08-08 (`c6c1a8a`)
 ### Fixed
 - Backport of the 0.7.1 unsafe-cast fix.
 ### Changed
@@ -470,7 +470,7 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   exists, but this makes sure people pinned to `0.6.x` still get a
   real, installable tag rather than a failed publish.
 
-## 0.6.0 — 2026-08-06
+## 0.6.0 — 2026-08-06 (`fc17279`)
 ### Added
 - Real `parse()` function (PR #2, FoxxMD), superseding `matchesFormat()`.
   Returns an actual Temporal object instead of a plausibility guess, and
@@ -488,15 +488,15 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   date, at the cost of being a fixed, opinionated window rather than a
   sliding one.
 
-## 0.5.4 — 2026-08-06
+## 0.5.4 — 2026-08-06 (`13ef4f9`)
 ### Changed
 - Added a minification build step.
 
-## 0.5.3 — 2026-08-06
+## 0.5.3 — 2026-08-06 (`68ae18d`)
 ### Changed
 - License name change only.
 
-## 0.5.2 — 2026-08-06
+## 0.5.2 — 2026-08-06 (`4c30d5a`)
 ### Added
 - First `SECURITY.md` — private vulnerability reporting via GitHub
   security advisories instead of public issues, plus a "credited in
@@ -507,11 +507,11 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   npm page). Dev dependencies pinned to exact versions in the same
   commit.
 
-## 0.5.1 — 2026-08-06
+## 0.5.1 — 2026-08-06 (`413efdb`)
 ### Added
 - "Special thanks" section in the README.
 
-## 0.5.0 — 2026-08-06
+## 0.5.0 — 2026-08-06 (`ff518d5`)
 ### Added
 - `matchesFormat()` (PR #1, FoxxMD) — a heuristic, regex-based check for
   whether a string could plausibly have come from `format()`, as a
@@ -526,7 +526,7 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   output. Other non-IANA-but-valid ids (fixed offsets) may have the same
   gap but weren't confirmed.
 
-## 0.3.2 / 0.3.1 — 2026-08-04
+## 0.3.2 / 0.3.1 — 2026-08-04 (`b971b3b/3748823`)
 ### Added
 - Release workflow can now be triggered manually (`workflow_dispatch`)
   in addition to pushing a version tag; the tag/package.json version
@@ -545,7 +545,7 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   either commit; 0.3.1 briefly reverted to 0.2.5 mid-fix before landing
   on the actual bug fix.
 
-## 0.3.0 — 2026-08-04
+## 0.3.0 — 2026-08-04 (`7340f60`)
 ### Breaking
 - `yy` now throws on negative years instead of silently mangling them
   (`t.year % 100` on a negative year produced a malformed, over-width
@@ -561,33 +561,33 @@ Large feature pass — biggest release since 0.8.82. Highlights:
 _All of the above landed in one commit; the author noted using a Claude
 audit to help catch the bugs it fixes._
 
-## 0.2.5 — 2026-08-04
+## 0.2.5 — 2026-08-04 (`066b301`)
 ### Changed
 - Dependencies un-pinned in `package.json` (no longer locked to exact
   versions).
 
-## 0.2.4 — 2026-08-04
+## 0.2.4 — 2026-08-04 (`761589f`)
 ### Fixed
 - A test file had a duplicated comment explanation, accidentally
   introduced in 0.2.3 — cleaned up, no behavior change.
 
-## 0.2.3 — 2026-08-04
+## 0.2.3 — 2026-08-04 (`5ac4aa1`)
 ### Changed
 - README wording tightened in two places — the "numeric fields stay
   Western-digit" note and the dev-notes section on the `tsconfig.json`
   `ignoreDeprecations` workaround and the `temporal-polyfill/full`
   test dependency. No factual change, just terser phrasing.
 
-## 0.2.2 — 2026-08-04
+## 0.2.2 — 2026-08-04 (`11baa23`)
 ### Changed
 - Added missing `author` field to `package.json`.
 
-## 0.2.1 — 2026-08-04
+## 0.2.1 — 2026-08-04 (`85f2d06`)
 ### Changed
 - Releases now go out via GitHub Actions instead of manual `npm publish`;
   publishes now carry Sigstore provenance attestation.
 
-## 0.2.0 — 2026-08-04
+## 0.2.0 — 2026-08-04 (`ee618cb`)
 ### Added
 - `format()` takes a third argument for BCP 47 locale tags (default
   `'en-US'`, existing calls unaffected). Localizes month/weekday names,
@@ -603,7 +603,7 @@ audit to help catch the bugs it fixes._
   Calendars`; the default `iso8601` calendar is no longer passed
   explicitly to `Intl` (was silently producing zero parts).
 
-## 0.1.1 — 2026-08-04
+## 0.1.1 — 2026-08-04 (`af36284`)
 ### Fixed
 - Doubled single-quotes inside a literal span (`''`) broke the
   tokenizer — `'it''s'` used to leave dangling unparsed text. Scanner
@@ -612,7 +612,7 @@ audit to help catch the bugs it fixes._
 - Tokenizer test suite, including the doubled-quote regression case.
 - `repository` field in `package.json`.
 
-## 0.1.0 — 2026-08-04
+## 0.1.0 — 2026-08-04 (`7563b83`)
 ### Added
 - Initial tagged release. The tag itself didn't exist at the time — it
   was created retroactively, pointing at whatever commit was on `main`
