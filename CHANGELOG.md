@@ -4,6 +4,32 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.1 — 2026-08-22 (`c38fdc4`)
+### Added
+- `tsup.config.ts` minification is back, gated behind a `TSUP_MINIFY` env
+  var instead of the hardcoded `false` it's had since 0.5.4 was reverted.
+  Turns out esbuild's inlining breaks c8's function-coverage attribution
+  — reported coverage on a minified build dropped to 30.94% against a
+  real ~90%, since `test:all`/`test:coverage` and the published package
+  were both building from the same unminified `tsup` output. New
+  `build:publish` script sets the env var and is what `prepublishOnly`
+  now calls, so `npm publish` ships a minified `dist/`, while `build`,
+  `dev`, and every test script stay on the plain unminified build — same
+  as before this change, coverage numbers are unaffected. Added
+  `cross-env` as a devDependency so the env var sets consistently across
+  shells.
+- `.github/workflows/release.yml` runs `build:publish` as its own step
+  before publishing, then greps the built chunks for a known function
+  name to confirm minification actually happened, so a broken
+  minification config fails CI loudly instead of silently shipping an
+  unminified — or wrongly minified — tarball.
+- `codemod.unit.test.ts` (vitest) covers `codemod.ts` cases the existing
+  `codemod_test.js` (node:test, run against `dist/`) doesn't: a token
+  absent from a table falls through as quoted literal text, while a
+  token present with `to: null` throws — those are different code paths
+  and easy to conflate. Also locks in the error message's inclusion of
+  the full source string, and empty/literal-only input.
+
 ## 0.9.0 — 2026-08-22 (`f15542f`)
 ### Changed
 - **Breaking:** `parse()`, `safeParse()`, `tryParse()`, `parseToParts()`,
