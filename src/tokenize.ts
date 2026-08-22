@@ -1,4 +1,5 @@
 import { TOKENS } from './tokens.js';
+import { FormatSyntaxError, UnknownTokenError } from './errors.js';
 
 export type Piece =
   | { kind: 'token'; value: string }
@@ -47,7 +48,10 @@ export function tokenize(format: string): Piece[] {
       }
 
       if (!closed) {
-        throw new Error(`temporal-fmt: unterminated quote in format string "${format}"`);
+        throw new FormatSyntaxError({
+          format,
+          message: `temporal-fmt: unterminated quote in format string "${format}"`,
+        });
       }
 
       appendLiteral(pieces, literal);
@@ -68,10 +72,19 @@ export function tokenize(format: string): Piece[] {
       if (format[i + match.length] === runChar) {
         let end = i + match.length;
         while (format[end] === runChar) end += 1;
-        throw new Error(
-          `temporal-fmt: "${format.slice(i, end)}" in format string "${format}" isn't a recognized token — ` +
-          `did you mean "${match}"?`
-        );
+        // UnknownTokenError, not FormatSyntaxError: wrapUntypedError's
+        // classifier already treats this exact message ("isn't a
+        // recognized token") as UNKNOWN_TOKEN (see errors.test.js's
+        // "overlong token run classifies as UnknownTokenError"), and a
+        // direct throw here needs to agree with what safeParse's fallback
+        // path would have classified it as.
+        throw new UnknownTokenError({
+          format,
+          token: format.slice(i, end),
+          message:
+            `temporal-fmt: "${format.slice(i, end)}" in format string "${format}" isn't a recognized token — ` +
+            `did you mean "${match}"?`,
+        });
       }
       pieces.push({ kind: 'token', value: match });
       i += match.length;

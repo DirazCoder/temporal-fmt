@@ -1,4 +1,5 @@
 import { getLocaleVocab } from './localeVocab.js';
+import { UnknownTokenError } from './errors.js';
 
 function escapeRegExp(literal: string): string {
   return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -194,10 +195,12 @@ export function tokenFragment(token: string, locale: string, nextToken?: string)
   }
 
   if (FORMAT_ONLY_TOKENS.has(token)) {
-    throw new Error(
-      `temporal-fmt: token "${token}" is format-only — it can't be parsed back into a value. ` +
-      `Use a different token in the parse format string (e.g. "d" for "do", "MM" for "ww").`
-    );
+    throw new UnknownTokenError({
+      token,
+      message:
+        `temporal-fmt: token "${token}" is format-only — it can't be parsed back into a value. ` +
+        `Use a different token in the parse format string (e.g. "d" for "do", "MM" for "ww").`,
+    });
   }
 
   const vocab = getLocaleVocab(locale);
@@ -228,7 +231,7 @@ export function tokenFragment(token: string, locale: string, nextToken?: string)
        registering something new or tokenize.ts being bypassed, neither of
        which happens on the parse() path. */
     default:
-      throw new Error(`temporal-fmt: unknown token "${token}"`);
+      throw new UnknownTokenError({ token, message: `temporal-fmt: unknown token "${token}"` });
     /* c8 ignore stop @preserve */
   }
 }

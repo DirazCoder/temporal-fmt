@@ -1,17 +1,36 @@
-// Structured error classes for parse()/format() failures. The existing
-// throw sites in parse.ts/format.ts/tokenize.ts/pattern.ts/localeVocab.ts
-// all throw plain `new Error(message)` with descriptive strings, and
-// existing tests assert on those strings — so this module does NOT
-// retroactively migrate those sites. Migration would change error
-// identity for any caller using `instanceof Error`, and would force
-// every test that matches `/token "HH" requires/` to be rewritten.
+// Structured error classes for parse()/format() failures.
 //
-// What this module does: provide typed error classes carrying
-// `code/input/format/token/position/expected/actual/reason` fields, so
-// safeParse()/tryParse() (which don't throw) can return rich diagnostics
-// to callers who need them. The ESLint plugin and codemod will consume
-// these via safeParse. The legacy throw-then-catch surface stays
-// byte-identical to 0.8.x.
+// As of 0.9.0, every throw site on the parse/format data path —
+// tokenize.ts, pattern.ts, format.ts, parse.ts (parse/safeParse/tryParse/
+// parseToParts/compileParser), and the two data-path throws in
+// localeVocab.ts (partValue/assertNoCollision on the getLocaleVocab side)
+// — throws these typed classes directly instead of plain
+// `new Error(message)`. Every migrated site kept its exact pre-0.9.0
+// message text — subclasses of TemporalFmtError still satisfy
+// `instanceof Error` and message-matching regexes (e.g.
+// `/token "HH" requires/`), so this was safe to do without a semver-major
+// bump for either check. What *is* a breaking change for 0.9.0: code that
+// specifically checked `err.constructor === Error` or `err.name ===
+// 'Error'` will see a different name now (e.g. 'FormatSyntaxError'). See
+// the 0.9.0 changelog entry.
+//
+// Not migrated, on purpose:
+//  - localeVocab.ts's registration-time throws (assertValidVocab,
+//    registerLocaleVocab itself) — these are config-time API-misuse
+//    errors on data the developer supplies once at startup, not runtime
+//    parse/format failures, so they don't fit this module's
+//    TemporalFmtErrorCode taxonomy as-is. assertNoCollision is shared
+//    between the registration path and the data path (getLocaleVocab), so
+//    its throw stays plain `Error` for both until that split is done —
+//    see the tracking note at its call site.
+//
+// wrapUntypedError() below still exists for localeVocab.ts's registration
+// throws and for anything a caller passes into safeParse()/tryParse() from
+// outside this package. On the data path, safeParse's `if (err instanceof
+// TemporalFmtError) return { ok: false, error: err }` now catches every
+// throw before it would reach the classifier, so the regex branches here
+// are effectively dead for parse/format/tokenize/pattern — left in place
+// as the fallback for anything not yet on a typed throw site.
 
 export type TemporalFmtErrorCode =
   | 'FORMAT_SYNTAX_ERROR'

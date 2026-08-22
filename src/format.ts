@@ -2,6 +2,7 @@ import { TOKENS, DEFAULT_LOCALE, type TemporalLike, type FormatOptions } from '.
 import { tokenize, type Piece } from './tokenize.js';
 import { MAX_FORMAT_LENGTH } from './constants.js';
 import { applyNumbering, type NumberingFormatOptions } from './numbering.js';
+import { FormatSyntaxError, UnknownTokenError } from './errors.js';
 
 const HANDLER_BY_TOKEN = new Map(TOKENS.map(([tok, fn, field]) => [tok, { fn, field }]));
 
@@ -37,10 +38,12 @@ function getPieces(formatStr: string): Piece[] {
  */
 export function format(temporal: TemporalLike, formatStr: string, options: NumberingFormatOptions = {}): string {
   if (formatStr.length > MAX_FORMAT_LENGTH) {
-    throw new Error(
-      `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
-      `(got ${formatStr.length}).`
-    );
+    throw new FormatSyntaxError({
+      format: formatStr,
+      message:
+        `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
+        `(got ${formatStr.length}).`,
+    });
   }
 
   const locale = options.locale ?? DEFAULT_LOCALE;
@@ -60,16 +63,19 @@ export function format(temporal: TemporalLike, formatStr: string, options: Numbe
        here. Same defensive-guard category as the twin checks in
        analyze.ts/formatDuration.ts. */
     if (!handler) {
-      throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
+      throw new UnknownTokenError({ token: piece.value, format: formatStr, message: `temporal-fmt: unknown token "${piece.value}"` });
     }
     /* c8 ignore stop @preserve */
 
     if (temporal[handler.field] === undefined) {
-      throw new Error(
-        `temporal-fmt: token "${piece.value}" requires "${handler.field}", ` +
-        `which this Temporal object doesn't have. ` +
-        `(e.g. PlainDate has no time fields, PlainTime has no date fields)`
-      );
+      throw new FormatSyntaxError({
+        format: formatStr,
+        token: piece.value,
+        message:
+          `temporal-fmt: token "${piece.value}" requires "${handler.field}", ` +
+          `which this Temporal object doesn't have. ` +
+          `(e.g. PlainDate has no time fields, PlainTime has no date fields)`,
+      });
     }
 
     result += handler.fn(temporal, locale);
@@ -97,10 +103,12 @@ export interface FormattedPart {
 
 export function formatToParts(temporal: TemporalLike, formatStr: string, options: NumberingFormatOptions = {}): FormattedPart[] {
   if (formatStr.length > MAX_FORMAT_LENGTH) {
-    throw new Error(
-      `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
-      `(got ${formatStr.length}).`
-    );
+    throw new FormatSyntaxError({
+      format: formatStr,
+      message:
+        `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
+        `(got ${formatStr.length}).`,
+    });
   }
   const locale = options.locale ?? DEFAULT_LOCALE;
   const pieces = getPieces(formatStr);
@@ -129,15 +137,18 @@ export function formatToParts(temporal: TemporalLike, formatStr: string, options
     const handler = HANDLER_BY_TOKEN.get(piece.value);
     /* c8 ignore start @preserve -- unreachable, see the note in format() above */
     if (!handler) {
-      throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
+      throw new UnknownTokenError({ token: piece.value, format: formatStr, message: `temporal-fmt: unknown token "${piece.value}"` });
     }
     /* c8 ignore stop @preserve */
     if (temporal[handler.field] === undefined) {
-      throw new Error(
-        `temporal-fmt: token "${piece.value}" requires "${handler.field}", ` +
-        `which this Temporal object doesn't have. ` +
-        `(e.g. PlainDate has no time fields, PlainTime has no date fields)`
-      );
+      throw new FormatSyntaxError({
+        format: formatStr,
+        token: piece.value,
+        message:
+          `temporal-fmt: token "${piece.value}" requires "${handler.field}", ` +
+          `which this Temporal object doesn't have. ` +
+          `(e.g. PlainDate has no time fields, PlainTime has no date fields)`,
+      });
     }
     // Numeral transliteration applies per-token-part here, rather than
     // once at the end like format() does, so a caller styling individual
@@ -165,10 +176,12 @@ export interface CompiledFormat {
 
 export function compileFormat(formatStr: string): CompiledFormat {
   if (formatStr.length > MAX_FORMAT_LENGTH) {
-    throw new Error(
-      `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
-      `(got ${formatStr.length}).`
-    );
+    throw new FormatSyntaxError({
+      format: formatStr,
+      message:
+        `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
+        `(got ${formatStr.length}).`,
+    });
   }
   // Pre-tokenize once. Validation (unknown tokens, unterminated quotes)
   // happens here, not lazily on first format() call — surfaces a bad
@@ -188,13 +201,16 @@ export function compileFormat(formatStr: string): CompiledFormat {
         }
         const handler = HANDLER_BY_TOKEN.get(piece.value);
         /* c8 ignore next -- unreachable, see the note in format() above */
-        if (!handler) throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
+        if (!handler) throw new UnknownTokenError({ token: piece.value, format: formatStr, message: `temporal-fmt: unknown token "${piece.value}"` });
         if (temporal[handler.field] === undefined) {
-          throw new Error(
-            `temporal-fmt: token "${piece.value}" requires "${handler.field}", ` +
-            `which this Temporal object doesn't have. ` +
-            `(e.g. PlainDate has no time fields, PlainTime has no date fields)`
-          );
+          throw new FormatSyntaxError({
+            format: formatStr,
+            token: piece.value,
+            message:
+              `temporal-fmt: token "${piece.value}" requires "${handler.field}", ` +
+              `which this Temporal object doesn't have. ` +
+              `(e.g. PlainDate has no time fields, PlainTime has no date fields)`,
+          });
         }
         result += handler.fn(temporal, locale);
       }
@@ -213,13 +229,16 @@ export function compileFormat(formatStr: string): CompiledFormat {
         }
         const handler = HANDLER_BY_TOKEN.get(piece.value);
         /* c8 ignore next -- unreachable, see the note in format() above */
-        if (!handler) throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
+        if (!handler) throw new UnknownTokenError({ token: piece.value, format: formatStr, message: `temporal-fmt: unknown token "${piece.value}"` });
         if (temporal[handler.field] === undefined) {
-          throw new Error(
-            `temporal-fmt: token "${piece.value}" requires "${handler.field}", ` +
-            `which this Temporal object doesn't have. ` +
-            `(e.g. PlainDate has no time fields, PlainTime has no date fields)`
-          );
+          throw new FormatSyntaxError({
+            format: formatStr,
+            token: piece.value,
+            message:
+              `temporal-fmt: token "${piece.value}" requires "${handler.field}", ` +
+              `which this Temporal object doesn't have. ` +
+              `(e.g. PlainDate has no time fields, PlainTime has no date fields)`,
+          });
         }
         out.push({ type: 'token', value: applyNumbering(handler.fn(temporal, locale), options), token: piece.value });
       }

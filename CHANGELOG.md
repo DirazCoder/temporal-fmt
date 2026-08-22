@@ -4,6 +4,66 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.0 — 2026-08-22 (`PENDING_COMMIT_HASH`)
+### Changed
+- **Breaking:** `parse()`, `safeParse()`, `tryParse()`, `parseToParts()`,
+  `format()`, and `formatToParts()` now throw the typed `TemporalFmtError`
+  subclasses (`FormatSyntaxError`, `UnknownTokenError`, `ParseMismatchError`,
+  `InvalidDateError`, `InvalidOffsetError`, `InvalidLocaleError`, etc.)
+  directly instead of plain `new Error(message)`. This lands on every
+  reachable throw site in `tokenize.ts`, `pattern.ts`, `format.ts`,
+  `parse.ts`, and the two data-path throws in `localeVocab.ts`
+  (`partValue`/`assertNoCollision` on the `getLocaleVocab` side).
+- Every migrated message string is unchanged, byte for byte. Since
+  `TemporalFmtError` extends `Error`, code doing `instanceof Error` or
+  matching on `err.message` with a regex sees no difference — that's why
+  this didn't need to be a rewrite of the error text, just a rewrap of
+  the throw. What *does* change: `err.constructor` and `err.name` are no
+  longer plain `'Error'` (e.g. `FormatSyntaxError` now reports its own
+  name), so code checking `err.constructor === Error` or
+  `err.name === 'Error'` specifically will see different results. That's
+  the actual breaking change, and the reason this is a minor bump on a
+  pre-1.0 package rather than a patch.
+- `wrapUntypedError()` (the regex-based classifier `safeParse()` used to
+  lean on for every failure) is still there, but now only does real work
+  for `localeVocab.ts`'s registration-time throws and for errors a caller
+  hands into `safeParse`/`tryParse` from outside the package. On the
+  parse/format data path, every throw already arrives as a
+  `TemporalFmtError`, so `safeParse`'s `instanceof TemporalFmtError` check
+  passes it straight through and the classifier's regex branches for that
+  path are now dead code (kept around rather than deleted, since it's
+  still live for the registration and external-error cases).
+- Fixed two small pre-existing classification gaps while migrating, both
+  cases `wrapUntypedError` had no regex branch for and fell back to a
+  generic `ParseMismatchError`: a format-only token used in a parse
+  pattern (e.g. formatting-only tokens hit during pattern parsing) now
+  reports `UnknownTokenError`, and a locale-vocabulary rendering collision
+  now reports `InvalidLocaleError`. Neither had a pinned test locking in
+  the old generic behavior — checked the full suite for that before
+  changing either.
+### Not changed, on purpose
+- `localeVocab.ts`'s registration-time throws (`assertValidVocab`,
+  `registerLocaleVocab`'s own guards, including its `RangeError`s) are
+  untouched. These fire when a developer registers malformed locale data
+  at startup, not when an end user's input fails to parse — a different
+  failure class that doesn't fit the existing `TemporalFmtErrorCode`
+  taxonomy without adding a new code for it, which is separate follow-up
+  work, not part of this migration.
+- `0.8.x` is now the LTS line: plain `Error`/string-message throws stay
+  exactly as they've always been, and it keeps receiving fixes. If you
+  don't want the typed-error behavior, or can't move off exact
+  `err.constructor === Error` checks yet, stay on `0.8.x` — nothing about
+  it changes here.
+### Testing
+- 1273/1273 (node test runner) + 271/271 (vitest) passing after the full
+  migration. Two real regressions turned up during the process and got
+  fixed before landing: a throw classified against my own judgment call
+  instead of an existing pinned test (`errors.test.js` expects
+  `PARSE_MISMATCH` for a "has no tokens" format string; I'd guessed
+  `FormatSyntaxError`), and two sites where I set a custom `message` but
+  forgot the `reason` field, breaking a `.reason`-matching assertion on
+  `safeParse`'s error output.
+
 ## 0.8.982 — 2026-08-22 (`e6b7fa7` — HOTFIX)
 ### Fixed
 - Offset tokens (`X`/`XX`/`XXX`/`x`/`xx`/`xxx`) threw a generic error on

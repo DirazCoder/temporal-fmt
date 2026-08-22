@@ -2,6 +2,8 @@
 // list is small and fixed (12 months, 7 weekdays, 2 day periods), so we
 // generate the real Intl strings for a locale once and cache them.
 
+import { InvalidLocaleError } from './errors.js';
+
 export interface LocaleVocab {
   monthLong: string[]; // index 0 = January
   monthShort: string[];
@@ -194,7 +196,9 @@ function partValue(formatter: Intl.DateTimeFormat, date: Date, type: Intl.DateTi
      real check rather than an assertion. */
   /* c8 ignore start @preserve */
   if (index === -1) {
-    throw new Error(`temporal-fmt: locale produced no "${type}" part while building match vocabulary.`);
+    throw new InvalidLocaleError({
+      message: `temporal-fmt: locale produced no "${type}" part while building match vocabulary.`,
+    });
   }
   /* c8 ignore stop @preserve */
   let value = parts[index]!.value;
@@ -218,6 +222,14 @@ function assertNoCollision(names: string[], label: string, locale: string): void
   for (let i = 0; i < names.length; i++) {
     const prior = seen.get(names[i]!);
     if (prior !== undefined) {
+      // Not migrated to a typed error: this function is shared between
+      // getLocaleVocab's Intl-derived path (data-path error, would be a
+      // good InvalidLocaleError candidate) and assertValidVocab's
+      // registration-time check (out of scope for this pass — see the
+      // localeVocab.ts registration-error follow-up). Splitting this into
+      // two near-duplicate functions just to route error types
+      // differently isn't worth it for one throw; revisit together with
+      // the registration-error work instead.
       throw new Error(
         `temporal-fmt: locale "${locale}" renders ${label} index ${prior} and ${i} identically ` +
         `("${names[i]}"). parse() can't reliably tell these apart for this locale/token, so this ` +

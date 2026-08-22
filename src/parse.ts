@@ -5,7 +5,7 @@ import { enumerateValidSplits, isValidTimeZone } from './pattern.js';
 import { getLocaleVocab, canonicalCacheKey } from './localeVocab.js';
 import { getTemporal } from './temporalProvider.js';
 import { MAX_FORMAT_LENGTH, MAX_INPUT_LENGTH } from './constants.js';
-import { TemporalFmtError, InvalidTimeZoneError, wrapUntypedError } from './errors.js';
+import { TemporalFmtError, InvalidTimeZoneError, InvalidOffsetError, FormatSyntaxError, ParseMismatchError, AmbiguousInputError, InvalidDateError, wrapUntypedError } from './errors.js';
 import { applyParseNumbering, type NumberingParseOptions } from './numbering.js';
 
 // format strings are short hand-written literals reused across many calls —
@@ -193,25 +193,31 @@ function parseOffsetString(raw: string, token: string): string {
   const minutes = Number(minutesStr);
   // Per-piece range checks catch most malformed input.
   if (hours > 14) {
-    throw new Error(
-      `temporal-fmt: offset hours ${hours} in "${raw}" out of range (max 14 — Kiritimati, Line Islands is +14:00).`
-    );
+    throw new InvalidOffsetError({
+      actual: raw,
+      message: `temporal-fmt: offset hours ${hours} in "${raw}" out of range (max 14 — Kiritimati, Line Islands is +14:00).`,
+    });
   }
   if (minutes > 59) {
-    throw new Error(`temporal-fmt: offset minutes ${minutes} in "${raw}" out of range (max 59).`);
+    throw new InvalidOffsetError({
+      actual: raw,
+      message: `temporal-fmt: offset minutes ${minutes} in "${raw}" out of range (max 59).`,
+    });
   }
   // Boundary: +14:01..+14:59 and -12:01..-12:59 are out of range even
   // though each piece alone is in bounds — the overall offset exceeds
   // the IANA-supported range.
   if (sign === '+' && hours === 14 && minutes !== 0) {
-    throw new Error(
-      `temporal-fmt: offset "${raw}" exceeds the maximum supported UTC offset of +14:00.`
-    );
+    throw new InvalidOffsetError({
+      actual: raw,
+      message: `temporal-fmt: offset "${raw}" exceeds the maximum supported UTC offset of +14:00.`,
+    });
   }
   if (sign === '-' && hours === 12 && minutes !== 0) {
-    throw new Error(
-      `temporal-fmt: offset "${raw}" exceeds the maximum supported negative UTC offset of -12:00.`
-    );
+    throw new InvalidOffsetError({
+      actual: raw,
+      message: `temporal-fmt: offset "${raw}" exceeds the maximum supported negative UTC offset of -12:00.`,
+    });
   }
   return `${sign}${hoursStr}:${minutesStr}`;
 }
@@ -340,9 +346,12 @@ function pickLenientSplit(splits: number[][], tokens: string[]): number[] {
 // https://www.man7.org/linux//man-pages/man3/strptime.3p.html
 function resolveYear(fields: Fields): number | undefined {
   if (fields.year !== undefined && fields.twoDigitYear !== undefined) {
-    throw new Error(
-      'temporal-fmt: format string mixes "yyyy" and "yy" year representations.'
-    );
+    // FormatSyntaxError, not ParseMismatchError: this is a contradiction
+    // in the format string itself (both "yyyy" and "yy" present), not a
+    // mismatch between the format and a specific input.
+    throw new FormatSyntaxError({
+      message: 'temporal-fmt: format string mixes "yyyy" and "yy" year representations.',
+    });
   }
   if (fields.year !== undefined) return fields.year;
   if (fields.twoDigitYear !== undefined) {
@@ -353,29 +362,34 @@ function resolveYear(fields: Fields): number | undefined {
 
 function resolveHour(fields: Fields, formatStr: string, locale: string): number | undefined {
   if (fields.hour !== undefined && fields.hour12 !== undefined) {
-    throw new Error(
-      `temporal-fmt: format string "${formatStr}" mixes a 24-hour token ("HH"/"H") with a ` +
-      `12-hour token ("hh"/"h").`
-    );
+    throw new FormatSyntaxError({
+      format: formatStr,
+      message:
+        `temporal-fmt: format string "${formatStr}" mixes a 24-hour token ("HH"/"H") with a ` +
+        `12-hour token ("hh"/"h").`,
+    });
   }
   if (fields.hour !== undefined) {
     if (fields.dayPeriodRaw !== undefined) {
       const vocab = getLocaleVocab(locale);
       const expected = fields.hour < 12 ? vocab.dayPeriod[0] : vocab.dayPeriod[1];
       if (fields.dayPeriodRaw.toLowerCase() !== expected?.toLowerCase()) {
-        throw new Error(
-          `temporal-fmt: format string "${formatStr}" contains a day period that contradicts the 24-hour value.`
-        );
+        throw new FormatSyntaxError({
+          format: formatStr,
+          message: `temporal-fmt: format string "${formatStr}" contains a day period that contradicts the 24-hour value.`,
+        });
       }
     }
     return fields.hour;
   }
   if (fields.hour12 !== undefined) {
     if (fields.isPM === undefined) {
-      throw new Error(
-        `temporal-fmt: format string "${formatStr}" uses a 12-hour token ("hh"/"h") without an "a" token, ` +
-        `so parse() can't tell AM from PM.`
-      );
+      throw new FormatSyntaxError({
+        format: formatStr,
+        message:
+          `temporal-fmt: format string "${formatStr}" uses a 12-hour token ("hh"/"h") without an "a" token, ` +
+          `so parse() can't tell AM from PM.`,
+      });
     }
     return (fields.hour12 % 12) + (fields.isPM ? 12 : 0);
   }
@@ -406,16 +420,19 @@ function resolveHour(fields: Fields, formatStr: string, locale: string): number 
  */
 export function parse(formatStr: string, input: string, options: NumberingParseOptions = {}): unknown | undefined {
   if (formatStr.length > MAX_FORMAT_LENGTH) {
-    throw new Error(
-      `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
-      `(got ${formatStr.length}).`
-    );
+    throw new FormatSyntaxError({
+      format: formatStr,
+      message:
+        `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
+        `(got ${formatStr.length}).`,
+    });
   }
 
   if (input.length > MAX_INPUT_LENGTH) {
-    throw new Error(
-      `temporal-fmt: input exceeds maximum length of ${MAX_INPUT_LENGTH} characters (got ${input.length}).`
-    );
+    throw new FormatSyntaxError({
+      input,
+      message: `temporal-fmt: input exceeds maximum length of ${MAX_INPUT_LENGTH} characters (got ${input.length}).`,
+    });
   }
 
   // Transliterate non-ASCII numerals to ASCII before any matching happens,
@@ -431,11 +448,33 @@ export function parse(formatStr: string, input: string, options: NumberingParseO
   const pattern = getPattern(formatStr, locale);
   const match = pattern.regex.exec(input);
   if (!match) {
-    throw new Error(`temporal-fmt: no valid pattern matches the format string and input shape`);
+    throw new ParseMismatchError({
+      input, format: formatStr,
+      // reason set explicitly (not just message): parse.test.js's
+      // "safeParse: failure returns { ok: false, error } with a
+      // TemporalFmtError" asserts result.error.reason carries the
+      // underlying detail text, matching what wrapUntypedError used to
+      // populate when this message reached it as a caught plain Error.
+      reason: 'no valid pattern matches the format string and input shape',
+      message: `temporal-fmt: no valid pattern matches the format string and input shape`,
+    });
   }
 
   if (pattern.groups.length === 0) {
-    throw new Error(`temporal-fmt: format string "${formatStr}" has no tokens — nothing to parse into a value.`);
+    // ParseMismatchError, not FormatSyntaxError: pinned by
+    // errors.test.js's "format string with no tokens at all falls
+    // through to ParseMismatchError" — wrapUntypedError's classifier
+    // has no branch for this message, so it lands on the
+    // PARSE_MISMATCH fallback, and a direct throw here needs to
+    // agree with that.
+    throw new ParseMismatchError({
+      format: formatStr,
+      // reason set explicitly: errors.test.js's "format string with no
+      // tokens at all falls through to ParseMismatchError" asserts
+      // error.reason matches /has no tokens/.
+      reason: `format string "${formatStr}" has no tokens — nothing to parse into a value.`,
+      message: `temporal-fmt: format string "${formatStr}" has no tokens — nothing to parse into a value.`,
+    });
   }
 
   // The regex's zzz fragment only matches a bounded zone-id *shape* (see
@@ -484,14 +523,16 @@ export function parse(formatStr: string, input: string, options: NumberingParseO
       // "Lenient parse mode" for why this is strictly additive and never
       // the default.
       if (!options.lenient) {
-        throw new Error(
-          `temporal-fmt: "${runDigits}" in format string "${formatStr}" is ambiguous — ` +
-          `${splits.length} different ways to read tokens "${run.tokens.join('')}" (with no separator ` +
-          `between them) are all individually valid (e.g. ${JSON.stringify(splits[0])} vs ${JSON.stringify(splits[1])}). ` +
-          `parse() won't guess; add a separator between these tokens, or use their padded form ` +
-          `(e.g. "MM" instead of "M") so each one has a fixed width. ` +
-          `Pass { lenient: true } to opt into a documented heuristic that picks one.`
-        );
+        throw new AmbiguousInputError({
+          input, format: formatStr,
+          message:
+            `temporal-fmt: "${runDigits}" in format string "${formatStr}" is ambiguous — ` +
+            `${splits.length} different ways to read tokens "${run.tokens.join('')}" (with no separator ` +
+            `between them) are all individually valid (e.g. ${JSON.stringify(splits[0])} vs ${JSON.stringify(splits[1])}). ` +
+            `parse() won't guess; add a separator between these tokens, or use their padded form ` +
+            `(e.g. "MM" instead of "M") so each one has a fixed width. ` +
+            `Pass { lenient: true } to opt into a documented heuristic that picks one.`,
+        });
       }
       runPicks.push({ groupNames: run.groupNames, values: pickLenientSplit(splits, run.tokens) });
     }
@@ -518,19 +559,23 @@ export function parse(formatStr: string, input: string, options: NumberingParseO
   const hasAnyDatePart = year !== undefined || month !== undefined || day !== undefined;
   const hasFullDate = year !== undefined && month !== undefined && day !== undefined;
   if (hasAnyDatePart && !hasFullDate) {
-    throw new Error(
-      `temporal-fmt: format string "${formatStr}" has an incomplete date — ` +
-      `year, month, and day tokens must all be present together.`
-    );
+    throw new InvalidDateError({
+      format: formatStr,
+      message:
+        `temporal-fmt: format string "${formatStr}" has an incomplete date — ` +
+        `year, month, and day tokens must all be present together.`,
+    });
   }
 
   const hasTime = hour !== undefined || minute !== undefined || second !== undefined || millisecond !== undefined;
 
   if (timeZoneId !== undefined && !(hasFullDate && hasTime)) {
-    throw new Error(
-      `temporal-fmt: format string "${formatStr}" has a "zzz" token but needs a full date and time ` +
-      `to build a ZonedDateTime.`
-    );
+    throw new FormatSyntaxError({
+      format: formatStr,
+      message:
+        `temporal-fmt: format string "${formatStr}" has a "zzz" token but needs a full date and time ` +
+        `to build a ZonedDateTime.`,
+    });
   }
 
   // Mirror zzz's full-date-and-time requirement: an offset alone is
@@ -539,23 +584,30 @@ export function parse(formatStr: string, input: string, options: NumberingParseO
   // message so a caller reading it can tell which token type they
   // forgot to pair with a full date+time.
   if (offsetString !== undefined && !(hasFullDate && hasTime)) {
-    throw new Error(
-      `temporal-fmt: format string "${formatStr}" has an offset token (X/XX/XXX/x/xx/xxx) but needs a full date and time ` +
-      `to build a ZonedDateTime.`
-    );
+    throw new FormatSyntaxError({
+      format: formatStr,
+      message:
+        `temporal-fmt: format string "${formatStr}" has an offset token (X/XX/XXX/x/xx/xxx) but needs a full date and time ` +
+        `to build a ZonedDateTime.`,
+    });
   }
 
   if (weekdayExpected !== undefined && !hasFullDate) {
-    throw new Error(
-      `temporal-fmt: format string "${formatStr}" has a weekday token ("EEEE"/"EEE") but needs ` +
-      `a full date to validate it against.`
-    );
+    throw new FormatSyntaxError({
+      format: formatStr,
+      message:
+        `temporal-fmt: format string "${formatStr}" has a weekday token ("EEEE"/"EEE") but needs ` +
+        `a full date to validate it against.`,
+    });
   }
 
   if (!hasFullDate && !hasTime) {
     // shouldn't happen — every token maps to a date, time, zone, or
     // weekday field, and weekday-without-date already threw above
-    throw new Error(`temporal-fmt: format string "${formatStr}" has no date or time tokens to parse.`);
+    throw new FormatSyntaxError({
+      format: formatStr,
+      message: `temporal-fmt: format string "${formatStr}" has no date or time tokens to parse.`,
+    });
   }
 
   const temporal = getTemporal();
@@ -623,17 +675,28 @@ export function parse(formatStr: string, input: string, options: NumberingParseO
           zdt.minute !== timeFields.minute ||
           zdt.second !== timeFields.second;
         if (wallClockShifted) {
-          throw new Error(
-            `"${timeZoneId}" has no such wall-clock time on this date — it falls in a DST gap, ` +
-            `not an ambiguous or valid instant.`
-          );
+          // InvalidDateError, not AmbiguousInputError: the message
+          // *mentions* "not an ambiguous... instant" as a negation, which
+          // is a false-positive match against wrapUntypedError's
+          // /ambiguous/i classifier regex — the actual failure here is a
+          // wall-clock time that doesn't exist (DST gap), which is an
+          // invalid-value problem, not an ambiguous-reading-of-input
+          // problem the way the numeric-token-glue ambiguity above is.
+          throw new InvalidDateError({
+            input, format: formatStr,
+            message:
+              `"${timeZoneId}" has no such wall-clock time on this date — it falls in a DST gap, ` +
+              `not an ambiguous or valid instant.`,
+          });
         }
         const actualOffset = zdt.offset;
         if (actualOffset !== offsetString) {
-          throw new Error(
-            `has both a "zzz" zone (${timeZoneId}) and an offset token (${offsetString}), ` +
-            `but the zone's actual offset at this date/time is ${actualOffset}, not ${offsetString}.`
-          );
+          throw new ParseMismatchError({
+            input, format: formatStr,
+            message:
+              `has both a "zzz" zone (${timeZoneId}) and an offset token (${offsetString}), ` +
+              `but the zone's actual offset at this date/time is ${actualOffset}, not ${offsetString}.`,
+          });
         }
       }
     } else if (offsetString !== undefined) {
@@ -652,20 +715,24 @@ export function parse(formatStr: string, input: string, options: NumberingParseO
       result = temporal.PlainTime.from(timeFields, reject);
     }
   } catch (err) {
-    throw new Error(
-      `temporal-fmt: "${input}" doesn't describe a valid date/time for format "${formatStr}": ` +
-      `${(err as Error).message}`
-    );
+    throw new InvalidDateError({
+      input, format: formatStr,
+      message:
+        `temporal-fmt: "${input}" doesn't describe a valid date/time for format "${formatStr}": ` +
+        `${(err as Error).message}`,
+    });
   }
 
   if (weekdayExpected !== undefined) {
     const actual = (result as { dayOfWeek: number }).dayOfWeek;
     if (actual !== weekdayExpected) {
       const vocab = getLocaleVocab(locale);
-      throw new Error(
-        `temporal-fmt: "${weekdayRaw}" doesn't match the actual weekday (${vocab.weekdayLong[actual - 1]}) ` +
-        `for the parsed date.`
-      );
+      throw new InvalidDateError({
+        input, format: formatStr,
+        message:
+          `temporal-fmt: "${weekdayRaw}" doesn't match the actual weekday (${vocab.weekdayLong[actual - 1]}) ` +
+          `for the parsed date.`,
+      });
     }
   }
 
@@ -678,11 +745,13 @@ export function parse(formatStr: string, input: string, options: NumberingParseO
   if (quarter !== undefined && month !== undefined) {
     const expectedQuarter = Math.ceil(month / 3);
     if (quarter !== expectedQuarter) {
-      throw new Error(
-        `temporal-fmt: format string "${formatStr}" contains a quarter token (Q/QQQ) whose value ` +
-        `(Q${quarter}) disagrees with the parsed month's actual quarter — month ${month} is in ` +
-        `Q${expectedQuarter}.`
-      );
+      throw new InvalidDateError({
+        format: formatStr,
+        message:
+          `temporal-fmt: format string "${formatStr}" contains a quarter token (Q/QQQ) whose value ` +
+          `(Q${quarter}) disagrees with the parsed month's actual quarter — month ${month} is in ` +
+          `Q${expectedQuarter}.`,
+      });
     }
   }
 
@@ -755,15 +824,18 @@ export interface ParsedPart {
 
 export function parseToParts(formatStr: string, input: string, options: NumberingParseOptions = {}): ParsedPart[] {
   if (formatStr.length > MAX_FORMAT_LENGTH) {
-    throw new Error(
-      `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
-      `(got ${formatStr.length}).`
-    );
+    throw new FormatSyntaxError({
+      format: formatStr,
+      message:
+        `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
+        `(got ${formatStr.length}).`,
+    });
   }
   if (input.length > MAX_INPUT_LENGTH) {
-    throw new Error(
-      `temporal-fmt: input exceeds maximum length of ${MAX_INPUT_LENGTH} characters (got ${input.length}).`
-    );
+    throw new FormatSyntaxError({
+      input,
+      message: `temporal-fmt: input exceeds maximum length of ${MAX_INPUT_LENGTH} characters (got ${input.length}).`,
+    });
   }
 
   // Same numeral transliteration parse() does — see the comment there.
@@ -775,10 +847,32 @@ export function parseToParts(formatStr: string, input: string, options: Numberin
   const pattern = getPattern(formatStr, locale);
   const match = pattern.regex.exec(input);
   if (!match) {
-    throw new Error(`temporal-fmt: no valid pattern matches the format string and input shape`);
+    throw new ParseMismatchError({
+      input, format: formatStr,
+      // reason set explicitly (not just message): parse.test.js's
+      // "safeParse: failure returns { ok: false, error } with a
+      // TemporalFmtError" asserts result.error.reason carries the
+      // underlying detail text, matching what wrapUntypedError used to
+      // populate when this message reached it as a caught plain Error.
+      reason: 'no valid pattern matches the format string and input shape',
+      message: `temporal-fmt: no valid pattern matches the format string and input shape`,
+    });
   }
   if (pattern.groups.length === 0) {
-    throw new Error(`temporal-fmt: format string "${formatStr}" has no tokens — nothing to parse into a value.`);
+    // ParseMismatchError, not FormatSyntaxError: pinned by
+    // errors.test.js's "format string with no tokens at all falls
+    // through to ParseMismatchError" — wrapUntypedError's classifier
+    // has no branch for this message, so it lands on the
+    // PARSE_MISMATCH fallback, and a direct throw here needs to
+    // agree with that.
+    throw new ParseMismatchError({
+      format: formatStr,
+      // reason set explicitly: errors.test.js's "format string with no
+      // tokens at all falls through to ParseMismatchError" asserts
+      // error.reason matches /has no tokens/.
+      reason: `format string "${formatStr}" has no tokens — nothing to parse into a value.`,
+      message: `temporal-fmt: format string "${formatStr}" has no tokens — nothing to parse into a value.`,
+    });
   }
   // Same zzz shape-validation parse() does — kept here for parity, so
   // a caller using parseToParts sees the same InvalidTimeZoneError for
@@ -802,14 +896,16 @@ export function parseToParts(formatStr: string, input: string, options: Numberin
     const splits = enumerateValidSplits(runDigits, run.tokens);
     if (splits.length > 1) {
       if (!options.lenient) {
-        throw new Error(
-          `temporal-fmt: "${runDigits}" in format string "${formatStr}" is ambiguous — ` +
-          `${splits.length} different ways to read tokens "${run.tokens.join('')}" (with no separator ` +
-          `between them) are all individually valid (e.g. ${JSON.stringify(splits[0])} vs ${JSON.stringify(splits[1])}). ` +
-          `parse() won't guess; add a separator between these tokens, or use their padded form ` +
-          `(e.g. "MM" instead of "M") so each one has a fixed width. ` +
-          `Pass { lenient: true } to opt into a documented heuristic that picks one.`
-        );
+        throw new AmbiguousInputError({
+          input, format: formatStr,
+          message:
+            `temporal-fmt: "${runDigits}" in format string "${formatStr}" is ambiguous — ` +
+            `${splits.length} different ways to read tokens "${run.tokens.join('')}" (with no separator ` +
+            `between them) are all individually valid (e.g. ${JSON.stringify(splits[0])} vs ${JSON.stringify(splits[1])}). ` +
+            `parse() won't guess; add a separator between these tokens, or use their padded form ` +
+            `(e.g. "MM" instead of "M") so each one has a fixed width. ` +
+            `Pass { lenient: true } to opt into a documented heuristic that picks one.`,
+        });
       }
       runPicks.push({ groupNames: run.groupNames, values: pickLenientSplit(splits, run.tokens) });
     }
@@ -867,10 +963,12 @@ export interface CompiledParser {
 
 export function compileParser(formatStr: string, options: NumberingParseOptions = {}): CompiledParser {
   if (formatStr.length > MAX_FORMAT_LENGTH) {
-    throw new Error(
-      `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
-      `(got ${formatStr.length}).`
-    );
+    throw new FormatSyntaxError({
+      format: formatStr,
+      message:
+        `temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
+        `(got ${formatStr.length}).`,
+    });
   }
   // Pre-compile against the default locale; per-call locales will
   // re-resolve via getPattern() if they differ. Most callers use one
