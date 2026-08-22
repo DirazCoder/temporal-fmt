@@ -56,6 +56,31 @@ test('CLI: format subcommand handles a "Z"-suffixed instant', () => {
   assert.equal(stdout.trim(), '2026-08-04 15:45:30 UTC');
 });
 
+test('CLI: format subcommand renders an offset token as "Z" for a "Z"-suffixed input', () => {
+  const { stdout, exitCode } = runCli('format', '2026-08-04T15:45:30Z', 'yyyy-MM-dd HH:mm:ssXXX');
+  assert.equal(exitCode, 0);
+  assert.equal(stdout.trim(), '2026-08-04 15:45:30Z');
+});
+
+test('CLI: format subcommand explains why an offset token fails on a numeric-offset input', () => {
+  // parseIsoInput intentionally drops a non-"Z" numeric offset, keeping
+  // only wall-clock fields (see the comment above parseIsoInput), so an
+  // offset-formatting token has nothing to render. The error should say
+  // why, not just that the field is missing.
+  const { exitCode, stderr } = runCli('format', '2026-08-04T15:45:30+02:00', 'yyyy-MM-dd HH:mm:ssXXX');
+  assert.notEqual(exitCode, 0);
+  assert.match(stderr, /has a numeric offset, but temporal-fmt drops it during parsing/);
+});
+
+test('CLI: format subcommand gives the plain error for an offset token on an offset-less input', () => {
+  // A bare wall-clock input never had an offset to drop, so it should
+  // NOT get the numeric-offset-specific explanation above.
+  const { exitCode, stderr } = runCli('format', '2026-08-04T15:45:30', 'yyyy-MM-dd HH:mm:ssXXX');
+  assert.notEqual(exitCode, 0);
+  assert.doesNotMatch(stderr, /has a numeric offset/);
+  assert.match(stderr, /requires "offset"/);
+});
+
 test('CLI: parse subcommand produces ISO output', () => {
   const { stdout, exitCode } = runCli('parse', 'yyyy-MM-dd', '2026-08-04');
   assert.equal(exitCode, 0);

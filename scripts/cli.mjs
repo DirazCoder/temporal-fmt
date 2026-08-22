@@ -78,6 +78,11 @@ function parseIsoInput(isoInput) {
   return Temporal.PlainDate.from(isoInput);
 }
 
+// Matches the "+HH:MM"/"-HH:MM" offset suffix that parseIsoInput's
+// PlainDateTime.from() branch silently discards. Used only to make the
+// resulting "no offset field" format() error more specific — see below.
+const HAS_NUMERIC_OFFSET = /T.*[+-]\d{2}:\d{2}$/;
+
 // Each command takes { positional, options } and either returns the
 // output string or throws. Kept free of process.exit/stdout writes so
 // both one-shot mode and the REPL can call the same logic and just
@@ -95,7 +100,24 @@ const COMMANDS = {
       } catch (err) {
         throw new Error(`could not parse "${isoInput}" as a Temporal value: ${err.message}`);
       }
-      return format(temporal, formatStr, { locale });
+      try {
+        return format(temporal, formatStr, { locale });
+      } catch (err) {
+        // parseIsoInput deliberately drops a numeric offset (e.g. "+02:00")
+        // when it's not "Z" — see the comment there — so any offset token
+        // (X/XX/XXX/x/xx/xxx) fails with a generic "doesn't have this
+        // field" error that gives no hint the offset was ever present.
+        // Recognize that specific case and say so, without changing what
+        // parseIsoInput actually does.
+        if (/requires "offset"/.test(err.message) && HAS_NUMERIC_OFFSET.test(isoInput)) {
+          throw new Error(
+            `${err.message} "${isoInput}" has a numeric offset, but temporal-fmt drops it during parsing ` +
+            `and keeps only the wall-clock date/time (see --help). Offset-formatting tokens only work on ` +
+            `a "Z"-suffixed input.`
+          );
+        }
+        throw err;
+      }
     },
   },
   parse: {
