@@ -923,16 +923,14 @@ Large feature pass — biggest release since 0.8.82. Highlights:
 _All of the above landed in one commit; the author noted using a Claude
 audit to help catch the bugs it fixes._
 
-## 0.2.5 — 2026-08-04 (`066b301`)
-Version bump only, no code changes.
-
-## 0.2.4 — 2026-08-04 (`a1ef182`)
+## 0.2.5 — 2026-08-04 (`ee1413a`)
 ### Changed
 - Dev dependencies un-pinned from caret ranges to exact versions:
   `temporal-polyfill`, `tsup`, and `typescript` in both `package.json`
   and `package-lock.json` went from `^1.0.3`/`^8.5.1`/`^6.0.3` to
-  `1.0.3`/`8.5.1`/`6.0.3` (commit `ee1413a`, landed same day as the
-  0.2.4 tag).
+  `1.0.3`/`8.5.1`/`6.0.3`.
+
+## 0.2.4 — 2026-08-04 (`a1ef182`)
 ### Fixed
 - `test/format.test.js` had a 5-line regression-test comment duplicating
   the full explanation already in `tokens.ts`'s `intlPart()` — trimmed
