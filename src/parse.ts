@@ -468,13 +468,25 @@ export function parse(formatStr: string, input: string, options: NumberingParseO
   // (the default) throws; lenient mode opts into picking one split via a
   // documented heuristic. The input itself is what's ambiguous, not a
   // fixable property of the pattern.
-  // Collect any lenient-mode split overrides before the applyGroup loop,
-  // so it can substitute the heuristic-chosen values for tokens in a
-  // multiply-split run instead of trusting the regex's arbitrary split.
-  const runPicks: Array<{ groupNames: string[]; values: number[] }> = [];
+  // Glued-run split handling (0.9.2 ReDoS fix): each run of 2+ adjacent
+  // unpadded-numeric tokens is now captured by a SINGLE bounded regex
+  // group (see buildCapturingPattern in parsePattern.ts) instead of one
+  // variable-width fragment per token — the per-token split is resolved
+  // here, after the match, by the same enumerateValidSplits() machinery
+  // that already detected ambiguous runs. Unique split resolves; 2+
+  // valid splits throws in strict mode / heuristic-picks in lenient
+  // mode (unchanged from before); a span that matched the run's overall
+  // width window but names no valid per-token assignment (0 splits) is
+  // a mismatch, which the old per-token fragments used to reject at
+  // match time — surface the same "no valid pattern matches" error here
+  // instead of letting it slip through as a phantom match.
+  const runValues = new Map<string, string>();
   for (const run of pattern.ambiguousRuns) {
-    const runDigits = run.groupNames.map((name) => match.groups![name]!).join('');
+    const runDigits = match.groups![run.groupName]!;
     const splits = enumerateValidSplits(runDigits, run.tokens);
+    if (splits.length === 0) {
+      throw new Error(`temporal-fmt: no valid pattern matches the format string and input shape`);
+    }
     if (splits.length > 1) {
       // Strict default — throw on ambiguity. The whole point of the
       // library's parse() is to refuse to guess when the same input has
@@ -493,21 +505,19 @@ export function parse(formatStr: string, input: string, options: NumberingParseO
           `Pass { lenient: true } to opt into a documented heuristic that picks one.`
         );
       }
-      runPicks.push({ groupNames: run.groupNames, values: pickLenientSplit(splits, run.tokens) });
+      const picked = pickLenientSplit(splits, run.tokens);
+      run.groupNames.forEach((name, idx) => runValues.set(name, String(picked[idx])));
+    } else {
+      run.groupNames.forEach((name, idx) => runValues.set(name, String(splits[0]![idx])));
     }
   }
 
   const fields: Fields = {};
-  // Map group-name -> heuristic-picked value (as string) for groups that
-  // belong to a lenient-resolved ambiguous run. The applyGroup loop reads
-  // from here first, falling back to the regex's own captured value when
-  // the group isn't part of a lenient-resolved run.
-  const lenientValues = new Map<string, string>();
-  for (const { groupNames, values } of runPicks) {
-    groupNames.forEach((name, i) => lenientValues.set(name, String(values[i])));
-  }
+  // Per-token values for glued-run members come from the split
+  // enumeration above (runValues); every other token reads its own
+  // regex group directly.
   for (const { name, token } of pattern.groups) {
-    const raw = lenientValues.get(name) ?? match.groups![name]!;
+    const raw = runValues.get(name) ?? match.groups![name]!;
     applyGroup(fields, token, raw, locale, formatStr);
   }
 
@@ -792,14 +802,19 @@ export function parseToParts(formatStr: string, input: string, options: Numberin
     }
   }
 
-  // Lenient-split handling: same as parse(). Strict mode throws on
-  // ambiguity, lenient picks one split via the documented heuristic.
-  // parseToParts mirrors this so callers switching between parse()
-  // and parseToParts on the same input get consistent results.
-  const runPicks: Array<{ groupNames: string[]; values: number[] }> = [];
+  // Glued-run split handling (0.9.2 ReDoS fix): same as parse() — each
+  // run's single regex group is split into per-token values by
+  // enumerateValidSplits(); unique split resolves, 2+ splits throws in
+  // strict mode / heuristic-picks in lenient, 0 splits is a shape
+  // mismatch. parseToParts mirrors parse() so callers switching between
+  // the two on the same input get consistent results.
+  const runValues = new Map<string, string>();
   for (const run of pattern.ambiguousRuns) {
-    const runDigits = run.groupNames.map((name) => match.groups![name]!).join('');
+    const runDigits = match.groups![run.groupName]!;
     const splits = enumerateValidSplits(runDigits, run.tokens);
+    if (splits.length === 0) {
+      throw new Error(`temporal-fmt: no valid pattern matches the format string and input shape`);
+    }
     if (splits.length > 1) {
       if (!options.lenient) {
         throw new Error(
@@ -811,12 +826,11 @@ export function parseToParts(formatStr: string, input: string, options: Numberin
           `Pass { lenient: true } to opt into a documented heuristic that picks one.`
         );
       }
-      runPicks.push({ groupNames: run.groupNames, values: pickLenientSplit(splits, run.tokens) });
+      const picked = pickLenientSplit(splits, run.tokens);
+      run.groupNames.forEach((name, idx) => runValues.set(name, String(picked[idx])));
+    } else {
+      run.groupNames.forEach((name, idx) => runValues.set(name, String(splits[0]![idx])));
     }
-  }
-  const lenientValues = new Map<string, string>();
-  for (const { groupNames, values } of runPicks) {
-    groupNames.forEach((name, i) => lenientValues.set(name, String(values[i])));
   }
 
   const parts: ParsedPart[] = [];
@@ -831,16 +845,16 @@ export function parseToParts(formatStr: string, input: string, options: Numberin
   const groupIndices = indices?.groups;
   let consumed = 0;
   for (const { name, token } of pattern.groups) {
-    const raw = lenientValues.get(name) ?? match.groups![name]!;
-    // When a lenient-mode override is in play, the regex's recorded
-    // indices point at the run's overall span, not the individual
-    // token's slice within it — fall back to cumulative-raw-length for
-    // the overridden values so positions stay monotonic but may not be
-    // exact for tokens inside a lenient-resolved run. Documented as a
-    // known limitation; the alternative (re-running the regex with the
-    // chosen split baked in) would mean a second match pass for a
-    // corner case the lenient mode caller explicitly opted into.
-    const fromIndices = !lenientValues.has(name) && groupIndices?.[name];
+    const raw = runValues.get(name) ?? match.groups![name]!;
+    // Glued-run members have no regex group of their own — the regex's
+    // recorded indices point at the run's overall span, not the
+    // individual token's slice within it — so fall back to cumulative-
+    // raw-length for them. Positions stay monotonic but may not be
+    // exact for tokens inside a resolved run. Documented as a known
+    // limitation; the alternative (re-running the regex with the chosen
+    // split baked in) would mean a second match pass for a corner case
+    // the caller opted into by gluing unpadded tokens.
+    const fromIndices = !runValues.has(name) && groupIndices?.[name];
     /* c8 ignore next */
     const position = fromIndices ? fromIndices[0] : (match.index ?? 0) + consumed;
     parts.push({ token, raw, position });

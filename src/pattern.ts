@@ -174,7 +174,9 @@ const YYYY_EXTENDED = '-?\\d{4,}';
 // already handled by requiring a leading sign there). Used to decide
 // whether a "yyyy" immediately before this token needs the exact-4-digit
 // fragment instead of the open-ended one.
-const DIGIT_LEADING_TOKENS = new Set([
+// Exported for parsePattern.ts's ReDoS guard: a token whose regex
+// fragment can begin with a bare digit (see the guard comments there).
+export const DIGIT_LEADING_TOKENS = new Set([
   'yyyy', 'yy', 'MM', 'M', 'dd', 'd', 'HH', 'H', 'hh', 'h', 'mm', 'm', 'ss', 's',
   'SSSSSSSSS', 'SSSSSSSS', 'SSSSSSS', 'SSSSSS', 'SSSSS', 'SSSS', 'SSS', 'SS', 'S',
 ]);

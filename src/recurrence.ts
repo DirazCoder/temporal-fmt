@@ -161,13 +161,34 @@ export function take(iter: RecurrenceIterator, n: number): unknown[] {
   return result;
 }
 
-// Skip N occurrences from a recurrence iterator.
+// Upper bound on how many occurrences skip() will collect after its
+// skip phase. skip() used to call take(iter, Number.MAX_SAFE_INTEGER),
+// and an iterator over an unbounded rule (no count, no until — e.g.
+// { frequency: 'daily', interval: 1 }) never returns done: next() always
+// has another day. The call then looped forever, pushing into a result
+// array until the process OOM'd. Same cap style as businessCalendar.ts.
+const MAX_SKIP_COLLECTION = 100_000;
+
+// Skip N occurrences from a recurrence iterator, returning the ones
+// that follow. Throws a RangeError when the iterator is still producing
+// occurrences after MAX_SKIP_COLLECTION — that means the rule is
+// unbounded (no count/until) and "everything after the skip" has no
+// finite answer.
 export function skip(iter: RecurrenceIterator, n: number): unknown[] {
   for (let i = 0; i < n; i++) {
     const r = iter.next();
     if (r.done) break;
   }
-  return take(iter, Number.MAX_SAFE_INTEGER);
+  const result: unknown[] = [];
+  while (result.length < MAX_SKIP_COLLECTION) {
+    const r = iter.next();
+    if (r.done) return result;
+    result.push(r.value);
+  }
+  throw new RangeError(
+    `temporal-fmt: skip() collected ${MAX_SKIP_COLLECTION} occurrences and the rule is still ` +
+    `producing — add a count or until to the rule, or use take(iter, n) for a bounded read.`
+  );
 }
 
 // All occurrences between two dates (inclusive of start, exclusive of end).

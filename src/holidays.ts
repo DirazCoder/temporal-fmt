@@ -25,6 +25,16 @@ export interface HolidaySpec {
   name?: string;
 }
 
+// Upper bound on the year range holidaysBetween() will walk. The loop
+// is year-granular with no input validation on the endpoints, so a
+// caller passing (say) year 1 to year 300000 makes it iterate — and
+// cache a holiday list — for every year in between; hostile or
+// accidental huge ranges used to hang the process and grow the
+// per-calendar cache without bound. 5,000 years matches the traversal
+// caps businessCalendar.ts and recurrence.ts already use for the same
+// class of "walk it one step at a time" APIs.
+const MAX_HOLIDAY_YEAR_RANGE = 5_000;
+
 export function createHolidayCalendar(specs: HolidaySpec[]): HolidayCalendar {
   // Pre-compute holidays for a year on demand, cache by year.
   const cache = new Map<number, Array<{ month: number; day: number; name?: string }>>();
@@ -55,6 +65,15 @@ export function createHolidayCalendar(specs: HolidaySpec[]): HolidayCalendar {
     holidaysBetween(start: unknown, end: unknown) {
       const sv = start as { year: number; month: number; day: number };
       const ev = end as { year: number; month: number; day: number };
+      if (typeof sv?.year !== 'number' || typeof ev?.year !== 'number') {
+        throw new Error('temporal-fmt: holidaysBetween() needs start/end values with year/month/day.');
+      }
+      if (ev.year - sv.year > MAX_HOLIDAY_YEAR_RANGE) {
+        throw new RangeError(
+          `temporal-fmt: holidaysBetween() year range (${sv.year}–${ev.year}) exceeds the ` +
+          `${MAX_HOLIDAY_YEAR_RANGE}-year limit. Split the query into smaller ranges.`
+        );
+      }
       const result: unknown[] = [];
       for (let y = sv.year; y <= ev.year; y++) {
         const list = forYear(y);
