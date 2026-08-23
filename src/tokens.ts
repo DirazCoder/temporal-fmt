@@ -183,6 +183,26 @@ function intlPart(
     calendar: calendar && calendar !== 'iso8601' ? calendar : 'gregory',
   };
 
+  // Field-bag guard: a plain { year, month, day } object only has
+  // Object.prototype.toLocaleString, which ignores both arguments and
+  // returns "[object Object]". On engines without native Temporal
+  // support in Intl this used to be caught below, but on engines where
+  // Intl *does* recognize native Temporal instances (Node 26+), a bag
+  // skips that branch entirely and reaches formatToParts() directly —
+  // which doesn't throw "[object Object]", it throws a bare
+  // "RangeError: Invalid time value" once the bag fails ToNumber()
+  // coercion. Neither failure mode is useful to a caller, so check for
+  // a real toLocaleString up front, before branching on native support,
+  // so the descriptive error fires on every engine.
+  const ls = temporal.toLocaleString;
+  if (typeof ls !== 'function' || ls === Object.prototype.toLocaleString) {
+    throw new Error(
+      `temporal-fmt: locale-aware part "${partType}" needs a value that implements ` +
+      `toLocaleString (a real Temporal object). A plain field bag cannot render ` +
+      `locale-aware names — pass a Temporal.PlainDate/PlainDateTime/ZonedDateTime.`
+    );
+  }
+
   // Temporal.prototype.toLocaleString() is part of the Temporal spec itself:
   // polyfills implement the ICU formatting internally without needing the
   // engine to recognize the object, so it works without native Intl support.
@@ -209,19 +229,8 @@ function intlPart(
     // toLocaleString forwards the locale to Intl.DateTimeFormat, which
     // (unlike this library's cache keys) rejects underscore-separated
     // tags like 'en_US' outright.
-    // Field-bag guard: a plain { year, month, day } object also has a
-    // toLocaleString — Object.prototype.toLocaleString — which ignores
-    // both arguments and returns "[object Object]". Silently emitting
-    // that garbage is worse than throwing, so a bag carrying only the
-    // inherited method gets a descriptive error naming the problem.
-    const ls = temporal.toLocaleString;
-    if (typeof ls !== 'function' || ls === Object.prototype.toLocaleString) {
-      throw new Error(
-        `temporal-fmt: locale-aware part "${partType}" needs a value that implements ` +
-        `toLocaleString (a real Temporal object). A plain field bag cannot render ` +
-        `locale-aware names — pass a Temporal.PlainDate/PlainDateTime/ZonedDateTime.`
-      );
-    }
+    // (Field-bag guard now runs unconditionally above, before this
+    // native-support branch, so it's not repeated here.)
     try {
       return ls.call(temporal, normalizeLocaleTag(locale), formatterOptions);
     } catch (err) {
