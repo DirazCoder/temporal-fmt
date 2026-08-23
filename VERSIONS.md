@@ -20,6 +20,22 @@ throws.
 `0.7.x` and everything before it is end of life and no longer receives
 fixes. Upgrade to `0.9.x` or `0.8.x` instead.
 
+## LTS rotation policy
+
+Standing rule, applies every time — doesn't matter what the version
+numbers are. You can't move the LTS label from one line to the next
+(e.g. `0.7.x` → `0.8.x`) unless the current LTS line already cleared
+both of these first:
+
+- **It's been LTS for at least 1 week.**
+- **It's shipped at least one security fix release of its own**, tagged
+  under that line. Example: `0.7.x` becomes LTS at `0.7.97` — it needs
+  a `0.7.98` (or later) release that's specifically a security fix. A
+  fix that only went out on main doesn't count.
+
+If `0.7.x` hasn't hit both of those yet, `0.8.x` can't take over as LTS
+and `0.7.x` can't go EOL. Both boxes checked, then the handoff happens.
+
 ## Breaking / behavior changes by version
 
 Changes that affect whether upgrading resolves something you're relying
