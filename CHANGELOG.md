@@ -4,7 +4,7 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
-## 0.9.2 — 2026-08-24 (`2a2bd05`)
+## 0.9.3 — 2026-08-24 (`2a2bd05`)
 ### Security
 - **ReDoS: three related classes of catastrophic backtracking in
   `parse()`'s compiled regex are closed**, all found by a full security
