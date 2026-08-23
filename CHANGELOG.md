@@ -387,11 +387,11 @@ are 0.9.x-only and not included here.
 - Hardened public APIs against resource-exhaustion input generally.
 - Bumped esbuild 0.28.1 → 0.28.2.
 
-## 0.8.96 — 2026-08-21 (`3c45848`)
+## 0.8.96 — 2026-08-21 (`8b87fc3`)
 ### Fixed
-- `startOf()`/`endOf()` now recompute `dayOfWeek` after a month/year
-  boundary change instead of carrying over the stale value from the
-  input. Same bug, same fix, applied to `add()` in `arithmetic.ts`.
+- Same `add()` dayOfWeek carry-over as 0.8.95's `startOf()`/`endOf()`
+  fix, applied to `arithmetic.ts`, plus null-safety guards and edge-case
+  coverage on the original fix (`3c45848`, landed right after).
 - `splitInterval()` could land tens of thousands of days off — `fromMs()`
   was double-counting the day offset.
 - Unrecognized time zones in `parse()`/`parseToParts()` now throw
@@ -411,10 +411,11 @@ are 0.9.x-only and not included here.
 - c8 coverage gate raised to 100% (statements/branches/functions/lines)
   across `src/` and `dist/`, enforced via `package.json`.
 
-## 0.8.95 — 2026-08-21 (`8bbbe69`)
+## 0.8.95 — 2026-08-21 (`e2266e9`)
 ### Fixed
-- Same `startOf()`/`endOf()` `dayOfWeek` fix as 0.8.96, landed here first
-  for this release line.
+- `startOf()`/`endOf()` didn't recompute `dayOfWeek` after a month/year
+  boundary change — a plain `{ ...view }` spread carried over the stale
+  value from the input instead.
 
 ## 0.8.94 — 2026-08-21 (`f9acd1f`)
 ### Added
@@ -581,14 +582,16 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   (bundler minification decoupled call sites from the declaration) —
   moved the helper onto `pad()` (`pad.fraction`). No behavior change.
 
-## 0.8.4 — 2026-08-19 (`0c9aa8f`)
+## 0.8.4 — 2026-08-19 (`5398b73`)
 ### Fixed
 - The `a` (AM/PM) token was case-sensitive with no real reason —
   `parse('h:mm a', '3:45 pm')` now succeeds instead of throwing.
   Scoped to `a` only; `MMMM`/`EEEE` name matching is still case-sensitive.
 ### Documented
 - `HH`/`H` combined with `a` was already supported/cross-checked but
-  undocumented — now written down and directly tested.
+  undocumented — now written down and directly tested (`0c9aa8f`,
+  landed right after — the author forgot to copy the edited README
+  over on the first pass).
 
 ## 0.8.3 — 2026-08-18 (`f5f20d1`)
 ### Added
@@ -969,7 +972,7 @@ audit to help catch the bugs it fixes._
   Calendars`; the default `iso8601` calendar is no longer passed
   explicitly to `Intl` (was silently producing zero parts).
 
-## 0.1.1 — 2026-08-04 (`7563b83`)
+## 0.1.1 — 2026-08-04 (`5a6dc0e`)
 ### Fixed
 - Doubled single-quotes inside a literal span (`''`) broke the
   tokenizer — `'it''s'` used to leave dangling unparsed text. Scanner
