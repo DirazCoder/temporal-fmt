@@ -4,7 +4,7 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
-## 0.9.2 — 2026-08-24 (`2a2bd05`)
+## 0.9.2 — 2026-08-23 (`2a2bd05`)
 ### Security
 - **ReDoS: three related classes of catastrophic backtracking in
   `parse()`'s compiled regex are closed**, all found by a full security
@@ -221,6 +221,38 @@ For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 - `assertValidLocaleTag()` / `normalizeLocaleTag()` /
   `subscribeToVocabChanges()` / `fieldToNs()` internal helpers, exported
   from their modules for cross-module reuse.
+
+## 0.8.983 — 2026-08-23 (`5db7ff3`)
+### Security
+Backport of the three security fixes from 0.9.2's audit. 0.8.x is LTS
+and only takes security fixes — see [VERSIONS.md](VERSIONS.md) — so the
+0.9.2 entry's `### Fixed`/`### Changed`/`### Added` items (year-boundary
+comparison, stale locale-vocab cache, the two mutation bugs, and so on)
+are 0.9.x-only and not included here.
+
+- **ReDoS: the same three catastrophic-backtracking classes in
+  `parse()`'s compiled regex, closed the same way.** A run of 2+ glued
+  unpadded numeric tokens (`"Md"`, `"Hms"`) now compiles to one bounded
+  `\d{R,2R}` group instead of R separate variable-width fragments, with
+  the per-token split resolved after the match by
+  `enumerateValidSplits()` — same documented semantics, flat milliseconds
+  instead of exponential. `yyyy` glued to a digit-starting literal
+  (`"yyyy1"` repeated) now uses the exact 4-digit fragment. And a
+  pattern-build-time ambiguity budget rejects format strings whose
+  glued-token adjacencies exceed a 4,096-path ceiling before a regex
+  ever runs. One behavioral difference from 0.9.2: 0.8.x keeps its
+  pre-existing plain-`Error` throw convention throughout (no typed
+  `FormatSyntaxError`/`ParseMismatchError`) — 0.8.x doesn't carry the
+  typed-error surface 0.9.0 introduced, so the budget rejection and the
+  new "0 valid splits" mismatch case both throw plain `Error` with the
+  same message text 0.9.2 uses.
+- `skip()` on an unbounded recurrence rule (no `count`, no `until`) no
+  longer loops forever building an array until the process OOMs — it
+  now caps at 100,000 occurrences and throws a `RangeError` telling you
+  to use `count`/`until` or a bounded `take()` instead.
+- `holidaysBetween()` no longer walks an unvalidated, uncapped year
+  range. Endpoints must carry year/month/day, and ranges beyond 5,000
+  years throw a `RangeError` suggesting smaller queries.
 
 ## 0.9.1 — 2026-08-22 (`c38fdc4`)
 ### Added
