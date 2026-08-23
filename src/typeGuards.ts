@@ -94,6 +94,23 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
 }
 
+// Hostile-getter hardening: the structural guards below read properties
+// (year, hour, Symbol.toStringTag, ...) off arbitrary caller values. An
+// object with a throwing getter used to turn isPlainDate(obj) — a function
+// whose whole contract is returning a boolean — into an exception factory.
+// Every exported guard now runs through this wrapper: a throw during
+// probing means "not one of ours", not a crash. One shared catch (rather
+// than one per guard) keeps the coverage burden honest too.
+function guardOrFalse<T>(impl: (value: unknown) => value is T): (value: unknown) => value is T {
+  return (value: unknown): value is T => {
+    try {
+      return impl(value);
+    } catch {
+      return false;
+    }
+  };
+}
+
 function hasMethod<T extends keyof TemporalInstance>(
   v: TemporalInstance,
   name: T,
@@ -114,7 +131,7 @@ function hasTag(value: unknown, typeName: string): boolean {
   return tag === `Temporal.${typeName}`;
 }
 
-export function isPlainDate(value: unknown): value is TemporalInstance {
+export const isPlainDate: (value: unknown) => value is TemporalInstance = guardOrFalse(function isPlainDateImpl(value: unknown): value is TemporalInstance {
   if (hasTag(value, 'PlainDate')) return true;
   if (!isObject(value)) return false;
   const v = value as TemporalInstance;
@@ -124,9 +141,9 @@ export function isPlainDate(value: unknown): value is TemporalInstance {
     && typeof v.hour === 'undefined'
     && hasMethod(v, 'toPlainDateTime')
     && hasMethod(v, 'withCalendar');
-}
+});
 
-export function isPlainTime(value: unknown): value is TemporalInstance {
+export const isPlainTime: (value: unknown) => value is TemporalInstance = guardOrFalse(function isPlainTimeImpl(value: unknown): value is TemporalInstance {
   if (hasTag(value, 'PlainTime')) return true;
   if (!isObject(value)) return false;
   const v = value as TemporalInstance;
@@ -138,9 +155,9 @@ export function isPlainTime(value: unknown): value is TemporalInstance {
     && !hasMethod(v, 'withCalendar')
     && !hasMethod(v, 'toPlainDate')
     && !hasMethod(v, 'toPlainDateTime');
-}
+});
 
-export function isPlainDateTime(value: unknown): value is TemporalInstance {
+export const isPlainDateTime: (value: unknown) => value is TemporalInstance = guardOrFalse(function isPlainDateTimeImpl(value: unknown): value is TemporalInstance {
   if (hasTag(value, 'PlainDateTime')) return true;
   if (!isObject(value)) return false;
   const v = value as TemporalInstance;
@@ -153,9 +170,9 @@ export function isPlainDateTime(value: unknown): value is TemporalInstance {
     && typeof v.hour === 'number'
     && hasMethod(v, 'withPlainTime')
     && !hasMethod(v, 'toInstant');
-}
+});
 
-export function isZonedDateTime(value: unknown): value is TemporalInstance {
+export const isZonedDateTime: (value: unknown) => value is TemporalInstance = guardOrFalse(function isZonedDateTimeImpl(value: unknown): value is TemporalInstance {
   if (hasTag(value, 'ZonedDateTime')) return true;
   if (!isObject(value)) return false;
   const v = value as TemporalInstance;
@@ -166,9 +183,9 @@ export function isZonedDateTime(value: unknown): value is TemporalInstance {
     && typeof v.hour === 'number'
     && hasMethod(v, 'withTimeZone')
     && hasMethod(v, 'toInstant');
-}
+});
 
-export function isInstant(value: unknown): value is TemporalInstance {
+export const isInstant: (value: unknown) => value is TemporalInstance = guardOrFalse(function isInstantImpl(value: unknown): value is TemporalInstance {
   if (hasTag(value, 'Instant')) return true;
   if (!isObject(value)) return false;
   // Instant carries `toZonedDateTimeISO` and no `toInstant` (it IS the
@@ -179,9 +196,9 @@ export function isInstant(value: unknown): value is TemporalInstance {
   return hasMethod(v, 'toZonedDateTimeISO')
     && !hasMethod(v, 'toInstant')
     && typeof v.year === 'undefined';
-}
+});
 
-export function isPlainYearMonth(value: unknown): value is TemporalInstance {
+export const isPlainYearMonth: (value: unknown) => value is TemporalInstance = guardOrFalse(function isPlainYearMonthImpl(value: unknown): value is TemporalInstance {
   if (hasTag(value, 'PlainYearMonth')) return true;
   if (!isObject(value)) return false;
   const v = value as TemporalInstance;
@@ -191,9 +208,9 @@ export function isPlainYearMonth(value: unknown): value is TemporalInstance {
     && typeof v.month === 'number'
     && typeof v.day === 'undefined'
     && hasMethod(v, 'toPlainDate');
-}
+});
 
-export function isPlainMonthDay(value: unknown): value is TemporalInstance {
+export const isPlainMonthDay: (value: unknown) => value is TemporalInstance = guardOrFalse(function isPlainMonthDayImpl(value: unknown): value is TemporalInstance {
   if (hasTag(value, 'PlainMonthDay')) return true;
   if (!isObject(value)) return false;
   const v = value as TemporalInstance;
@@ -206,9 +223,9 @@ export function isPlainMonthDay(value: unknown): value is TemporalInstance {
     && typeof v.day === 'number'
     && typeof v.monthCode === 'string'
     && hasMethod(v, 'toPlainDate');
-}
+});
 
-export function isDuration(value: unknown): value is Record<string, unknown> {
+export const isDuration: (value: unknown) => value is Record<string, unknown> = guardOrFalse(function isDurationImpl(value: unknown): value is Record<string, unknown> {
   if (hasTag(value, 'Duration')) return true;
   if (!isObject(value)) return false;
   // `total` is unique to Duration across every Temporal type — no other
@@ -219,7 +236,7 @@ export function isDuration(value: unknown): value is Record<string, unknown> {
   // coincidentally need).
   const v = value as TemporalInstance;
   return hasMethod(v, 'total');
-}
+});
 
 // Umbrella guard: any Temporal namespace member. Used by `assertTemporal`
 // below for the "this needs to be some Temporal thing" case. Two signals
@@ -233,7 +250,7 @@ export function isDuration(value: unknown): value is Record<string, unknown> {
 //      `equals` + `with` (both present on every Temporal instance),
 //      it's a reliable signal that doesn't rely on the toStringTag
 //      being set.
-export function isTemporal(value: unknown): value is TemporalInstance {
+export const isTemporal: (value: unknown) => value is TemporalInstance = guardOrFalse(function isTemporalImpl(value: unknown): value is TemporalInstance {
   if (!isObject(value)) return false;
   const tag = (value as { [Symbol.toStringTag]?: unknown })[Symbol.toStringTag];
   if (typeof tag === 'string' && tag.startsWith('Temporal.')) return true;
@@ -250,7 +267,7 @@ export function isTemporal(value: unknown): value is TemporalInstance {
     || hasMethod(v, 'withPlainTime')
     || hasMethod(v, 'withTimeZone')
     || hasMethod(v, 'total');
-}
+});
 
 // Assertion helpers — throw descriptively rather than returning false.
 // Same convention as the rest of the library: descriptive thrown errors

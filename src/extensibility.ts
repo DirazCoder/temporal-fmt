@@ -7,10 +7,10 @@
 // hatch for the locale-vocabulary case; createFormatter is the
 // per-formatter alternative for custom tokens.
 
-import { format as builtinFormat, formatToParts as builtinFormatToParts, type FormattedPart, type CompiledFormat } from './format.js';
+import { type FormattedPart, type CompiledFormat } from './format.js';
 import { TOKENS, type TemporalLike, type FormatOptions, DEFAULT_LOCALE } from './tokens.js';
-import { tokenize } from './tokenize.js';
 import { MAX_FORMAT_LENGTH } from './constants.js';
+import { UnknownTokenError } from './errors.js';
 
 export type TokenHandler = (t: TemporalLike, locale: string) => string;
 export type TokenField = keyof TemporalLike;
@@ -92,6 +92,24 @@ export function createFormatter(options: FormatterOptions = {}): Formatter {
       }
       const match = sortedTokenStrings.find((tok) => formatStr.startsWith(tok, i));
       if (match) {
+        // Overlong-run guard, same rule as tokenize.ts: a greedy match of N
+        // chars followed by one more of the same letter ("MMMMM", "ddddd")
+        // is not a valid token of any width — emitting it as "token +
+        // literal" would silently splice an unrelated field onto this one,
+        // exactly the misreading the main tokenizer rejects. Same
+        // UnknownTokenError shape tokenize.ts throws.
+        const runChar = match[match.length - 1];
+        if (formatStr[i + match.length] === runChar) {
+          let end = i + match.length;
+          while (formatStr[end] === runChar) end += 1;
+          throw new UnknownTokenError({
+            token: formatStr.slice(i, end),
+            format: formatStr,
+            message:
+              `temporal-fmt: "${formatStr.slice(i, end)}" in format string "${formatStr}" isn't a recognized token — ` +
+              `did you mean "${match}"?`,
+          });
+        }
         pieces.push({ kind: 'token', value: match });
         i += match.length;
         continue;
@@ -235,12 +253,3 @@ export function createFormatter(options: FormatterOptions = {}): Formatter {
   };
 }
 
-// Suppress unused-import warning. builtinFormat / builtinFormatToParts
-// are imported so callers reading this file see the import surface; we
-// don't use them directly because createFormatter reimplements the
-// format walk over its own merged token table. The imports document
-// the parallel API surface — and would be needed if we ever switched
-// createFormatter to delegate rather than reimplement.
-void builtinFormat;
-void builtinFormatToParts;
-void tokenize;

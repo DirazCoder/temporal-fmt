@@ -35,6 +35,13 @@ export interface RelativeGrammar {
   matchers: Array<(input: string) => RelativeGrammarMatch | null>;
 }
 
+// Cap on registered grammars. Replacement registration for an existing
+// language never grows the registry, so the cap only gates new languages —
+// the same convention registerLocaleVocab uses for custom vocabularies.
+// Without it, a caller looping registerRelativeGrammar() grows the array
+// (and the per-language scan in tryRegisteredGrammar) without bound.
+const MAX_REGISTERED_GRAMMARS = 100;
+
 const registeredGrammars: RelativeGrammar[] = [];
 
 export function registerRelativeGrammar(grammar: RelativeGrammar): void {
@@ -49,6 +56,9 @@ export function registerRelativeGrammar(grammar: RelativeGrammar): void {
   if (existingIdx >= 0) {
     registeredGrammars[existingIdx] = grammar;
   } else {
+    if (registeredGrammars.length >= MAX_REGISTERED_GRAMMARS) {
+      throw new RangeError(`temporal-fmt: registerRelativeGrammar reached the ${MAX_REGISTERED_GRAMMARS}-grammar limit.`);
+    }
     registeredGrammars.push(grammar);
   }
 }

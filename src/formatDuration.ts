@@ -1,7 +1,8 @@
 import { type FormatOptions } from './tokens.js';
 import { tokenize } from './tokenize.js';
 import { MAX_FORMAT_LENGTH } from './constants.js';
-import { canonicalCacheKey } from './localeVocab.js';
+import { canonicalCacheKey, normalizeLocaleTag } from './localeVocab.js';
+import { InvalidLocaleError } from './errors.js';
 
 // A Temporal.Duration doesn't sit on a calendar — it has no year/month/day
 // position the way a PlainDate does — so the date/time token set in
@@ -171,11 +172,21 @@ function getUnitFormatter(locale: string, intlUnit: string, unitDisplay: 'short'
     const oldestKey = unitFormatterCache.keys().next().value;
     if (oldestKey !== undefined) unitFormatterCache.delete(oldestKey);
   }
-  const formatter = new Intl.NumberFormat(locale, {
-    style: 'unit',
-    unit: intlUnit,
-    unitDisplay,
-  });
+  let formatter: Intl.NumberFormat;
+  try {
+    formatter = new Intl.NumberFormat(normalizeLocaleTag(locale), {
+      style: 'unit',
+      unit: intlUnit,
+      unitDisplay,
+    });
+  } catch (err) {
+    // Malformed locale tags reach Intl as a bare RangeError; surface the
+    // library's typed error instead. (Every failure mode of these
+    // constructors with a string locale is a RangeError, so converting
+    // unconditionally loses nothing — the original message is preserved
+    // in `reason` either way.)
+    throw new InvalidLocaleError({ actual: locale, reason: (err as Error).message });
+  }
   unitFormatterCache.set(key, formatter);
   return formatter;
 }
@@ -220,6 +231,30 @@ export function formatDuration(
   formatStr: string,
   options: DurationFormatOptions = {},
 ): string {
+  return renderDurationPieces(duration, formatStr, options).map((p) => p.value).join('');
+}
+
+// One rendered piece of a duration format string: either literal text or
+// a token with its already-rendered value (empty string for a
+// zero-suppressed token, matching formatDurationToParts' documented
+// contract of emitting an empty token part rather than dropping it).
+export interface RenderedDurationPiece {
+  kind: 'literal' | 'token';
+  value: string;
+  token?: string;
+}
+
+// Shared renderer behind both formatDuration() (joins the pieces) and
+// formatDurationToParts() (returns them). Single source of truth, so the
+// joined string and the parts can never disagree — the old
+// formatDurationToParts re-derived part boundaries by searching the
+// rendered string with indexOf and mis-sliced whenever a literal's text
+// also occurred inside an earlier token's rendered value.
+export function renderDurationPieces(
+  duration: Record<string, unknown>,
+  formatStr: string,
+  options: DurationFormatOptions = {},
+): RenderedDurationPiece[] {
   if (formatStr.length > MAX_FORMAT_LENGTH) {
     throw new Error(
       `temporal-fmt: duration format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters ` +
@@ -238,11 +273,11 @@ export function formatDuration(
   const useIntl = locale !== undefined;
 
   const pieces = tokenizeDuration(formatStr);
-  let result = '';
+  const out: RenderedDurationPiece[] = [];
 
   for (const piece of pieces) {
     if (piece.kind === 'literal') {
-      result += piece.value;
+      out.push({ kind: 'literal', value: piece.value });
       continue;
     }
 
@@ -265,11 +300,12 @@ export function formatDuration(
       // (e.g. "2 hours, " with nothing after). Callers who want clean
       // output should structure their format string to not put a
       // separator after a unit that might be zero, or use showZeroValues.
+      out.push({ kind: 'token', value: '', token: piece.value });
       continue;
     }
 
     if (piece.form === 'numeric') {
-      result += String(value);
+      out.push({ kind: 'token', value: String(value), token: piece.value });
       continue;
     }
 
@@ -280,7 +316,7 @@ export function formatDuration(
       // (`-1 hour`) round-trip the sign the way Intl expects.
       const unitDisplay = piece.form === 'short' ? 'short' : 'long';
       const formatter = getUnitFormatter(locale!, unit.intlUnit, unitDisplay);
-      result += formatter.format(value);
+      out.push({ kind: 'token', value: formatter.format(value), token: piece.value });
       continue;
     }
 
@@ -289,11 +325,11 @@ export function formatDuration(
     // singular, including for negatives like "-1 hour" (which is what
     // Intl produces for en-US too).
     if (piece.form === 'short') {
-      result += value + (value === 1 || value === -1 ? unit.shortSingular : unit.shortPlural);
+      out.push({ kind: 'token', value: value + (value === 1 || value === -1 ? unit.shortSingular : unit.shortPlural), token: piece.value });
     } else {
-      result += value + ' ' + (value === 1 || value === -1 ? unit.longSingular : unit.longPlural);
+      out.push({ kind: 'token', value: value + ' ' + (value === 1 || value === -1 ? unit.longSingular : unit.longPlural), token: piece.value });
     }
   }
 
-  return result;
+  return out;
 }

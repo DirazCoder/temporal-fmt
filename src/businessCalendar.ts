@@ -29,7 +29,12 @@ export interface BusinessCalendar {
 
 export function createBusinessCalendar(options: BusinessCalendarOptions = {}): BusinessCalendar {
   const weekend = new Set(options.weekend ?? [6, 7]);
-  const workingHours = options.workingHours ?? {};
+  // Copy before filling defaults — writing the missing weekday entries
+  // straight into options.workingHours mutated the caller's object
+  // (their { 1: 6 } grew keys 2..7 as a side effect of "creating" a
+  // calendar, and a shared object across calendars cross-contaminated
+  // them with the first calendar's defaults).
+  const workingHours: Record<number, number> = { ...(options.workingHours ?? {}) };
   for (let i = 1; i <= 7; i++) {
     if (workingHours[i] === undefined) {
       workingHours[i] = weekend.has(i) ? 0 : 8;

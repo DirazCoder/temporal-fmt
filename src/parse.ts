@@ -2,7 +2,7 @@ import { DEFAULT_LOCALE, type FormatOptions } from './tokens.js';
 import { tokenize } from './tokenize.js';
 import { buildCapturingPattern, type CapturingPattern } from './parsePattern.js';
 import { enumerateValidSplits, isValidTimeZone } from './pattern.js';
-import { getLocaleVocab, canonicalCacheKey } from './localeVocab.js';
+import { getLocaleVocab, canonicalCacheKey, assertValidLocaleTag, subscribeToVocabChanges } from './localeVocab.js';
 import { getTemporal } from './temporalProvider.js';
 import { MAX_FORMAT_LENGTH, MAX_INPUT_LENGTH } from './constants.js';
 import { TemporalFmtError, InvalidTimeZoneError, InvalidOffsetError, FormatSyntaxError, ParseMismatchError, AmbiguousInputError, InvalidDateError, wrapUntypedError } from './errors.js';
@@ -13,6 +13,16 @@ import { applyParseNumbering, type NumberingParseOptions } from './numbering.js'
 // of rebuilding it every call.
 const patternCache = new Map<string, CapturingPattern>();
 const MAX_CACHE_SIZE = 500;
+
+// A compiled pattern embeds locale-vocabulary alternations (MMMM/MMM/
+// EEEE/EEE/a fragments) at build time. When registerLocaleVocab()
+// swaps a locale's vocabulary, every cached pattern for any locale
+// becomes potentially stale — the cached regex would keep matching the
+// OLD vocabulary while format() renders the new one, breaking the
+// format→parse round-trip for the library's own output. Clear the whole
+// cache on any vocab change: rebuilds are cheap and self-limiting via
+// the cache size cap.
+subscribeToVocabChanges(() => { patternCache.clear(); });
 
 function getPattern(formatStr: string, locale: string): CapturingPattern {
   const key = JSON.stringify([canonicalCacheKey(locale), formatStr]);
@@ -42,15 +52,15 @@ const calendarCache = new Map<string, string | undefined>();
 const MAX_CALENDAR_CACHE_SIZE = 500;
 
 function resolveCalendar(locale: string): string | undefined {
-  // computed up front (not just at cache-miss time) so the cache key is
-  // the canonical form too — otherwise 'en-US' and 'en-us' would each get
-  // their own entry for what's really the same locale (see
-  // canonicalCacheKey's comment in localeVocab.ts for why that matters).
-  // Left un-lowercased/un-canonicalized calls into new Intl.Locale() below
-  // would still throw on a genuinely malformed tag either way; doing it
-  // here just means that throw happens before touching the cache instead
-  // of after, which is the more natural place for it.
-  const canonicalLocale = new Intl.Locale(locale).toString().toLowerCase();
+  // Typed validation first: a genuinely malformed tag (bare private-use
+  // singleton, control characters, garbage) surfaces as the library's
+  // InvalidLocaleError instead of a raw engine RangeError — same code as
+  // before, different (documented, structured) error class.
+  assertValidLocaleTag(locale);
+  // canonicalCacheKey is memoized (localeVocab.ts), so the common path —
+  // repeated parse() calls with the same locale — no longer constructs a
+  // fresh Intl.Locale per call just to compute the calendar-cache key.
+  const canonicalLocale = canonicalCacheKey(locale);
   if (calendarCache.has(canonicalLocale)) {
     return calendarCache.get(canonicalLocale);
   }
@@ -496,24 +506,28 @@ export function parse(formatStr: string, input: string, options: NumberingParseO
   }
 
   // A run of 2+ adjacent unpadded-numeric tokens with no literal separator
-  // (e.g. "Md", "dM", "Hms") can have more than one way to split the
-  // digits it matched that's independently valid for every token in the
-  // run — see the comment on NUMERIC_FRAGMENTS in pattern.ts for the
-  // mechanism. The regex above only ever finds one such split (whichever
-  // its alternation ordering happens to prefer); silently trusting that
-  // one would mean parse() sometimes returns a value indistinguishable
-  // from a different, equally valid value the same input could describe.
-  // Rather than guess, check every ambiguous run explicitly. Strict mode
-  // (the default) throws; lenient mode opts into picking one split via a
-  // documented heuristic. The input itself is what's ambiguous, not a
-  // fixable property of the pattern.
-  // Collect any lenient-mode split overrides before the applyGroup loop,
-  // so it can substitute the heuristic-chosen values for tokens in a
-  // multiply-split run instead of trusting the regex's arbitrary split.
-  const runPicks: Array<{ groupNames: string[]; values: number[] }> = [];
+  // (e.g. "Md", "dM", "Hms") is captured by a single bounded digit group in
+  // the regex (see buildCapturingPattern — per-token variable-width
+  // fragments made near-miss matching exponential in the number of glued
+  // tokens). Resolve each run's per-token split here instead: unique valid
+  // split resolves (identical to what the old regex's own greedy match
+  // produced, since the old match was always one of the valid splits);
+  // 2+ valid splits is genuinely ambiguous input — strict mode throws,
+  // lenient opts into the documented heuristic. A span with 0 valid
+  // splits matched the run's width window but names no valid per-token
+  // assignment, which the old per-token fragments rejected at match
+  // time — surface the same "no valid pattern matches" error.
+  const runValues = new Map<string, string>();
   for (const run of pattern.ambiguousRuns) {
-    const runDigits = run.groupNames.map((name) => match.groups![name]!).join('');
+    const runDigits = match.groups![run.groupName]!;
     const splits = enumerateValidSplits(runDigits, run.tokens);
+    if (splits.length === 0) {
+      throw new ParseMismatchError({
+        input, format: formatStr,
+        reason: 'no valid pattern matches the format string and input shape',
+        message: `temporal-fmt: no valid pattern matches the format string and input shape`,
+      });
+    }
     if (splits.length > 1) {
       // Strict default — throw on ambiguity. The whole point of the
       // library's parse() is to refuse to guess when the same input has
@@ -534,21 +548,18 @@ export function parse(formatStr: string, input: string, options: NumberingParseO
             `Pass { lenient: true } to opt into a documented heuristic that picks one.`,
         });
       }
-      runPicks.push({ groupNames: run.groupNames, values: pickLenientSplit(splits, run.tokens) });
+      const picked = pickLenientSplit(splits, run.tokens);
+      run.groupNames.forEach((name, idx) => runValues.set(name, String(picked[idx])));
+    } else {
+      run.groupNames.forEach((name, idx) => runValues.set(name, String(splits[0]![idx])));
     }
   }
-
   const fields: Fields = {};
-  // Map group-name -> heuristic-picked value (as string) for groups that
-  // belong to a lenient-resolved ambiguous run. The applyGroup loop reads
-  // from here first, falling back to the regex's own captured value when
-  // the group isn't part of a lenient-resolved run.
-  const lenientValues = new Map<string, string>();
-  for (const { groupNames, values } of runPicks) {
-    groupNames.forEach((name, i) => lenientValues.set(name, String(values[i])));
-  }
+  // Per-token values for glued-run members come from the split
+  // enumeration above (runValues); every other token reads its own
+  // regex group directly.
   for (const { name, token } of pattern.groups) {
-    const raw = lenientValues.get(name) ?? match.groups![name]!;
+    const raw = runValues.get(name) ?? match.groups![name]!;
     applyGroup(fields, token, raw, locale, formatStr);
   }
 
@@ -900,14 +911,23 @@ export function parseToParts(formatStr: string, input: string, options: Numberin
     }
   }
 
-  // Lenient-split handling: same as parse(). Strict mode throws on
-  // ambiguity, lenient picks one split via the documented heuristic.
-  // parseToParts mirrors this so callers switching between parse()
-  // and parseToParts on the same input get consistent results.
-  const runPicks: Array<{ groupNames: string[]; values: number[] }> = [];
+  // Glued-run split handling: same as parse() — each run's single regex
+  // group is split into per-token values by enumerateValidSplits();
+  // unique split resolves, 2+ splits throws in strict mode / heuristic-
+  // picks in lenient, 0 splits is a shape mismatch. parseToParts mirrors
+  // parse() so callers switching between the two on the same input get
+  // consistent results.
+  const runValues = new Map<string, string>();
   for (const run of pattern.ambiguousRuns) {
-    const runDigits = run.groupNames.map((name) => match.groups![name]!).join('');
+    const runDigits = match.groups![run.groupName]!;
     const splits = enumerateValidSplits(runDigits, run.tokens);
+    if (splits.length === 0) {
+      throw new ParseMismatchError({
+        input, format: formatStr,
+        reason: 'no valid pattern matches the format string and input shape',
+        message: `temporal-fmt: no valid pattern matches the format string and input shape`,
+      });
+    }
     if (splits.length > 1) {
       if (!options.lenient) {
         throw new AmbiguousInputError({
@@ -921,12 +941,11 @@ export function parseToParts(formatStr: string, input: string, options: Numberin
             `Pass { lenient: true } to opt into a documented heuristic that picks one.`,
         });
       }
-      runPicks.push({ groupNames: run.groupNames, values: pickLenientSplit(splits, run.tokens) });
+      const picked = pickLenientSplit(splits, run.tokens);
+      run.groupNames.forEach((name, idx) => runValues.set(name, String(picked[idx])));
+    } else {
+      run.groupNames.forEach((name, idx) => runValues.set(name, String(splits[0]![idx])));
     }
-  }
-  const lenientValues = new Map<string, string>();
-  for (const { groupNames, values } of runPicks) {
-    groupNames.forEach((name, i) => lenientValues.set(name, String(values[i])));
   }
 
   const parts: ParsedPart[] = [];
@@ -941,16 +960,16 @@ export function parseToParts(formatStr: string, input: string, options: Numberin
   const groupIndices = indices?.groups;
   let consumed = 0;
   for (const { name, token } of pattern.groups) {
-    const raw = lenientValues.get(name) ?? match.groups![name]!;
-    // When a lenient-mode override is in play, the regex's recorded
-    // indices point at the run's overall span, not the individual
-    // token's slice within it — fall back to cumulative-raw-length for
-    // the overridden values so positions stay monotonic but may not be
-    // exact for tokens inside a lenient-resolved run. Documented as a
-    // known limitation; the alternative (re-running the regex with the
-    // chosen split baked in) would mean a second match pass for a
-    // corner case the lenient mode caller explicitly opted into.
-    const fromIndices = !lenientValues.has(name) && groupIndices?.[name];
+    const raw = runValues.get(name) ?? match.groups![name]!;
+    // Glued-run members have no regex group of their own — the regex's
+    // recorded indices point at the run's overall span, not the
+    // individual token's slice within it — so fall back to cumulative-
+    // raw-length for them. Positions stay monotonic but may not be
+    // exact for tokens inside a resolved run. Documented as a known
+    // limitation; the alternative (re-running the regex with the chosen
+    // split baked in) would mean a second match pass for a corner case
+    // the caller opted into by gluing unpadded tokens.
+    const fromIndices = !runValues.has(name) && groupIndices?.[name];
     /* c8 ignore next */
     const position = fromIndices ? fromIndices[0] : (match.index ?? 0) + consumed;
     parts.push({ token, raw, position });

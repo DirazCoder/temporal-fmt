@@ -13,9 +13,8 @@
 // field bag; totalDuration produces a number; compareDuration produces
 // -1/0/1.
 
-import { roundDuration, type DurationFields } from './rounding.js';
-import { getTemporal } from './temporalProvider.js';
-import { formatDuration } from './formatDuration.js';
+import { roundDuration, fieldToNs, type DurationFields } from './rounding.js';
+import { formatDuration, renderDurationPieces } from './formatDuration.js';
 import { InvalidDurationError, FormatSyntaxError } from './errors.js';
 
 // Re-export roundDuration here so callers can import everything duration-
@@ -36,58 +35,74 @@ export interface DurationPart {
   token?: string;
 }
 
-// Delegates to formatDuration() by formatting once with each piece
-// in isolation, then splitting. Simpler than duplicating the
-// formatting logic — at the cost of running the formatter multiple
-// times. For typical durations (2-4 units) this is fine.
+// Delegates to formatDuration()'s own piece renderer, so the joined
+// string and the parts can never disagree. (This used to re-tokenize the
+// format string and re-derive part boundaries by searching the rendered
+// string with indexOf — which mis-sliced whenever a literal's text also
+// occurred inside an earlier token's rendered value, e.g. a "s"
+// separator against "5 seconds".) Zero-suppressed tokens emit an empty
+// token part and their neighboring literals are kept, matching the
+// documented formatDurationToParts contract.
 export function formatDurationToParts(
   duration: Record<string, unknown>,
   formatStr: string,
   options: Parameters<typeof formatDuration>[2] = {},
 ): DurationPart[] {
-  // Format the whole thing once to get the joined output, then walk
-  // the formatStr's tokens and slice the output by each token's
-  // rendered width. This works because formatDuration() emits each
-  // token's value verbatim with literals in between — there's no
-  // locale-dependent reordering.
-  const full = formatDuration(duration, formatStr, options);
-  // Re-tokenize the format string to know what tokens are present.
-  // (formatDuration has its own tokenizer; we don't re-implement it
-  // here. Instead, we scan the format string for token runs the same
-  // way its tokenizer does.)
-  const tokens = tokenizeDurationFormat(formatStr);
-  const parts: DurationPart[] = [];
-  let pos = 0;
-  for (const tok of tokens) {
-    if (tok.kind === 'literal') {
-      // Find the literal text in `full` starting at `pos`. It should
-      // be there verbatim.
-      const lit = tok.value;
-      if (full.slice(pos, pos + lit.length) === lit) {
-        parts.push({ type: 'literal', value: lit });
-        pos += lit.length;
-      /* c8 ignore start @preserve -- unreachable given current formatDuration(): every
-         literal is appended to `full` unconditionally regardless of adjacent
-         zero-value tokens, and pos tracking never desyncs from the true
-         literal position (verified via adversarial testing: duplicate
-         literals, skipped tokens before/after, ambiguous text — all still
-         found via indexOf as expected). Kept as a guard against a future
-         formatDuration() change that conditionally drops literals. */
-      } else {
-        // Literal missing from output (e.g. zero-value unit was
-        // skipped). Don't emit a part for it.
-      }
-      /* c8 ignore stop @preserve */
-    } else {
-      // Token: find the next non-literal chunk of `full` starting at
-      // `pos`. Use the next literal piece (if any) as the bound.
-      const nextLiteralStart = findNextLiteralStart(tokens, tok, full, pos);
-      const value = full.slice(pos, nextLiteralStart);
-      parts.push({ type: 'token', value, token: tok.value });
-      pos = nextLiteralStart;
-    }
+  return renderDurationPieces(duration, formatStr, options).map((p) =>
+    p.kind === 'token' ? { type: 'token' as const, value: p.value, token: p.token } : { type: 'literal' as const, value: p.value },
+  );
+}
+
+// ISO 8601 duration format: P[n]Y[n]M[n]W[n]DT[n]H[n]M[n]S
+// e.g. "P3Y6M4DT12H30M5S", "PT1H30M", "P1W", "P0D".
+// Parsed into a DurationFields bag.
+export function parseISODuration(input: string): DurationFields {
+  // Loose grammar: P [years Y] [months M] [weeks W] [days D] [T [hours H] [minutes M] [seconds S]]
+  // Weeks is an ISO 8601-2 extension; widely supported.
+  const re = /^P(?:(?:(\d+(?:\.\d+)?)Y)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)W)?(?:(\d+(?:\.\d+)?)D)?)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/;
+  const m = re.exec(input);
+  if (!m) {
+    throw new InvalidDurationError({ input, reason: 'does not match ISO 8601 duration grammar (P[n]Y[n]M[n]W[n]DT[n]H[n]M[n]S)' });
   }
-  return parts;
+  // All-zero / empty: P0D is valid ISO for zero duration.
+  if (m.slice(1).every((g) => g === undefined)) {
+    throw new InvalidDurationError({ input, reason: 'duration has no fields (use "P0D" for zero duration)' });
+  }
+  const toNum = (s: string | undefined): number => s === undefined ? 0 : Number(s);
+  return {
+    years: toNum(m[1]),
+    months: toNum(m[2]),
+    weeks: toNum(m[3]),
+    days: toNum(m[4]),
+    hours: toNum(m[5]),
+    minutes: toNum(m[6]),
+    seconds: toNum(m[7]),
+  };
+}
+
+export function formatISODuration(duration: DurationFields): string {
+  const parts: string[] = ['P'];
+  const years = duration.years ?? 0;
+  const months = duration.months ?? 0;
+  const weeks = duration.weeks ?? 0;
+  const days = duration.days ?? 0;
+  const hours = duration.hours ?? 0;
+  const minutes = duration.minutes ?? 0;
+  const seconds = duration.seconds ?? 0;
+  if (years) parts.push(`${years}Y`);
+  if (months) parts.push(`${months}M`);
+  if (weeks) parts.push(`${weeks}W`);
+  if (days) parts.push(`${days}D`);
+  if (hours || minutes || seconds) {
+    parts.push('T');
+    if (hours) parts.push(`${hours}H`);
+    if (minutes) parts.push(`${minutes}M`);
+    if (seconds) parts.push(`${seconds}S`);
+  }
+  // parts is just ['P'] when every field is zero -- ISO has no empty
+  // duration, so fall back to P0D.
+  if (parts.length === 1) parts.push('0D');
+  return parts.join('');
 }
 
 // Minimal tokenizer for the duration format string. Reuses the same
@@ -177,57 +192,6 @@ function findNextLiteralStart(
 }
 
 // ISO 8601 duration format: P[n]Y[n]M[n]W[n]DT[n]H[n]M[n]S
-// e.g. "P3Y6M4DT12H30M5S", "PT1H30M", "P1W", "P0D".
-// Parsed into a DurationFields bag.
-export function parseISODuration(input: string): DurationFields {
-  // Loose grammar: P [years Y] [months M] [weeks W] [days D] [T [hours H] [minutes M] [seconds S]]
-  // Weeks is an ISO 8601-2 extension; widely supported.
-  const re = /^P(?:(?:(\d+(?:\.\d+)?)Y)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)W)?(?:(\d+(?:\.\d+)?)D)?)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/;
-  const m = re.exec(input);
-  if (!m) {
-    throw new InvalidDurationError({ input, reason: 'does not match ISO 8601 duration grammar (P[n]Y[n]M[n]W[n]DT[n]H[n]M[n]S)' });
-  }
-  // All-zero / empty: P0D is valid ISO for zero duration.
-  if (m.slice(1).every((g) => g === undefined)) {
-    throw new InvalidDurationError({ input, reason: 'duration has no fields (use "P0D" for zero duration)' });
-  }
-  const toNum = (s: string | undefined): number => s === undefined ? 0 : Number(s);
-  return {
-    years: toNum(m[1]),
-    months: toNum(m[2]),
-    weeks: toNum(m[3]),
-    days: toNum(m[4]),
-    hours: toNum(m[5]),
-    minutes: toNum(m[6]),
-    seconds: toNum(m[7]),
-  };
-}
-
-export function formatISODuration(duration: DurationFields): string {
-  const parts: string[] = ['P'];
-  const years = duration.years ?? 0;
-  const months = duration.months ?? 0;
-  const weeks = duration.weeks ?? 0;
-  const days = duration.days ?? 0;
-  const hours = duration.hours ?? 0;
-  const minutes = duration.minutes ?? 0;
-  const seconds = duration.seconds ?? 0;
-  if (years) parts.push(`${years}Y`);
-  if (months) parts.push(`${months}M`);
-  if (weeks) parts.push(`${weeks}W`);
-  if (days) parts.push(`${days}D`);
-  if (hours || minutes || seconds) {
-    parts.push('T');
-    if (hours) parts.push(`${hours}H`);
-    if (minutes) parts.push(`${minutes}M`);
-    if (seconds) parts.push(`${seconds}S`);
-  }
-  // parts is just ['P'] when every field is zero -- ISO has no empty
-  // duration, so fall back to P0D.
-  if (parts.length === 1) parts.push('0D');
-  return parts.join('');
-}
-
 // Parses a duration-format string (the tokenized format formatDuration
 // accepts) into a DurationFields bag. Inverse of formatDuration().
 export function parseDuration(input: string, formatStr: string, options: { locale?: string } = {}): DurationFields {
@@ -312,7 +276,7 @@ export function balanceDuration(duration: DurationFields): DurationFields {
   let totalNs = 0n;
   for (const [k, nsPer] of NS_PER) {
     const v = duration[k];
-    if (typeof v === 'number') totalNs += BigInt(v) * nsPer;
+    if (typeof v === 'number') totalNs += fieldToNs(v, nsPer, k);
   }
   // Re-distribute.
   const result: DurationFields = { ...duration };
@@ -341,7 +305,7 @@ export function totalDuration(duration: DurationFields, unit: 'days' | 'hours' |
   let totalNs = 0n;
   for (const k of Object.keys(NS_PER) as Array<keyof typeof NS_PER>) {
     const v = duration[k as keyof DurationFields];
-    if (typeof v === 'number') totalNs += BigInt(v) * NS_PER[k]!;
+    if (typeof v === 'number') totalNs += fieldToNs(v, NS_PER[k]!, k);
   }
   const divisor = NS_PER[unit];
   if (!divisor) {
@@ -372,7 +336,7 @@ function totalDurationNs(d: DurationFields): bigint {
   let total = 0n;
   for (const k of Object.keys(NS_PER)) {
     const v = d[k as keyof DurationFields];
-    if (typeof v === 'number') total += BigInt(v) * NS_PER[k]!;
+    if (typeof v === 'number') total += fieldToNs(v, NS_PER[k]!, k);
   }
   return total;
 }
@@ -399,10 +363,3 @@ function negateDuration(d: DurationFields): DurationFields {
   }
   return result;
 }
-
-// Suppress unused-import warning. getTemporal is used by fromUnix*
-// helpers in serialization.ts, not here — but keeping the import
-// around ensures this module is consistent with the rest of the
-// library's pattern of importing temporalProvider for any code path
-// that might construct a Temporal value.
-void getTemporal;

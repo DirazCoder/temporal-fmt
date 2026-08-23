@@ -52,12 +52,16 @@ describe('buildCapturingPattern', () => {
       // could split as M=1,d=2 or M=12,d=missing, so this needs the
       // split-ambiguity check at match time
       const result = buildCapturingPattern(tokenize('Md'), 'en-US');
-      expect(result.ambiguousRuns).toEqual([{ groupNames: ['g0', 'g1'], tokens: ['M', 'd'] }]);
+      // Runs are emitted as ONE bounded digit group (ReDoS fix — see
+      // buildCapturingPattern): the run record carries the regex group
+      // name (groupName) plus the per-token names it resolves.
+      expect(result.ambiguousRuns).toEqual([{ groupName: 'r2', groupNames: ['g0', 'g1'], tokens: ['M', 'd'] }]);
+      expect(result.regex.source).toContain('\\d{2,4}');
     });
 
     it('is not date-specific — an unpadded hour/minute run is flagged the same way', () => {
       const result = buildCapturingPattern(tokenize('Hm'), 'en-US');
-      expect(result.ambiguousRuns).toEqual([{ groupNames: ['g0', 'g1'], tokens: ['H', 'm'] }]);
+      expect(result.ambiguousRuns).toEqual([{ groupName: 'r2', groupNames: ['g0', 'g1'], tokens: ['H', 'm'] }]);
     });
 
     it('a literal separator breaks the run, even a single character', () => {
@@ -91,7 +95,7 @@ describe('buildCapturingPattern', () => {
       // no trailing literal after "d" — this only passes if the final
       // flushRun() after the loop actually runs
       const result = buildCapturingPattern(tokenize('yyyy-Md'), 'en-US');
-      expect(result.ambiguousRuns).toEqual([{ groupNames: ['g1', 'g2'], tokens: ['M', 'd'] }]);
+      expect(result.ambiguousRuns).toEqual([{ groupName: 'r3', groupNames: ['g1', 'g2'], tokens: ['M', 'd'] }]);
     });
   });
 });

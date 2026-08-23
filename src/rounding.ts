@@ -2,6 +2,7 @@
 // same convention as arithmetic.ts/calendarUtils.ts.
 
 import { asDateFieldView, type DateFieldView } from './calendarUtils.js';
+import { InvalidDurationError } from './errors.js';
 
 type RoundingUnit = 'day' | 'hour' | 'minute' | 'second' | 'millisecond';
 type RoundingMode = 'nearest' | 'floor' | 'ceil' | 'trunc';
@@ -166,6 +167,26 @@ export interface DurationFields {
   nanoseconds?: number;
 }
 
+// Converts one absolute-unit field to nanoseconds, exactly. Integer
+// values keep the exact BigInt path (arbitrary magnitude). Fractional
+// values — which parseISODuration legitimately produces ("P1.5D") —
+// scale in floating point and are accepted only when the product is a
+// safe integer, so P1.5D balances to exactly 1 day + 12 hours. A
+// fractional value whose product can't be represented exactly (large
+// fractional day counts) throws the typed InvalidDurationError instead
+// of the opaque "TypeError: Cannot convert 1.5 to a BigInt" the old
+// BigInt(v) call produced. Shared by roundDuration (here) and the
+// duration.ts arithmetic helpers — duration.ts already imports from
+// this module, so exporting keeps the dependency direction acyclic.
+export function fieldToNs(v: number, nsPer: bigint, field: string): bigint {
+  if (Number.isInteger(v)) return BigInt(v) * nsPer;
+  const scaled = v * Number(nsPer);
+  if (Number.isSafeInteger(scaled)) return BigInt(scaled);
+  throw new InvalidDurationError({
+    reason: `field "${field}" (${v}) cannot be converted to nanoseconds exactly — the value is too large for a fractional unit; use smaller units`,
+  });
+}
+
 type DurationUnit = 'years' | 'months' | 'weeks' | 'days' | 'hours' | 'minutes' | 'seconds' | 'milliseconds' | 'microseconds' | 'nanoseconds';
 
 const DURATION_UNIT_TO_NS: Record<DurationUnit, bigint> = {
@@ -212,7 +233,7 @@ export function roundDuration(duration: DurationFields, options: {
   let totalNs = 0n;
   for (const u of ['days', 'hours', 'minutes', 'seconds', 'milliseconds', 'microseconds', 'nanoseconds'] as DurationUnit[]) {
     const v = duration[u] ?? 0;
-    totalNs += BigInt(v) * DURATION_UNIT_TO_NS[u];
+    totalNs += fieldToNs(v, DURATION_UNIT_TO_NS[u], u);
   }
 
   // Apply rounding on the absolute value, preserving sign (same as round()).
@@ -241,21 +262,22 @@ export function roundDuration(duration: DurationFields, options: {
   // 1m30s in the minute field, not 90s).
   const result: DurationFields = { ...duration };
   let remaining = newTotalNs;
-  // Clear all absolute units, then re-populate from largest to smallest.
-  for (const u of ['days', 'hours', 'minutes', 'seconds', 'milliseconds', 'microseconds', 'nanoseconds'] as DurationUnit[]) {
-    if (u === options.unit || isLargerUnit(u, options.unit) || u === options.unit) {
-      // Keep calendar-bound units as-is; clear absolute units smaller
-      // than the rounding target so the balanced output is clean.
-    }
-    result[u] = 0;
-  }
-  // Re-populate from the rounding unit downward (largest absolute unit
-  // ≤ the target), so the result has all its value concentrated at the
-  // target unit and below.
+  // Clear all absolute units, then re-populate from largest to smallest so
+  // the balanced output has all its value concentrated at the target unit
+  // and below.
   const unitsInOrder: DurationUnit[] = ['days', 'hours', 'minutes', 'seconds', 'milliseconds', 'microseconds', 'nanoseconds'];
   const startIdx = unitsInOrder.indexOf(options.unit);
-  // Include days in the distribution if days is below or equal to the target.
-  // Otherwise leave days untouched (caller's days value stays).
+  // Units finer than the rounding target are zeroed: all their value was
+  // folded into `remaining` above, and whatever survives rounding now
+  // lives at the target unit and above. (Units coarser than the target
+  // are re-written by the distribution loop below — their value is
+  // already inside `remaining`, so the spread copy is overwritten with
+  // the same number.)
+  for (let i = startIdx + 1; i < unitsInOrder.length; i++) {
+    result[unitsInOrder[i]!] = 0;
+  }
+  // Re-populate from the largest absolute unit down to the target, so the
+  // result has all its value concentrated at the target unit and above.
   for (let i = 0; i <= startIdx; i++) {
     const u = unitsInOrder[i]!;
     const unitNs = DURATION_UNIT_TO_NS[u];
@@ -268,15 +290,12 @@ export function roundDuration(duration: DurationFields, options: {
     if (unitNs === 0n) continue;
     const count = remaining / unitNs;
     remaining -= count * unitNs;
-    if (count !== 0n) {
-      result[u] = Number(count);
-    }
+    // Assign unconditionally (zero counts write 0): the units at and above
+    // the target are fully re-derived from the rounded total, so any
+    // original spread-copied value must be overwritten either way —
+    // conditionally skipping zero counts would leave the caller's stale
+    // value sitting in the field.
+    result[u] = Number(count);
   }
   return result;
-}
-
-function isLargerUnit(_a: DurationUnit, _b: DurationUnit): boolean {
-  // Helper kept for clarity above — currently unused because the
-  // distribution loop handles ordering explicitly via unitsInOrder.
-  return false;
 }

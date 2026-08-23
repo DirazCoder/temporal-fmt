@@ -10,7 +10,8 @@
 // standard demands it (e.g. RFC 3339 requires UTC-offset-only zones,
 // not named IANA zones).
 
-import { parse, format } from './index.js';
+import { parse } from './parse.js';
+import { format } from './format.js';
 import { getTemporal, type TemporalNamespace } from './temporalProvider.js';
 import { FormatSyntaxError, InvalidDateError } from './errors.js';
 
@@ -163,6 +164,18 @@ export function formatRFC3339(value: unknown): string {
 // across engines, unlike its ISO 8601 support which varies.)
 
 export function parseRFC2822(input: string): unknown {
+  // Strict shape pre-check: Date.parse is far more permissive than RFC 2822
+  // (it happily accepts ISO 8601 and other dialects), so without this gate
+  // parseRFC2822("2026-08-04") would succeed despite not being an RFC 2822
+  // date at all. The regex mirrors RFC 2822 §3.3's date-time grammar:
+  // optional day-of-week, 1-2 digit day, month name, 2-4 digit year (the
+  // obsolete two-digit form included), time with optional seconds, and a
+  // zone that is either a numeric ±HHMM offset or an alphabetic zone name.
+  const RFC2822_SHAPE =
+    /^(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s+)?\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{2,4}\s+\d{2}:\d{2}(?::\d{2})?\s+(?:[+-]\d{4}|[A-Za-z]{1,5})$/;
+  if (!RFC2822_SHAPE.test(input.trim())) {
+    throw new FormatSyntaxError({ input, reason: 'not a valid RFC 2822 date' });
+  }
   const ms = Date.parse(input);
   if (Number.isNaN(ms)) {
     throw new FormatSyntaxError({ input, reason: 'not a valid RFC 2822 date' });
@@ -330,12 +343,14 @@ function getInstant(value: unknown): { epochMilliseconds: number; epochNanosecon
   throw new FormatSyntaxError({ reason: `expected an Instant or ZonedDateTime, got ${typeof value}.` });
 }
 
-const temporal = (): TemporalNamespace => getTemporal();
-
 function requireInstant(): NonNullable<TemporalNamespace['Instant']> {
   const t = getTemporal().Instant;
   if (!t) throw new Error('temporal-fmt: Temporal.Instant is not available in this implementation.');
   return t;
+}
+
+export function toUnixSeconds(value: unknown): number {
+  return getInstant(value).epochMilliseconds / 1000;
 }
 
 export function fromUnixSeconds(seconds: number): unknown {
@@ -354,10 +369,6 @@ export function fromUnixMicroseconds(µs: number): unknown {
 
 export function fromUnixNanoseconds(ns: bigint): unknown {
   return requireInstant().fromEpochNanoseconds(ns);
-}
-
-export function toUnixSeconds(value: unknown): number {
-  return getInstant(value).epochMilliseconds / 1000;
 }
 
 export function toUnixMilliseconds(value: unknown): number {

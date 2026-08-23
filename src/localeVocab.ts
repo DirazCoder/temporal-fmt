@@ -89,6 +89,17 @@ function assertValidVocab(vocab: Partial<LocaleVocab>, locale: string): void {
   }
 }
 
+// Anything that caches a result derived from *which* vocabulary is
+// active for a locale (right now: parse.ts's compiled pattern cache,
+// whose MMMM/MMM/EEEE/EEE/a fragments embed the vocab's alternations)
+// subscribes here so it gets invalidated when a registration swaps the
+// vocab — mirrors temporalProvider.ts's subscribeToTemporalChanges.
+const onVocabChanged: Array<() => void> = [];
+
+export function subscribeToVocabChanges(listener: () => void): void {
+  onVocabChanged.push(listener);
+}
+
 /**
  * Supply a custom month/weekday/day-period vocabulary for a locale key,
  * overriding the Intl-derived vocab this library would otherwise build
@@ -139,6 +150,12 @@ export function registerLocaleVocab(locale: string, vocab: Partial<LocaleVocab>)
   // strictly necessary (getLocaleVocab checks customVocabs first), but
   // cheap and keeps the two caches from drifting out of sync.
   vocabCache.delete(cacheKey);
+  // Also invalidate downstream caches that baked the previous vocab in
+  // at build time (parse.ts's pattern cache is the one that matters:
+  // without this, a cached pattern would keep matching the OLD month /
+  // weekday names while format() renders the new ones, so the library's
+  // own format() output would fail to parse back).
+  for (const listener of onVocabChanged) listener();
 }
 
 // Every locale-keyed cache in this library (this one, formatterCache in
@@ -156,15 +173,63 @@ export function registerLocaleVocab(locale: string, vocab: Partial<LocaleVocab>)
 // cache-key normalization shouldn't be where a bad locale first surfaces
 // as an error; whatever actually calls `new Intl.DateTimeFormat(locale)`
 // downstream is the right place for that.
+// Intl constructors (DateTimeFormat/NumberFormat/RelativeTimeFormat)
+// reject underscore-separated tags like 'en_US' outright, while
+// canonicalCacheKey and every locale-parsing path in this library
+// tolerates them by normalizing to BCP-47 hyphens. Centralize that
+// normalization so every `new Intl.*(locale)` construction site
+// accepts the same spellings the cache keys do. Genuinely malformed
+// tags still throw downstream, unchanged.
+export function normalizeLocaleTag(locale: string): string {
+  return locale.replace(/_/g, '-');
+}
+
+// Memoized so hot paths (parse()'s resolveCalendar keys off this on
+// every call, and every locale-keyed cache re-derives it) don't build a
+// fresh Intl.Locale per invocation — construction is comparatively
+// expensive. Bounded like every other cache in this library.
+const canonicalKeyCache = new Map<string, string>();
+const MAX_CANONICAL_KEY_CACHE = 500;
+
 export function canonicalCacheKey(locale: string): string {
+  const hit = canonicalKeyCache.get(locale);
+  if (hit !== undefined) return hit;
+  let key: string;
   try {
     // Intl.Locale requires BCP-47 hyphens and rejects underscore-separated
     // tags like 'en_US' outright (RangeError), rather than normalizing
     // them — so without this replace, that spelling would just fall
     // through to the catch below and never fold with 'en-US'.
-    return new Intl.Locale(locale.replace(/_/g, '-')).toString().toLowerCase();
+    key = new Intl.Locale(locale.replace(/_/g, '-')).toString().toLowerCase();
   } catch {
-    return locale;
+    // Malformed tag: key on the raw string. Callers that must reject
+    // malformed tags do it via assertValidLocaleTag() before/instead of
+    // relying on this function — cache-key normalization isn't where a
+    // bad locale should surface as an error (unchanged behavior).
+    key = locale;
+  }
+  if (canonicalKeyCache.size >= MAX_CANONICAL_KEY_CACHE) {
+    const oldestKey = canonicalKeyCache.keys().next().value;
+    if (oldestKey !== undefined) canonicalKeyCache.delete(oldestKey);
+  }
+  canonicalKeyCache.set(locale, key);
+  return key;
+}
+
+// Single validation choke point for locale tags at public boundaries.
+// Intl constructors reject malformed tags with a bare engine RangeError
+// ("Incorrect locale information provided") that carries none of the
+// library's structured error context; this rethrows as the typed
+// InvalidLocaleError with the offending tag in its fields. Accepts the
+// same spellings as canonicalCacheKey (underscore tags normalized).
+export function assertValidLocaleTag(locale: string): void {
+  try {
+    new Intl.Locale(normalizeLocaleTag(locale));
+  } catch {
+    throw new InvalidLocaleError({
+      actual: locale,
+      reason: 'not a valid BCP-47 locale tag',
+    });
   }
 }
 
@@ -252,6 +317,9 @@ export function getCustomVocab(locale: string): LocaleVocab | undefined {
 }
 
 export function getLocaleVocab(locale: string): LocaleVocab {
+  // Validate before building vocab: a malformed tag used to surface as a
+  // raw RangeError from the first new Intl.DateTimeFormat below.
+  assertValidLocaleTag(locale);
   const cacheKey = canonicalCacheKey(locale);
   // Registered vocabs take precedence over the Intl-derived one — this
   // is the override mechanism registerLocaleVocab() promises. Checking
@@ -267,8 +335,9 @@ export function getLocaleVocab(locale: string): LocaleVocab {
     return cached;
   }
 
-  const monthLongFmt = new Intl.DateTimeFormat(locale, { month: 'long', timeZone: 'UTC' });
-  const monthShortFmt = new Intl.DateTimeFormat(locale, { month: 'short', timeZone: 'UTC' });
+  const intlLocale = normalizeLocaleTag(locale);
+  const monthLongFmt = new Intl.DateTimeFormat(intlLocale, { month: 'long', timeZone: 'UTC' });
+  const monthShortFmt = new Intl.DateTimeFormat(intlLocale, { month: 'short', timeZone: 'UTC' });
   const monthLong: string[] = [];
   const monthShort: string[] = [];
   for (let m = 0; m < 12; m++) {
@@ -279,8 +348,8 @@ export function getLocaleVocab(locale: string): LocaleVocab {
   assertNoCollision(monthLong, 'MMMM month', locale);
   assertNoCollision(monthShort, 'MMM month', locale);
 
-  const weekdayLongFmt = new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' });
-  const weekdayShortFmt = new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone: 'UTC' });
+  const weekdayLongFmt = new Intl.DateTimeFormat(intlLocale, { weekday: 'long', timeZone: 'UTC' });
+  const weekdayShortFmt = new Intl.DateTimeFormat(intlLocale, { weekday: 'short', timeZone: 'UTC' });
   const weekdayLong: string[] = [];
   const weekdayShort: string[] = [];
   // 2024-01-01 is a Monday (UTC) — walk 7 days from there for weekday names
@@ -293,7 +362,7 @@ export function getLocaleVocab(locale: string): LocaleVocab {
   assertNoCollision(weekdayLong, 'EEEE weekday', locale);
   assertNoCollision(weekdayShort, 'EEE weekday', locale);
 
-  const dayPeriodFmt = new Intl.DateTimeFormat(locale, { hour: 'numeric', hour12: true, timeZone: 'UTC' });
+  const dayPeriodFmt = new Intl.DateTimeFormat(intlLocale, { hour: 'numeric', hour12: true, timeZone: 'UTC' });
   const am = partValue(dayPeriodFmt, new Date(Date.UTC(2020, 0, 1, 1)), 'dayPeriod');
   const pm = partValue(dayPeriodFmt, new Date(Date.UTC(2020, 0, 1, 13)), 'dayPeriod');
   const dayPeriod = [...new Set([am, pm])];

@@ -4,6 +4,224 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.2 — 2026-08-24 (`PENDING`)
+### Security
+- **ReDoS: three related classes of catastrophic backtracking in
+  `parse()`'s compiled regex are closed**, all found by a full security
+  audit that exploited each one against the real build before fixing it.
+  The performance suite's structural claim ("never a nested or
+  overlapping quantifier like `(a+)+`, which is the actual precondition
+  for catastrophic backtracking") turned out to be half right — nested
+  quantifiers aren't the only exponential engine. Multiple
+  *variable-width digit fragments* whose digit consumption is mutually
+  ambiguous blow up just as hard, and none of the shapes were tested
+  against near-miss input:
+  - glued unpadded numeric token runs — `parse('Md'.repeat(k), ...)` was
+    exponential in k (measured 2.7 s at k=13, ~3.3x per extra token, on
+    a 26-char format string and a 40-char input; k=15+ hangs
+    indefinitely). A run of R glued unpadded tokens (M/d/H/h/m/s) is now
+    emitted as ONE bounded `\d{R,2R}` group in `buildCapturingPattern()`,
+    and the per-token split is resolved after the match by the same
+    `enumerateValidSplits()` machinery that already powered the
+    ambiguity check — so the documented semantics (unique split
+    resolves, 2+ valid splits throws in strict mode / heuristic-picks in
+    lenient mode, 0 splits is a mismatch) are preserved exactly, pinned
+    by the pre-existing combinatorial and lenient-mode suites. Matching
+    is now flat milliseconds at any run length.
+  - `yyyy` glued to a digit-starting literal — `"yyyy1"` repeated 8
+    times (a 48-char format string) took 26.4 s, because the open-ended
+    `-?\d{4,}` year fragment traded digits with the adjacent literal
+    with unbounded width choices. `yyyy` now uses the exact 4-digit
+    fragment not only next to digit-leading *tokens* (the pre-existing
+    rule) but also next to digit-starting *literals*.
+  - unpadded tokens separated by digit literals — `"M1"` repeated k
+    times grew ~5x per two repetitions (555 ms at k=24). A
+    pattern-build-time **ambiguity budget** now charges log2 of the
+    width choices at every boundary where a variable-width digit
+    consumer meets a digit-consuming successor, and rejects patterns
+    over 12 bits (a 4,096-path hard ceiling) with a `FormatSyntaxError`
+    advising separators or padded forms. Realistic format strings score
+    0-3.
+  All three shapes are pinned by the new `test/redos.test.js` (21
+  regression tests reproducing every original exploit), and the `zzz`,
+  `X`/`x` offset, custom-vocab prefix-chain, and `parseDuration` regex
+  shapes were probed and confirmed NOT exploitable (structure-delimited,
+  linear).
+- `skip()` on an unbounded recurrence rule (no `count`, no `until`) used
+  to call `take(iter, Number.MAX_SAFE_INTEGER)` — an iterator over
+  `{ frequency: 'daily', interval: 1 }` never returns done, so the call
+  looped forever pushing into a growing array until the process OOM'd.
+  `skip()` now collects at most 100,000 occurrences and throws a
+  descriptive `RangeError` when the rule is still producing, matching
+  the traversal-cap convention `businessCalendar.ts` already used.
+- `holidaysBetween()` walked from `start.year` to `end.year` with no
+  validation and no cap, caching a holiday list per visited year — a
+  300,000-year range drove 300k iterations and 300k cache entries in one
+  call. Endpoints must now carry year/month/day (descriptive error
+  otherwise), and ranges beyond 5,000 years throw a `RangeError`
+  suggesting smaller queries.
+
+### Fixed
+- `compare()`/`isEqual()`/`isBefore()`/`isAfter()`/`min()`/`max()`/
+  `clamp()`/`isBetween()` — and through them the whole `interval`
+  module — compared dates via a sort key that multiplied the year offset
+  by an average 365.2425 days/year. The code's own comment claimed the
+  error "cancels out in a diff", but it only cancels *within* a year:
+  across a year boundary the error term differs by up to 0.7575 days,
+  which is larger than the interval being measured. Demonstrated:
+  `isAfter(2025-01-01T00:00, 2024-12-31T18:12)` returned `false` (truth:
+  ~5.8 h after), and `isEqual(2025-01-01T00:00:00,
+  2024-12-31T05:49:12)` returned `true` for instants ~18.2 h apart.
+  Replaced with exact proleptic-Gregorian day arithmetic (Howard
+  Hinnant's `days_from_civil`, the same algorithm arithmetic.ts and
+  interval.ts already used), verified against
+  `Temporal.PlainDateTime.compare` across the boundary.
+- `registerLocaleVocab()` left `parse()`'s compiled-pattern cache stale:
+  the cached regex kept matching the OLD month/weekday vocabulary while
+  `format()` rendered the new one, so the library's own `format()` output
+  failed to parse back after a registration (until 500 more patterns
+  evicted the entry). `localeVocab.ts` now exposes
+  `subscribeToVocabChanges()` (mirroring
+  `subscribeToTemporalChanges()`), and `parse.ts` clears its pattern
+  cache on any vocab registration.
+- `mergeIntervals()` merged overlapping intervals by writing
+  `last.end = current.end` directly into the caller's interval objects —
+  merging `[Jan 1-Jan 10]` with `[Jan 5-Jan 20]` silently rewrote the
+  caller's first interval to end Jan 20. The merged result now carries a
+  shallow copy of the interval it extends.
+- `createBusinessCalendar()` filled weekday default hours by writing them
+  into the caller's `options.workingHours` object: a caller's `{ 1: 6 }`
+  grew keys 2-7 as a side effect of "creating" a calendar, and an object
+  shared between calendars cross-contaminated them with the first
+  calendar's defaults. The factory now copies before defaulting.
+- `formatRange()` ignored its `formatStr` parameter on its primary code
+  path: it called `Intl.DateTimeFormat.formatRange()` with empty options
+  and never touched the token format string, so
+  `formatRange(iv, 'yyyy-MM-dd')` returned locale-default output like
+  `"8/4/2026 - 8/6/2026"` instead of `"2026-08-04 - 2026-08-06"`. The
+  token-format path (which honors the contract) now runs first;
+  Intl's native range collapsing is kept as a fallback for inputs the
+  token path can't render.
+- `parse()` threw a raw `RangeError: Incorrect locale information
+  provided` for underscore-separated locale tags like `'en_US'`, while
+  `format()` accepted them — the cache-key helper normalizes underscores
+  but the `Intl` construction sites didn't. A shared
+  `normalizeLocaleTag()` now runs at every `new Intl.*()` boundary
+  (vocab builders, formatter caches in tokens.ts, formatDuration,
+  formatDistance, relativeTime, and interval's fallback).
+- `registerRelativeGrammar()` was a dead extension point: exported,
+  documented ("lets a caller add a new language without modifying
+  parseRelative.ts"), and unit-tested in isolation — but
+  `parseRelative()` never consulted the registered grammars, so callers
+  got the English fallback silently. `parseRelative()` now dispatches to
+  registered grammars for the locale's language before the built-ins,
+  exactly as documented.
+- `parseRFC2822()` accepted far more than RFC 2822, because it delegated
+  straight to `Date.parse` — `parseRFC2822('2026-08-04')` (ISO 8601)
+  succeeded against the function's own contract. A strict shape
+  pre-check mirroring RFC 2822 §3.3 (optional day-of-week, month name,
+  2-4 digit year, optional seconds, numeric or alphabetic zone) now
+  gates the delegation; a shape-valid but semantically invalid date
+  (e.g. day 99) still surfaces the same typed error rather than an
+  Invalid Date instant.
+- `difference()`'s output intervals carried wrong bounds metadata for
+  open/half-open inputs: the lossy `flipEndBounds` helper re-included
+  endpoints the original interval excluded — the after-piece of a
+  `[Jan 1, Dec 31)` interval came back `closed`. Each piece's bounds are
+  now derived from the original endpoint it inherits (start inclusivity
+  from `a.bounds` on the before-piece, end inclusivity on the
+  after-piece) with the cut endpoints always exclusive. Endpoints were
+  already correct and are unchanged.
+- `formatDurationToParts()` could mis-slice parts: it re-derived part
+  boundaries by searching the rendered string with `indexOf` for the
+  next literal anchor, which matched inside an earlier token's rendered
+  value (e.g. a quoted `'sec'` literal against `"5 seconds"` split the
+  token to just `"5"`). It now consumes the same piece renderer
+  `formatDuration()` uses, so the joined string and the parts can never
+  disagree.
+- Fractional duration fields (legal from `parseISODuration` — `"P1.5D"`
+  parses to `days: 1.5`, pinned by tests) crashed
+  `balanceDuration`/`totalDuration`/`compareDuration`/`roundDuration`
+  with an opaque `TypeError: Cannot convert 1.5 to a BigInt`. A shared
+  `fieldToNs()` now scales fractional fields exactly in floating point
+  when the product is a safe integer — so `"P1.5D"` balances to exactly
+  1 day + 12 hours and `totalDuration({ days: 1.5 }, 'hours')` is 36 —
+  and throws the typed `InvalidDurationError` (naming the field) when a
+  fractional value is too large to convert exactly.
+- `splitInterval()` silently produced `Invalid Date` endpoints (NaN
+  year/month/day fields) when an endpoint fell outside JS Date's
+  representable range (~±275,760 years), because the slice math flows
+  through `Date`. Out-of-range endpoints now throw a descriptive
+  `RangeError`.
+- The type guards (`isPlainDate` et al.) crashed on objects with
+  hostile getters — a throwing `year` getter turned `isPlainDate(obj)`,
+  whose whole contract is returning a boolean, into an exception
+  factory. Every guard now runs through a shared wrapper that treats a
+  throw during probing as "not one of ours"; the `assert*` helpers
+  degrade to their descriptive errors.
+- `format()` with a plain field bag and a locale-aware token rendered
+  `"[object Object]"`: a `{ year, month, day }` object's
+  `toLocaleString` is `Object.prototype.toLocaleString`, which ignores
+  both arguments. The polyfill path now detects the inherited method and
+  throws a descriptive error asking for a real Temporal object.
+- Malformed locale tags surfaced as bare engine `RangeError`s at several
+  boundaries. `parse()` (via `resolveCalendar`), the vocab builder, the
+  `DateTimeFormat`/`NumberFormat`/`RelativeTimeFormat` caches, and the
+  polyfill `toLocaleString` path now all rethrow the typed
+  `InvalidLocaleError` with the offending tag in its structured fields.
+
+### Changed
+- `roundDuration()`'s internal distribution loop was rewritten while
+  removing dead code: the tautological `if (u === options.unit ||
+  isLargerUnit(...) || u === options.unit)` block and the always-false
+  `isLargerUnit()` helper are gone, and units finer than the rounding
+  target are zeroed explicitly while the rounded total is re-derived
+  from the largest unit down. Output is unchanged (pinned by the
+  rounding suite); the code no longer lies about what it keeps.
+- `serialization.ts` no longer imports from `./index.js` (the barrel it
+  is itself re-exported through) — it imports `parse`/`format` from
+  their defining modules, like every other file. The never-called
+  `temporal()` helper is deleted.
+- Dead code removed: `duration.ts`'s `void getTemporal` import-shim,
+  `extensibility.ts`'s `void builtinFormat` / `void builtinFormatToParts`
+  / `void tokenize` shims and their now-unused imports.
+- `createFormatter()`'s private tokenizer now rejects overlong token
+  runs (`"MMMMM"`, `"ddddd"`) with the same `UnknownTokenError`
+  tokenize.ts throws, instead of silently splicing the run into a token
+  plus a literal — the exact misreading the main tokenizer's guard
+  exists to prevent.
+- `registerRelativeGrammar()` caps new-language registrations at 100
+  grammars (`RangeError` past it, replacement still allowed) — the
+  registry and `tryRegisteredGrammar`'s per-language scan previously
+  grew without bound. `localeRegistry`'s extended-vocab map is bounded
+  indirectly (every entry passes `registerLocaleVocab`'s existing
+  500-locale cap first); that invariant is now documented where the map
+  lives.
+- `canonicalCacheKey()` is memoized (bounded at 500 entries, same
+  eviction shape as every other cache here), and `resolveCalendar()`
+  keys off it — repeated `parse()` calls with the same locale no longer
+  construct a fresh `Intl.Locale` per call just to compute the cache key.
+- Line endings normalized to LF across `src/` (four files were CRLF, one
+  mixed), with a `.gitattributes` (`*.ts`/`*.js`/`*.mjs`/`*.json`/
+  `*.md` `text eol=lf`) so it stays that way.
+
+### Added
+- `test/redos.test.js`: 21 regression tests pinning every exploit from
+  the audit (the three ReDoS shapes, the comparison corruption and its
+  `Temporal.compare` cross-check, the stale pattern cache, the input
+  mutations, the unbounded traversals, the grammar wiring, and the
+  locale normalization).
+- `test/hardening.test.js`: 23 regression tests pinning the low-severity
+  fixes above (typed locale errors across all six boundaries, fractional
+  duration arithmetic, strict RFC 2822, exact formatDurationToParts
+  slicing, the grammar cap, hostile getters, the field-bag guard,
+  splitInterval's range check, difference()'s corrected bounds,
+  createFormatter's overlong-run guard, and the canonical-key cache
+  eviction).
+- `assertValidLocaleTag()` / `normalizeLocaleTag()` /
+  `subscribeToVocabChanges()` / `fieldToNs()` internal helpers, exported
+  from their modules for cross-module reuse.
+
 ## 0.9.1 — 2026-08-22 (`c38fdc4`)
 ### Added
 - `tsup.config.ts` minification is back, gated behind a `TSUP_MINIFY` env

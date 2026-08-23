@@ -1,5 +1,7 @@
 import { DEFAULT_LOCALE, type FormatOptions } from './tokens.js';
 import { dayOfYear, isGregorianLeapYear } from './isoWeek.js';
+import { normalizeLocaleTag } from './localeVocab.js';
+import { InvalidLocaleError } from './errors.js';
 
 // Reads date fields off a Temporal value in the same minimal-shape style
 // as the rest of the library (TemporalLike) — no Temporal factory needed.
@@ -194,7 +196,16 @@ function getRtf(locale: string, numeric: 'always' | 'auto'): Intl.RelativeTimeFo
     const oldestKey = rtfCache.keys().next().value;
     if (oldestKey !== undefined) rtfCache.delete(oldestKey);
   }
-  rtf = new Intl.RelativeTimeFormat(locale, { numeric });
+  try {
+    rtf = new Intl.RelativeTimeFormat(normalizeLocaleTag(locale), { numeric });
+  } catch (err) {
+    // Malformed locale tags reach Intl as a bare RangeError; surface the
+    // library's typed error instead. (Every failure mode of these
+    // constructors with a string locale is a RangeError, so converting
+    // unconditionally loses nothing — the original message is preserved
+    // in `reason` either way.)
+    throw new InvalidLocaleError({ actual: locale, reason: (err as Error).message });
+  }
   rtfCache.set(key, rtf);
   return rtf;
 }

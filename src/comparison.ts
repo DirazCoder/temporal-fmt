@@ -14,40 +14,36 @@ interface DateTimeFieldView extends DateFieldView {
 }
 
 function toComparableMs(view: DateTimeFieldView): number {
-  // Same epoch anchor formatDistance uses — Jan 1, 2000 UTC reference.
-  // Lets us compare dates by ms-since-epoch without needing a Temporal
-  // implementation. For comparison purposes, the absolute value doesn't
-  // matter; only the relative ordering between two values does.
-  const REFERENCE_YEAR = 2000;
-  const DAYS_PER_YEAR_AVG = 365.2425; // Gregorian average
-  const MS_PER_DAY = 86_400_000;
+  // Exact proleptic-Gregorian day count (Howard Hinnant's days_from_civil,
+  // same algorithm arithmetic.ts/interval.ts use) plus the time-of-day —
+  // NOT an approximation. The previous implementation multiplied the
+  // year offset by an average 365.2425 days/year, on the theory that the
+  // error "is constant for any given year, so it cancels out in a diff".
+  // That's only true when both dates fall in the same year: the year
+  // term's error differs by up to ~0.76 days between adjacent years
+  // (365.2425 vs 365/366 actual), which corrupts cross-year comparisons
+  // near the boundary — e.g. isAfter(2025-01-01T00:00, 2024-12-31T18:12)
+  // returned false (truth: ~5.8h after), and isEqual() returned true for
+  // instants ~18h apart (2025-01-01T00:00 vs 2024-12-31T05:49:12).
+  // Exact arithmetic has no such error term.
+  const y = view.year!, m = view.month!, d = view.day!;
+  const y2 = m <= 2 ? y - 1 : y;
+  const era = Math.floor((y2 >= 0 ? y2 : y2 - 399) / 400);
+  const yoe = y2 - era * 400;
+  const m2 = m > 2 ? m - 3 : m + 9;
+  const doy = Math.floor((153 * m2 + 2) / 5) + d - 1;
+  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
+  const days = era * 146097 + doe - 719468;
+
   const MS_PER_HOUR = 3_600_000;
   const MS_PER_MINUTE = 60_000;
   const MS_PER_SECOND = 1_000;
 
-  const year = view.year!;
-  const yearsFromRef = year - REFERENCE_YEAR;
-  // Approximate ms offset — using the average days-per-year keeps this
-  // branchless over leap years, which is fine for *comparison* (the
-  // error is constant for any given year, so it cancels out in a diff).
-  const yearMs = yearsFromRef * DAYS_PER_YEAR_AVG * MS_PER_DAY;
-
-  // Use dayOfYear via the existing helper — handles leap years precisely.
-  // Importing it here would create a circular dep (calendarUtils imports
-  // nothing from this module), so we duplicate the small computation.
-  // The CUMULATIVE_DAYS_BY_MONTH table lives in isoWeek.ts; we replicate
-  // a minimal version here to keep this module self-contained.
-  const CUMULATIVE_DAYS = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
-  let doy = CUMULATIVE_DAYS[(view.month! - 1)!]! + view.day! - 1;
-  const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
-  if (view.month! > 2 && isLeap) doy += 1;
-  const dayMs = doy * MS_PER_DAY;
-
-  const hourMs = (view.hour ?? 0) * MS_PER_HOUR;
-  const minuteMs = (view.minute ?? 0) * MS_PER_MINUTE;
-  const secondMs = (view.second ?? 0) * MS_PER_SECOND;
-  const msMs = view.millisecond ?? 0;
-  return yearMs + dayMs + hourMs + minuteMs + secondMs + msMs;
+  return days * 86_400_000
+    + (view.hour ?? 0) * MS_PER_HOUR
+    + (view.minute ?? 0) * MS_PER_MINUTE
+    + (view.second ?? 0) * MS_PER_SECOND
+    + (view.millisecond ?? 0);
 }
 
 function asDateTimeFieldView(value: unknown): DateTimeFieldView {

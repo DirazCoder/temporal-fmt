@@ -1,5 +1,6 @@
 import { getTemporal, subscribeToTemporalChanges } from './temporalProvider.js';
-import { canonicalCacheKey, getCustomVocab } from './localeVocab.js';
+import { canonicalCacheKey, getCustomVocab, normalizeLocaleTag } from './localeVocab.js';
+import { InvalidLocaleError } from './errors.js';
 import { isoWeekYearAndWeek, dayOfYear } from './isoWeek.js';
 
 export function pad(n: number, len: number): string {
@@ -88,7 +89,17 @@ function getFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl
     const oldestKey = formatterCache.keys().next().value;
     if (oldestKey !== undefined) formatterCache.delete(oldestKey);
   }
-  formatter = new Intl.DateTimeFormat(locale, options);
+  try {
+    formatter = new Intl.DateTimeFormat(normalizeLocaleTag(locale), options);
+  } catch (err) {
+    // Malformed locale tags reach Intl as a bare RangeError; surface the
+    // library's typed error instead (reached via dayPeriodPart — the
+    // 'a' token — on any runtime, and the native-Intl path for the rest).
+    // Every failure mode of this constructor with a string locale is a
+    // RangeError, so converting unconditionally preserves the original
+    // message in `reason` either way.
+    throw new InvalidLocaleError({ actual: locale, reason: (err as Error).message });
+  }
   formatterCache.set(key, formatter);
   return formatter;
 }
@@ -194,7 +205,33 @@ function intlPart(
   // regression.
   /* c8 ignore start */
   if (!intlSupportsNativeTemporal()) {
-    return temporal.toLocaleString!(locale, formatterOptions);
+    // normalizeLocaleTag: the active Temporal implementation's
+    // toLocaleString forwards the locale to Intl.DateTimeFormat, which
+    // (unlike this library's cache keys) rejects underscore-separated
+    // tags like 'en_US' outright.
+    // Field-bag guard: a plain { year, month, day } object also has a
+    // toLocaleString — Object.prototype.toLocaleString — which ignores
+    // both arguments and returns "[object Object]". Silently emitting
+    // that garbage is worse than throwing, so a bag carrying only the
+    // inherited method gets a descriptive error naming the problem.
+    const ls = temporal.toLocaleString;
+    if (typeof ls !== 'function' || ls === Object.prototype.toLocaleString) {
+      throw new Error(
+        `temporal-fmt: locale-aware part "${partType}" needs a value that implements ` +
+        `toLocaleString (a real Temporal object). A plain field bag cannot render ` +
+        `locale-aware names — pass a Temporal.PlainDate/PlainDateTime/ZonedDateTime.`
+      );
+    }
+    try {
+      return ls.call(temporal, normalizeLocaleTag(locale), formatterOptions);
+    } catch (err) {
+      // The active Temporal implementation forwards the tag to Intl, which
+      // throws a bare RangeError for a malformed one — rethrow typed.
+      if (err instanceof RangeError) {
+        throw new InvalidLocaleError({ actual: locale, reason: err.message });
+      }
+      throw err;
+    }
   }
 
   // formatToParts() throws on ZonedDateTime directly (per spec), so convert

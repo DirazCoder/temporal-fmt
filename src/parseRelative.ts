@@ -1,5 +1,6 @@
 import { getTemporal } from './temporalProvider.js';
 import { type TemporalNamespace } from './temporalProvider.js';
+import { tryRegisteredGrammar } from './relativeGrammar.js';
 import { DEFAULT_LOCALE, type FormatOptions } from './tokens.js';
 
 // parseRelative resolves common relative-date phrases ("next Tuesday",
@@ -874,6 +875,18 @@ function grammarForLocale(locale: string | undefined): RelativeDateGrammar {
   }
 }
 
+// Language subtag of a locale option, for dispatching to grammars
+// registered via registerRelativeGrammar(). Mirrors grammarForLocale's
+// normalization and fallback.
+function languageOf(locale: string | undefined): string {
+  if (!locale) return 'en';
+  try {
+    return new Intl.Locale(locale.replace(/_/g, '-')).language.toLowerCase();
+  } catch {
+    return 'en';
+  }
+}
+
 // Map a per-language unit word back to the English unit name the
 // shared addUnits() helper expects. Each language contributes its own
 // regex alternation of unit words; this function normalizes the
@@ -1010,6 +1023,23 @@ export function parseRelative(
 
   const grammar = grammarForLocale(options.locale);
   const ctx: ResolveContext = { temporal, reference };
+
+  // Registered grammars (registerRelativeGrammar) take precedence over
+  // the built-in ones for their language — that's the documented
+  // contract in relativeGrammar.ts ("try registered grammars before
+  // falling back to the built-in ones"). This wiring was missing
+  // entirely before: registered grammars were stored and listed but
+  // never consulted, so the extension point silently did nothing.
+  // Returns null quickly when nothing is registered for the language.
+  const registered = tryRegisteredGrammar(languageOf(options.locale), trimmed, {
+    year: reference.year as number,
+    month: reference.month as number,
+    day: reference.day as number,
+    dayOfWeek: reference.dayOfWeek as number,
+  });
+  if (registered !== null) {
+    return registered;
+  }
 
   const tryMatch = (text: string): unknown | typeof NO_MATCH => {
     for (const matcher of grammar.matchers) {

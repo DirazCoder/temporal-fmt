@@ -12,6 +12,7 @@
 import { compare } from './comparison.js';
 import { format, formatToParts, type FormattedPart } from './format.js';
 import { asDateFieldView, type DateFieldView } from './calendarUtils.js';
+import { normalizeLocaleTag } from './localeVocab.js';
 import type { FormatOptions } from './tokens.js';
 
 export type IntervalBounds = 'open' | 'closed' | 'half-open-start' | 'half-open-end';
@@ -117,30 +118,31 @@ export function union(a: Interval, b: Interval): Interval | null {
 
 // Returns the part of `a` that is not in `b`. May produce 0, 1, or 2
 // intervals depending on the overlap shape.
+//
+// Bounds semantics: each surviving piece keeps the inclusivity of the
+// original endpoint it inherits from `a`, and the endpoint created by the
+// cut is always exclusive (it is `b`'s edge, which belongs to the removed
+// overlap). The old implementation derived both bounds from a lossy
+// helper that collapsed several of these combinations — the pieces'
+// endpoints were right, but the bounds metadata was stricter than the
+// actual remainder for open/half-open inputs.
 export function difference(a: Interval, b: Interval): Interval[] {
   if (!intersects(a, b)) return [a];
   const result: Interval[] = [];
-  // Part of `a` before `b` starts.
+  // Does `a` include its own start / end?
+  const aStartIncluded = a.bounds === 'closed' || a.bounds === 'half-open-end';
+  const aEndIncluded = a.bounds === 'closed' || a.bounds === 'half-open-start';
+  // Part of `a` before `b` starts: [a.start, b.start) — start inclusivity
+  // inherited from a, cut end always exclusive.
   if (compare(a.start, b.start) < 0) {
-    result.push({ start: a.start, end: b.start, bounds: flipEndBounds(a.bounds, 'half-open-end') });
+    result.push({ start: a.start, end: b.start, bounds: aStartIncluded ? 'half-open-end' : 'open' });
   }
-  // Part of `a` after `b` ends.
+  // Part of `a` after `b` ends: (b.end, a.end] — cut start always
+  // exclusive, end inclusivity inherited from a.
   if (compare(a.end, b.end) > 0) {
-    result.push({ start: b.end, end: a.end, bounds: flipEndBounds('half-open-start', a.bounds) });
+    result.push({ start: b.end, end: a.end, bounds: aEndIncluded ? 'half-open-start' : 'open' });
   }
   return result;
-}
-
-function flipEndBounds(startBounds: IntervalBounds, endBounds: IntervalBounds): IntervalBounds {
-  // When cutting `a` at b.start or b.end, the cut boundary is open
-  // (excluded) on the b side. Closed on the a side.
-  // This helper computes the resulting bounds for the two pieces.
-  // For simplicity, return 'half-open' variants; callers needing exact
-  // closed-bound semantics should use subtraction() instead.
-  if (startBounds === 'open' || endBounds === 'open') return 'open';
-  if (startBounds === 'half-open-end') return 'half-open-end';
-  if (endBounds === 'half-open-start') return 'half-open-start';
-  return 'closed';
 }
 
 // Alias for difference() — "subtract" reads more naturally at some
@@ -148,11 +150,15 @@ function flipEndBounds(startBounds: IntervalBounds, endBounds: IntervalBounds): 
 export const subtract = difference;
 
 // Merges a list of intervals, combining overlapping ones. Returns a
-// sorted list of disjoint intervals.
+// sorted list of disjoint intervals. The inputs are treated as
+// immutable — the merged result carries shallow copies of any interval
+// object it extends, so a caller's own `end` reference is never
+// reassigned under them (mergeIntervals used to write `last.end =
+// current.end` straight into the caller's object).
 export function mergeIntervals(intervals: Interval[]): Interval[] {
   if (intervals.length === 0) return [];
   const sorted = [...intervals].sort((a, b) => compare(a.start, b.start));
-  const result: Interval[] = [sorted[0]!];
+  const result: Interval[] = [{ ...sorted[0]! }];
   for (let i = 1; i < sorted.length; i++) {
     const current = sorted[i]!;
     const last = result[result.length - 1]!;
@@ -168,6 +174,13 @@ export function mergeIntervals(intervals: Interval[]): Interval[] {
   return result;
 }
 
+// Widest instant JS Date can represent (±8.64e15 ms, i.e. ±100,000,000
+// days from the Unix epoch). splitInterval rebuilds endpoints via Date,
+// so anything outside this window would silently produce Invalid Date
+// objects with NaN year/month/day fields — reject it descriptively
+// instead.
+const MAX_DATE_MS = 8.64e15;
+
 // Splits an interval into N equal sub-intervals. Throws if N ≤ 0.
 // Equality is by ms-distance between start and end — for date ranges
 // this approximates "equal time slices", which is the most useful
@@ -180,6 +193,12 @@ export function splitInterval(iv: Interval, n: number): Interval[] {
   const endFields = asDateFieldView(iv.end) as DateFieldView & { hour?: number; minute?: number; second?: number; millisecond?: number };
   const startMs = toMs(startFields);
   const endMs = toMs(endFields);
+  if (Math.abs(startMs) > MAX_DATE_MS || Math.abs(endMs) > MAX_DATE_MS) {
+    throw new RangeError(
+      `temporal-fmt: splitInterval() endpoints are outside the representable Date range ` +
+      `(approximately ±275,760 years). Split the interval into smaller ranges first.`
+    );
+  }
   const step = (endMs - startMs) / n;
   const result: Interval[] = [];
   for (let i = 0; i < n; i++) {
@@ -252,22 +271,36 @@ export function formatRange(
   formatStr: string,
   options: FormatOptions = {},
 ): string {
+  // The formatStr parameter is this function's contract — the caller
+  // asked for their token format on both endpoints. Honor it first:
+  // format each side with the caller's format string and join with an
+  // en dash. (This used to try Intl.DateTimeFormat.formatRange() first,
+  // which ignores formatStr entirely — formatRange(iv, 'yyyy-MM-dd')
+  // silently returned locale-default output like "8/4/2026 – 8/6/2026"
+  // instead of "2026-08-04 – 2026-08-06".) Intl's range collapsing is
+  // kept as a fallback for inputs the token path can't render.
   try {
-    // Intl.DateTimeFormat.formatRange is the standard mechanism.
-    // It handles the field-collapse logic natively (locale-dependent).
-    const fmt = new Intl.DateTimeFormat(options.locale ?? 'en-US', {});
-    // Cast the interval endpoints to Date for the Intl call. Both
-    // endpoints must be Temporal values that can convert to a Date;
-    // for non-ZonedDateTime values we synthesize a Date via the field
-    // shape (year/month/day/hour/...).
-    const startDate = toJSDate(iv.start);
-    const endDate = toJSDate(iv.end);
-    return fmt.formatRange(startDate, endDate);
-  } catch {
-    // Fallback: format each side separately and join with "–".
     const startStr = format(iv.start as Parameters<typeof format>[0], formatStr, options);
     const endStr = format(iv.end as Parameters<typeof format>[0], formatStr, options);
     return `${startStr} – ${endStr}`;
+  } catch (err) {
+    // Fallback: Intl.DateTimeFormat.formatRange is the standard
+    // mechanism with native field-collapse behavior, but it has no
+    // knowledge of the caller's token format string.
+    try {
+      const fmt = new Intl.DateTimeFormat(normalizeLocaleTag(options.locale ?? 'en-US'), {});
+      // Cast the interval endpoints to Date for the Intl call. Both
+      // endpoints must be Temporal values that can convert to a Date;
+      // for non-ZonedDateTime values we synthesize a Date via the field
+      // shape (year/month/day/hour/...).
+      const startDate = toJSDate(iv.start);
+      const endDate = toJSDate(iv.end);
+      return fmt.formatRange(startDate, endDate);
+    } catch {
+      // Neither path could render — surface the token-path error, since
+      // the formatStr contract is the primary one.
+      throw err;
+    }
   }
 }
 

@@ -240,19 +240,33 @@ test('difference: an open `a` produces two open pieces (flipEndBounds\'s open br
   assert.equal(result[1].bounds, 'open');
 });
 
-test('difference: a half-open-end `a` makes the before-piece half-open-end (flipEndBounds\'s startBounds branch)', () => {
+test('difference: a half-open-end `a` keeps its end-exclusive semantics on the after-piece (0.9.2 bounds fix)', () => {
+  // 0.9.1 and earlier derived both pieces' bounds from a lossy helper
+  // (flipEndBounds) that collapsed combinations: a [Jan 1, Dec 31)
+  // interval's after-piece came back 'closed', wrongly re-including the
+  // Dec 31 endpoint the original interval excluded. 0.9.2 derives each
+  // piece's bounds from the original endpoint it inherits: start-side
+  // inclusivity from a.bounds on the before-piece, end-side inclusivity
+  // on the after-piece, and the cut endpoints always exclusive.
   const a = interval(d('2026-01-01'), d('2026-12-31'), 'half-open-end');
   const b = interval(d('2026-04-01'), d('2026-06-01'));
   const result = difference(a, b);
+  // before-piece: [Jan 1, Apr 1) — a includes its start, cut end exclusive.
   assert.equal(result[0].bounds, 'half-open-end');
-  assert.equal(result[1].bounds, 'closed');
+  // after-piece: (Jun 1, Dec 31) — a excludes its end, cut start exclusive.
+  assert.equal(result[1].bounds, 'open');
 });
 
-test('difference: a half-open-start `a` makes the after-piece half-open-start (flipEndBounds\'s endBounds branch)', () => {
+test('difference: a half-open-start `a` keeps its start-exclusive semantics on the before-piece (0.9.2 bounds fix)', () => {
+  // Mirror of the half-open-end case above: a (Jan 1, Dec 31] interval's
+  // before-piece used to come back 'closed', wrongly re-including the
+  // Jan 1 endpoint the original interval excluded.
   const a = interval(d('2026-01-01'), d('2026-12-31'), 'half-open-start');
   const b = interval(d('2026-04-01'), d('2026-06-01'));
   const result = difference(a, b);
-  assert.equal(result[0].bounds, 'closed');
+  // before-piece: (Jan 1, Apr 1) — a excludes its start, cut end exclusive.
+  assert.equal(result[0].bounds, 'open');
+  // after-piece: (Jun 1, Dec 31] — a includes its end, cut start exclusive.
   assert.equal(result[1].bounds, 'half-open-start');
 });
 

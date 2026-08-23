@@ -46,6 +46,11 @@ export interface ExtendedLocaleVocab extends BaseLocaleVocab {
   };
 }
 
+// Bounded indirectly: every entry here is added by registerLocale(), which
+// first passes registerLocaleVocab() — and THAT registry caps new locales
+// at 500 (MAX_CUSTOM_VOCABS, RangeError past it). So extendedVocabs can
+// never exceed 500 keys; no separate cap is needed (and an unreachable one
+// would only add dead branches).
 const extendedVocabs = new Map<string, ExtendedLocaleVocab>();
 const MAX_LOCALE_TAG_LENGTH = 256;
 const MAX_VOCAB_STRING_LENGTH = 256;
