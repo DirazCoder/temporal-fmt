@@ -14,8 +14,7 @@ security fixes, and parser hardening land here first.
 
 `0.8.x` is now the LTS line, kept specifically for consumers who don't
 want (or can't yet take) the typed-error throw behavior introduced in
-`0.9.0` — see the breaking-change entry below. It still receives bug
-fixes and security fixes; it just doesn't get new features or the typed
+`0.9.0` — see the breaking-change entry below. It still receives security fixes only; it just doesn't get new features or the typed
 throws.
 
 `0.7.x` and everything before it is end of life and no longer receives
