@@ -4,8 +4,56 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.3 — 2026-08-24 (`050e5e7`)
+### Fixed
+- `formatOffset()` assumed every offset string was exactly 6 characters
+  (sign, `HH`, `:`, `MM`) and never checked for a seconds component.
+  Verified against a real `Temporal.ZonedDateTime` for a pre-1900
+  `America/New_York` date: the actual offset is `-04:56:02`, 9
+  characters, because pre-1883 New York ran on local mean time. The old
+  code read that string's middle two digits as minutes regardless, so
+  `X` silently produced `-0402` — plausible-looking, wrong — instead of
+  refusing. `X`/`XX`/`XXX`/`x`/`xx` now throw when the offset carries
+  seconds (none of them have anywhere to put it); `xxx` passes the full
+  value through unchanged, since it's the one variant wide enough to
+  represent it.
+- `isValidTimeZone()` only checked membership in
+  `Intl.supportedValuesOf('timeZone')`, which lists canonical IANA zone
+  ids but not every link/alias name — `Asia/Kolkata`, a legitimate,
+  commonly-used alias for `Asia/Calcutta`, was rejected by `zzz` even
+  though `Temporal.ZonedDateTime.from()` itself resolves it without
+  complaint. Confirmed against `temporal-polyfill` directly before
+  changing anything. `isValidTimeZone()` now falls back to a real
+  `ZonedDateTime.from()` probe when the fast-path `Intl` lookup misses,
+  rather than trusting the `Intl` list alone.
+
+### Changed
+- Parsing a pattern with an offset token (`X`/`XX`/`XXX`/`x`/`xx`/`xxx`)
+  and no `zzz` used to build a `ZonedDateTime` from the offset alone —
+  deliberate, not an oversight, but an offset identifies a moment's
+  distance from UTC, not a time zone, and building a `ZonedDateTime`
+  from one alone papered over that distinction. This now throws; add
+  `zzz` to the pattern, or parse into `PlainDateTime`/`PlainDate`/
+  `PlainTime` if a zone genuinely isn't needed.
+- `H` combined with `a` used to cross-check instead of blanket-reject:
+  `13:05 PM` was accepted because 13:00 is consistent with PM, and only
+  a genuine contradiction like `01:05 PM` threw. `H` and `a` are now
+  refused together outright, unconditionally, matching `H`'s existing
+  behavior against `h`.
+
+### Added
+- `y` — an unpadded, variable-width year token. Existing `yyyy` (fixed
+  4 digits) and `yy` (2-digit, truncated) don't cover a bare year at
+  its natural width; `y` formats and parses one at any width, sign
+  preserved for years before ISO year 0. It has no bounded fallback the
+  way `yyyy` does when a digit-consuming token follows — unpadded width
+  is the entire point of `y`, so there's no narrower shape that still
+  means the same thing. `buildCapturingPattern()` refuses at build time
+  to place `y` directly next to another digit-reading token or a
+  digit-leading literal, rather than estimating an ambiguity cost for
+  an unbounded fragment.
+
 ## 0.9.2 — 2026-08-23 (`2a2bd05`)
-### Security
 - **ReDoS: three related classes of catastrophic backtracking in
   `parse()`'s compiled regex are closed**, all found by a full security
   audit that exploited each one against the real build before fixing it.
