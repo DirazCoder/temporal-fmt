@@ -239,7 +239,7 @@ function assignField<T>(fields: Fields, key: keyof Fields, value: T): void {
 function applyGroup(fields: Fields, token: string, raw: string, locale: string, formatStr: string): void {
   const vocab = getLocaleVocab(locale);
   switch (token) {
-    case 'yyyy':
+    case 'yyyy': case 'y':
       assignField(fields, 'year', Number(raw));
       break;
     case 'yy':
@@ -357,10 +357,13 @@ function pickLenientSplit(splits: number[][], tokens: string[]): number[] {
 function resolveYear(fields: Fields): number | undefined {
   if (fields.year !== undefined && fields.twoDigitYear !== undefined) {
     // FormatSyntaxError, not ParseMismatchError: this is a contradiction
-    // in the format string itself (both "yyyy" and "yy" present), not a
-    // mismatch between the format and a specific input.
+    // in the format string itself (both a full-year token and "yy" are
+    // present), not a mismatch between the format and a specific input.
+    // "y" and "yyyy" both land in fields.year, so this also covers a
+    // "y"+"yy" mix, not just "yyyy"+"yy" — kept generic rather than
+    // naming a specific pair.
     throw new FormatSyntaxError({
-      message: 'temporal-fmt: format string mixes "yyyy" and "yy" year representations.',
+      message: 'temporal-fmt: format string mixes a full-year token ("yyyy"/"y") with the two-digit "yy" token.',
     });
   }
   if (fields.year !== undefined) return fields.year;
@@ -381,14 +384,12 @@ function resolveHour(fields: Fields, formatStr: string, locale: string): number 
   }
   if (fields.hour !== undefined) {
     if (fields.dayPeriodRaw !== undefined) {
-      const vocab = getLocaleVocab(locale);
-      const expected = fields.hour < 12 ? vocab.dayPeriod[0] : vocab.dayPeriod[1];
-      if (fields.dayPeriodRaw.toLowerCase() !== expected?.toLowerCase()) {
-        throw new FormatSyntaxError({
-          format: formatStr,
-          message: `temporal-fmt: format string "${formatStr}" contains a day period that contradicts the 24-hour value.`,
-        });
-      }
+      throw new FormatSyntaxError({
+        format: formatStr,
+        message:
+          `temporal-fmt: format string "${formatStr}" mixes a 24-hour token ("HH"/"H") with a ` +
+          `day-period token ("a"). Both describe the same field; use one or the other, not both.`,
+      });
     }
     return fields.hour;
   }
@@ -711,13 +712,19 @@ export function parse(formatStr: string, input: string, options: NumberingParseO
         }
       }
     } else if (offsetString !== undefined) {
-      // Pattern had an offset token but no zzz. Use the offset string
-      // directly as the timeZone — Temporal accepts a fixed-offset
-      // string and produces a ZonedDateTime whose timeZoneId is the
-      // offset string itself (e.g. "+09:00"). Same shape zzz produces
-      // when it parses a fixed offset, just reached via a different
-      // token.
-      result = temporal.ZonedDateTime.from({ year: year!, month: month!, day: day!, ...timeFields, ...calendarField, timeZone: offsetString }, reject);
+      // An offset token with no "zzz" zone token present. Previously this
+      // built a fixed-offset ZonedDateTime directly from the offset
+      // string; now it's refused outright — an offset identifies a
+      // moment's distance from UTC, not a zone, and building a
+      // ZonedDateTime without a real zone identity papers over that
+      // difference instead of surfacing it.
+      throw new ParseMismatchError({
+        input, format: formatStr,
+        message:
+          `format string "${formatStr}" has an offset token but no "zzz" zone token. ` +
+          `An offset does not identify a time zone by itself — add "zzz" to the pattern, ` +
+          `or parse into a PlainDateTime/PlainDate/PlainTime if a zone isn't needed.`,
+      });
     } else if (hasFullDate && hasTime) {
       result = temporal.PlainDateTime.from({ year: year!, month: month!, day: day!, ...timeFields, ...calendarField }, reject);
     } else if (hasFullDate) {

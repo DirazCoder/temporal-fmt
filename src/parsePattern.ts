@@ -1,5 +1,5 @@
 import type { Piece } from './tokenize.js';
-import { tokenFragment, UNPADDED_NUMERIC_TOKENS, DIGIT_LEADING_TOKENS } from './pattern.js';
+import { tokenFragment, UNPADDED_NUMERIC_TOKENS, DIGIT_LEADING_TOKENS, UNBOUNDED_WIDTH_TOKENS } from './pattern.js';
 import { FormatSyntaxError } from './errors.js';
 
 function escapeRegExp(literal: string): string {
@@ -157,6 +157,22 @@ export function buildCapturingPattern(pieces: Piece[], locale: string): Capturin
     groups.push({ name, token: piece.value });
     const nextPiece = pieces[idx + 1];
     const nextToken = nextPiece?.kind === 'token' ? nextPiece.value : undefined;
+
+    // "y" has no bounded fallback the way yyyy does (see tokenFragment in
+    // pattern.ts) — it's unpadded by definition, so there's no narrower
+    // fixed-width shape to fall back to. A run of "any number of digits"
+    // immediately next to another digit consumer has no finite ambiguity
+    // score to charge against MAX_AMBIGUITY_BITS below, so this is
+    // refused outright at build time instead of estimated.
+    if (UNBOUNDED_WIDTH_TOKENS.has(piece.value) && isDigitConsumingStart(nextPiece)) {
+      throw new FormatSyntaxError({
+        reason:
+          `token "${piece.value}" has no fixed width — it can't be placed directly next to another ` +
+          `digit-reading token or a literal that starts with a digit, since there's no way to tell ` +
+          `where "${piece.value}" ends and the next field begins. Add a non-digit separator (e.g. "-" or " ") after it.`,
+      });
+    }
+
     // yyyy picks its fragment based on what follows: the exact 4-digit
     // form whenever a digit-consuming element comes next (digit-leading
     // token — the pre-existing rule — OR a literal starting with a

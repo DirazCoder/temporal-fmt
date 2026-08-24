@@ -1,5 +1,6 @@
 import { getLocaleVocab } from './localeVocab.js';
 import { UnknownTokenError } from './errors.js';
+import { getTemporal } from './temporalProvider.js';
 
 function escapeRegExp(literal: string): string {
   return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -87,8 +88,28 @@ const FIXED_OFFSET_RE = /^[+-]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?$/;
 // that shape is deliberately looser than "a real zone id" (it has to be, to
 // stay a fixed-size regex fragment — see the comment above). A fixed offset
 // is valid by construction; anything else has to be a real IANA name.
+//
+// Intl.supportedValuesOf('timeZone') is checked first as a fast path — it's
+// a plain Set lookup and covers the overwhelming majority of real input.
+// But it lists only canonical zone ids, not every IANA link/alias name:
+// "Asia/Kolkata" is a legitimate, commonly-used alias for "Asia/Calcutta"
+// that Temporal.ZonedDateTime.from() itself resolves correctly, yet some
+// ICU builds' supportedValuesOf() omits it. Rejecting it here — even
+// though the exact same string would construct a real ZonedDateTime one
+// call later — was a real bug: parse() refused input its own downstream
+// construction step would have accepted. Anything Intl doesn't recognize
+// gets a second check against Temporal itself before being refused.
 export function isValidTimeZone(raw: string): boolean {
-  return FIXED_OFFSET_RE.test(raw) || getValidZoneSet().has(raw);
+  if (FIXED_OFFSET_RE.test(raw) || getValidZoneSet().has(raw)) return true;
+  try {
+    getTemporal().ZonedDateTime.from({
+      year: 2026, month: 1, day: 1, hour: 0, minute: 0, second: 0,
+      timeZone: raw,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // mirrors the ranges pad() in tokens.ts actually produces — keep in sync
@@ -169,6 +190,18 @@ export const FORMAT_ONLY_TOKENS = new Set(['do', 'ww', 'RRRR', 'D', 'DD', 'DDD',
 const YYYY_EXACT = '-?\\d{4}';
 const YYYY_EXTENDED = '-?\\d{4,}';
 
+// "y" is yyyy's unpadded sibling: any width, 1 digit up through Temporal's
+// max supported year (275760), with the same optional leading "-" for
+// years before ISO year 0. Unlike yyyy, there's no bounded fallback to
+// reach for when something digit-consuming follows — yyyy can fall back
+// to an exact 4 digits because it's always exactly 4 digits in that case,
+// but "y" being unpadded is the entire point of the token, so there's no
+// narrower shape that still means the same thing. buildCapturingPattern
+// (parsePattern.ts) refuses to build a pattern where "y" is immediately
+// followed by another digit-consuming element, rather than trying to
+// bound this fragment the way YYYY_EXACT does.
+const Y_FRAGMENT = '-?\\d+';
+
 // True for any token whose matched text can start with a digit — i.e.
 // every token here except the locale-named ones (MMMM/MMM/EEEE/EEE/a) and
 // zzz (which can start with a digit only via a fixed offset like "+09:00",
@@ -178,13 +211,29 @@ const YYYY_EXTENDED = '-?\\d{4,}';
 // Exported for parsePattern.ts's ReDoS guard: a token whose regex
 // fragment can begin with a bare digit (see the guard comments there).
 export const DIGIT_LEADING_TOKENS = new Set([
-  'yyyy', 'yy', 'MM', 'M', 'dd', 'd', 'HH', 'H', 'hh', 'h', 'mm', 'm', 'ss', 's',
+  'yyyy', 'yy', 'y', 'MM', 'M', 'dd', 'd', 'HH', 'H', 'hh', 'h', 'mm', 'm', 'ss', 's',
   'SSSSSSSSS', 'SSSSSSSS', 'SSSSSSS', 'SSSSSS', 'SSSSS', 'SSSS', 'SSS', 'SS', 'S',
 ]);
+
+// Tokens whose regex fragment has no upper bound on width — nothing
+// caps how many digits they might consume. yyyy's YYYY_EXTENDED form is
+// also unbounded, but it's only ever selected when the *next* piece
+// already isn't digit-consuming (see tokenFragment below), so by
+// construction it never reaches a position where the ambiguity guard in
+// parsePattern.ts would need to weigh in. "y" has no such self-limiting
+// selection rule — it's unbounded unconditionally — so it needs an
+// explicit guard there instead of a bit-cost estimate: there's no
+// meaningful number of "width choices" to assign to "any number of
+// digits," so parsePattern.ts refuses outright rather than pretending a
+// finite ambiguity score covers it.
+export const UNBOUNDED_WIDTH_TOKENS = new Set(['y']);
 
 export function tokenFragment(token: string, locale: string, nextToken?: string): string {
   if (token === 'yyyy') {
     return nextToken !== undefined && DIGIT_LEADING_TOKENS.has(nextToken) ? YYYY_EXACT : YYYY_EXTENDED;
+  }
+  if (token === 'y') {
+    return Y_FRAGMENT;
   }
 
   const numeric = NUMERIC_FRAGMENTS[token];

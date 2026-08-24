@@ -94,6 +94,11 @@ export const TOKEN_METADATA: Record<string, TokenMetadata> = {
     formatCapable: true, parseCapable: true, localeSensitive: false, calendarSensitive: true, timezoneSensitive: false,
     supportedTypes: TYPES_WITH.year, roundTripSafe: false,
   },
+  y: {
+    meaning: 'Unpadded year, any width (preserves sign for BCE; no truncation, no minimum digits). Cannot sit directly next to another digit-reading token or a literal starting with a digit — there would be no way to tell where it ends.',
+    formatCapable: true, parseCapable: true, localeSensitive: false, calendarSensitive: true, timezoneSensitive: false,
+    supportedTypes: TYPES_WITH.year, roundTripSafe: true,
+  },
   MMMM: {
     meaning: 'Long month name (locale-aware, e.g. "January", "janvier").',
     formatCapable: true, parseCapable: true, localeSensitive: true, calendarSensitive: true, timezoneSensitive: false,

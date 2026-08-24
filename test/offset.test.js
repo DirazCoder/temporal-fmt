@@ -147,8 +147,16 @@ test('offset tokens throw on PlainTime (no offset field)', () => {
 // 30-second original would lose 30s on parse (since :ss would default to
 // 0), and the instant comparison would fail for a reason unrelated to
 // what the test is actually checking.
+//
+// The pattern also carries "zzz": parse() no longer builds a ZonedDateTime
+// from an offset token alone (an offset identifies a moment, not a zone —
+// see conformance/README.md, zone-required-for-zoneddatetime), so a
+// round-trip through just X/XX/XXX/x/xx/xxx now throws. Adding zzz keeps
+// these tests doing what they're actually for — exercising each offset
+// variant's width and Z-handling across the spread — instead of the
+// unrelated question of whether a zone is required.
 function roundTripCase(label, original, variant) {
-  const formatStr = `yyyy-MM-dd HH:mm:ss${variant}`;
+  const formatStr = `yyyy-MM-dd HH:mm:ss${variant}'['zzz']'`;
   const formatted = format(original, formatStr);
   const reparsed = parse(formatStr, formatted);
   assert.equal(
@@ -226,9 +234,13 @@ test('Z parses as UTC for uppercase variants', () => {
   // Round-trip covers it indirectly via format(UTC, 'X') === 'Z', but
   // pinning the explicit parse side here means a regression surfaces with
   // a specific name instead of buried in the round-trip block.
+  //
+  // Pattern carries "zzz" — an offset token with no zone token no longer
+  // resolves on its own (see zone-required-for-zoneddatetime in
+  // conformance/README.md), so this needs a real zone to parse at all.
   for (const tok of ['X', 'XX', 'XXX']) {
-    const formatStr = `yyyy-MM-dd HH:mm${tok}`;
-    const result = parse(formatStr, `2026-08-04 15:45Z`);
+    const formatStr = `yyyy-MM-dd HH:mm${tok}'['zzz']'`;
+    const result = parse(formatStr, `2026-08-04 15:45Z[UTC]`);
     assert.equal(result.offset, '+00:00', `${tok} should accept "Z" as UTC`);
   }
 });
@@ -249,20 +261,32 @@ test('lowercase variants reject "Z" with a descriptive error', () => {
   }
 });
 
-test('offset-only pattern (no zzz) produces a ZonedDateTime whose timeZoneId is the offset string', () => {
-  // When the pattern has an offset token but no zzz, parse() uses the
-  // offset string directly as the timeZone. The result's timeZoneId
-  // equals the offset string — matches what zzz produces when it parses
-  // a fixed offset.
-  const result = parse('yyyy-MM-dd HH:mmXXX', '2026-08-04 15:45+09:00');
-  assert.equal(result.timeZoneId, '+09:00');
-  assert.equal(result.offset, '+09:00');
+test('offset-only pattern (no zzz) is rejected — an offset does not identify a zone', () => {
+  // Previously, an offset token with no zzz built a fixed-offset
+  // ZonedDateTime directly from the offset string. That's no longer
+  // supported: an offset identifies a moment's distance from UTC, not a
+  // time zone, so building a ZonedDateTime from one alone papered over
+  // that distinction. See zone-required-for-zoneddatetime in
+  // conformance/README.md.
+  assert.throws(
+    () => parse('yyyy-MM-dd HH:mmXXX', '2026-08-04 15:45+09:00'),
+    /has an offset token but no "zzz" zone token/
+  );
 });
 
-test('offset-only pattern with half-hour offset produces a ZonedDateTime at the correct offset', () => {
-  const result = parse('yyyy-MM-dd HH:mmXXX', '2026-08-04 15:45+05:30');
+test('offset-only pattern with half-hour offset is rejected the same way', () => {
+  assert.throws(
+    () => parse('yyyy-MM-dd HH:mmXXX', '2026-08-04 15:45+05:30'),
+    /has an offset token but no "zzz" zone token/
+  );
+});
+
+test('offset token with zzz still builds a ZonedDateTime at the correct offset', () => {
+  // Same case as the two tests above, but with the required zzz zone
+  // added — this is the supported path.
+  const result = parse(`yyyy-MM-dd HH:mmXXX'['zzz']'`, '2026-08-04 15:45+05:30[Asia/Kolkata]');
   assert.equal(result.offset, '+05:30');
-  assert.equal(result.timeZoneId, '+05:30');
+  assert.equal(result.timeZoneId, 'Asia/Kolkata');
 });
 
 test('offset token without a full date+time throws the "needs a full date and time" error', () => {
@@ -354,12 +378,13 @@ test('X accepts both +HH and +HHMM shapes, x rejects Z', () => {
   // X is the only variant where the regex accepts both the short +HH form
   // (when minutes are zero) and the +HHMM form (when they're not). Pin
   // both shapes here so a regression to one-or-the-other surfaces with a
-  // specific name.
-  assert.equal(parse('yyyy-MM-dd HH:mmX', '2026-08-04 15:45+05').offset, '+05:00');
-  assert.equal(parse('yyyy-MM-dd HH:mmX', '2026-08-04 15:45+0530').offset, '+05:30');
+  // specific name. zzz is required on the pattern since an offset token
+  // alone no longer resolves to a ZonedDateTime.
+  assert.equal(parse(`yyyy-MM-dd HH:mmX'['zzz']'`, '2026-08-04 15:45+05[Asia/Karachi]').offset, '+05:00');
+  assert.equal(parse(`yyyy-MM-dd HH:mmX'['zzz']'`, '2026-08-04 15:45+0530[Asia/Kolkata]').offset, '+05:30');
   // x is identical to X minus the Z alternative.
-  assert.equal(parse('yyyy-MM-dd HH:mmx', '2026-08-04 15:45+05').offset, '+05:00');
-  assert.equal(parse('yyyy-MM-dd HH:mmx', '2026-08-04 15:45+0530').offset, '+05:30');
+  assert.equal(parse(`yyyy-MM-dd HH:mmx'['zzz']'`, '2026-08-04 15:45+05[Asia/Karachi]').offset, '+05:00');
+  assert.equal(parse(`yyyy-MM-dd HH:mmx'['zzz']'`, '2026-08-04 15:45+0530[Asia/Kolkata]').offset, '+05:30');
 });
 
 // ---------- zzz / offset-token overlap ----------
@@ -491,10 +516,16 @@ test('offset token composes with locale-aware month name in the same pattern', (
   // and that the locale-aware path doesn't disturb the offset's parse.
   // Format carries seconds so the round-trip is exact; without :ss the
   // reparsed value would lose the 30s and fail the instant comparison.
+  //
+  // Parse-side pattern adds "zzz": an offset token with no zone token no
+  // longer resolves to a ZonedDateTime on its own (see
+  // zone-required-for-zoneddatetime in conformance/README.md). The
+  // format-side assertion is untouched — it's still proving the offset
+  // token doesn't collide with the preceding locale-named token.
   const original = zdt('2026-08-04T15:45:30+05:30[Asia/Kolkata]');
   const formatted = format(original, 'MMMM d, yyyy HH:mm:ssXXX', { locale: 'en-US' });
   assert.equal(formatted, 'August 4, 2026 15:45:30+05:30');
-  const reparsed = parse('MMMM d, yyyy HH:mm:ssXXX', formatted);
+  const reparsed = parse(`MMMM d, yyyy HH:mm:ssXXX'['zzz']'`, `${formatted}[Asia/Kolkata]`);
   assert.equal(reparsed.offset, '+05:30');
   assert.equal(reparsed.epochNanoseconds, original.epochNanoseconds);
 });
@@ -503,11 +534,12 @@ test('offset token composes with milliseconds token', () => {
   // Adjacency check: SSS followed by XXX — the SSS regex consumes exactly
   // 3 digits, then the literal space, then XXX's regex picks up the
   // offset. Confirms the offset's leading +/-/Z doesn't get sucked into
-  // SSS's digit run.
+  // SSS's digit run. Parse-side pattern adds "zzz" for the same reason as
+  // the test above.
   const original = zdt('2026-08-04T15:45:30.007+09:00[Asia/Tokyo]');
   const formatted = format(original, 'yyyy-MM-dd HH:mm:ss.SSSXXX');
   assert.equal(formatted, '2026-08-04 15:45:30.007+09:00');
-  const reparsed = parse('yyyy-MM-dd HH:mm:ss.SSSXXX', formatted);
+  const reparsed = parse(`yyyy-MM-dd HH:mm:ss.SSSXXX'['zzz']'`, `${formatted}[Asia/Tokyo]`);
   assert.equal(reparsed.millisecond, 7);
   assert.equal(reparsed.offset, '+09:00');
 });
@@ -516,23 +548,31 @@ test('offset token composes with milliseconds token', () => {
 
 test('RFC-3339-style timestamp with XXX round-trips', () => {
   // The most common real-world shape: ISO 8601 / RFC 3339 with a colon
-  // offset. XXX is the variant that matches it.
+  // offset. XXX is the variant that matches it. format() output is
+  // pinned to the exact RFC-3339-shaped string on its own (real RFC 3339
+  // has no room for a zone name); the round-trip is checked separately
+  // with "zzz" added, since an offset token alone no longer resolves to
+  // a ZonedDateTime (see zone-required-for-zoneddatetime in
+  // conformance/README.md) — a real caller round-tripping RFC 3339 text
+  // would need to already know, or separately track, which zone it came
+  // from.
   const original = zdt('2026-08-04T15:45:30.123-04:00[America/New_York]');
   const formatStr = "yyyy-MM-dd'T'HH:mm:ss.SSSXXX";
   const formatted = format(original, formatStr);
   assert.equal(formatted, '2026-08-04T15:45:30.123-04:00');
-  const reparsed = parse(formatStr, formatted);
+  const reparsed = parse(`${formatStr}'['zzz']'`, `${formatted}[America/New_York]`);
   assert.equal(reparsed.epochNanoseconds, original.epochNanoseconds);
 });
 
 test('ISO-8601 basic-format-style timestamp with XX round-trips (no separators)', () => {
   // XX is the no-colon form, used in ISO 8601 "basic" format (compact,
   // no separators). Less common than XXX but the LDML spec defines it,
-  // so we support it for symmetry.
+  // so we support it for symmetry. Same format/parse split as the RFC
+  // 3339 test above.
   const original = zdt('2026-08-04T15:45:30+09:00[Asia/Tokyo]');
   const formatStr = "yyyyMMdd'T'HHmmssXX";
   const formatted = format(original, formatStr);
   assert.equal(formatted, '20260804T154530+0900');
-  const reparsed = parse(formatStr, formatted);
+  const reparsed = parse(`${formatStr}'['zzz']'`, `${formatted}[Asia/Tokyo]`);
   assert.equal(reparsed.epochNanoseconds, original.epochNanoseconds);
 });

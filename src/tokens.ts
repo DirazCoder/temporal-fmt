@@ -46,12 +46,13 @@ export interface TemporalLike {
   microsecond?: number;
   nanosecond?: number;
   timeZoneId?: string;
-  // ZonedDateTime.prototype.offset — always `±HH:MM` (6 chars) for any
-  // modern date. Historical LMT offsets with seconds exist in IANA but
-  // aren't reachable through this Temporal field, so format-side offset
-  // tokens can assume the canonical 6-char shape. Parse-side writes a
-  // canonicalized `+HH:MM` here before handing it to
-  // Temporal.ZonedDateTime.from as the `timeZone` value.
+  // ZonedDateTime.prototype.offset — `±HH:MM` (6 chars) for any modern
+  // date, but pre-1900 local-mean-time zones (e.g. America/New_York
+  // before 1883) surface a seconds component too: `±HH:MM:SS` (9
+  // chars). Format-side offset tokens must check the length rather
+  // than assume 6. Parse-side writes a canonicalized `+HH:MM` here
+  // before handing it to Temporal.ZonedDateTime.from as the
+  // `timeZone` value.
   offset?: string;
   dayOfWeek?: number; // 1=Mon, 7=Sun, per Temporal spec
   calendarId?: string;
@@ -350,7 +351,24 @@ function formatOffset(offset: string, variant: 'X' | 'XX' | 'XXX' | 'x' | 'xx' |
   if (offset === '+00:00' && (variant === 'X' || variant === 'XX' || variant === 'XXX')) {
     return 'Z';
   }
-  // offset is always 6 chars: sign + HH + ':' + MM
+  // Most offsets are 6 chars: sign + HH + ':' + MM. Pre-1900 local-mean-time
+  // zones can surface a seconds component too, 9 chars: sign + HH + ':' +
+  // MM + ':' + SS. "xxx" is the one variant with a always-signed,
+  // never-"Z" colon-separated shape wide enough to carry that unchanged,
+  // so it passes a sub-minute offset through verbatim. Every other
+  // variant has no seconds slot and must throw rather than silently
+  // truncate them away.
+  if (offset.length > 6) {
+    if (variant === 'xxx') {
+      return offset;
+    }
+    throw new Error(
+      `temporal-fmt: token "${variant}" cannot represent the offset "${offset}", ` +
+      `which has a seconds component. None of the X/XX/XXX/x/xx tokens ` +
+      `support offset seconds; use "xxx" instead, which formats the full ` +
+      `offset unchanged.`
+    );
+  }
   const sign = offset[0]!;
   const hours = offset.slice(1, 3);
   const minutes = offset.slice(4, 6);
@@ -390,6 +408,12 @@ export const TOKENS: Array<[string, TokenHandler, keyof TemporalLike]> = [
     }
     return pad(t.year! % 100, 2);
   }, 'year'],
+  // Unpadded year — no minimum width, unlike yyyy's fixed 4 digits.
+  // pad(n, 0) still does the right thing here: Math.abs(n) with no
+  // padStart floor just yields the plain digit string, and the sign
+  // handling (split off before padding) already covers negative years,
+  // so this doesn't need its own sign branch the way "yy" does.
+  ['y', (t) => pad(t.year!, 0), 'year'],
   ['MMMM', (t, locale) => {
     const custom = getCustomVocab(locale);
     return localeAwareName(t, locale, { month: 'long' }, 'month', custom?.monthLong, t.month! - 1);

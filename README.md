@@ -999,6 +999,171 @@ Neither of these ships as part of this repository — separate packages, install
 
 This library is heavily tested. The `node:test` suite (`test/*.test.js`) runs 1300+ cases covering hand-picked scenarios, fuzzing, and adversarial input, alongside a separate `vitest/` suite unit-testing internals directly. On top of that there's a dedicated conformance suite, smoke tests that check the package actually resolves correctly under CJS/ESM/bundler/nodenext, and type tests. If it's mentioned in this README, it's backed by a test — not just a docstring.
 
+# Conformance fixtures
+
+`fixtures.json` is a portable, library-agnostic test-vector set for
+token-based Temporal formatters. It's written against a different
+library's token vocabulary, not temporal-fmt's — the fixtures are
+data, not code. Each case names an `op` (`format` / `parse` /
+`roundtrip`), an input, a pattern, and an expected result, so any
+library with a `format`/`parse` pair can be pointed at it.
+
+`test/conformance.test.js` is the temporal-fmt-specific adapter. It
+translates fixture patterns into temporal-fmt's actual tokens, runs
+the cases against `format()`/`parse()`, and checks the result.
+
+## Why this is separate from `test/adversarial.test.js` and `test/fuzz.test.js`
+
+Those two check that temporal-fmt is internally consistent under
+hostile input — clean throw or correct value, never a crash or a
+silently wrong one. The reference point there is the library's own
+logic.
+
+This folder is different: it checks temporal-fmt against an external,
+shared set of tricky-but-well-defined cases — DST transitions, leap
+years, offset rendering, calendar limits — where "correct" comes from
+the fixture, not from temporal-fmt's own code.
+
+## Pattern translation
+
+Two fixture tokens don't exist in temporal-fmt:
+
+| Fixture token | temporal-fmt equivalent | Why |
+|---|---|---|
+| `ZZ` (always-signed offset, never `Z`) | `xxx` | Only the **uppercase** `X`/`XX`/`XXX` family collapses `+00:00` to `Z` (see `formatOffset()` in `src/tokens.ts`). Lowercase never does, which is exactly `ZZ`'s semantics. Mapping `ZZ` to `XXX` was tried first and is wrong — it fails `offset-ZZ-format-utc-not-Z` and `zone-utc-roundtrip`, both of which expect `+00:00`, not `Z`. |
+| `VV` (IANA zone id) | `zzz` | temporal-fmt's only zone-identity token. |
+
+Translation happens in `translatePattern()` and skips anything inside
+a quoted literal span. Everything else in the fixture set — `yyyy`,
+`y`, `MM`, `dd`, `HH`, `mm`, `ss`, `S`..`SSSSSSSSS`, `h`, `a`,
+`X`/`XX`/`XXX` — already matches temporal-fmt's vocabulary directly.
+
+## `opinionated` cases
+
+Some cases are flagged `"opinionated": true` right in the fixture.
+These encode a design choice of the fixture's source library, not a
+fact about dates, and temporal-fmt is allowed to disagree with them.
+The adapter still runs them — if temporal-fmt's behavior differs, it
+logs a divergence note (printed at the end of the run) instead of
+failing the suite.
+
+Two cases currently diverge, both `yy`-pivot ones —
+`extreme-year-two-digit-pivot-low` and
+`extreme-year-two-digit-pivot-high`. temporal-fmt refuses `yy` in any
+format string that isn't a complete date (`yyyy`/`yy` + month + day),
+so `parse("yy-MM", ...)` throws an incomplete-date error before the
+question of *which* century a 2-digit year should resolve to ever
+comes up. The fixture's position — that bare `yy-MM` should resolve
+via the 00-68/69-99 ECMAScript pivot — is a convention, not a fact
+about dates; a library is free to pick a different pivot, or, as here,
+decline to guess a century from `yy` alone at all. Both are documented
+design choices with their own passing tests
+(`test/parse.test.js`, `yy pivot: ...`), not something in scope to
+"fix" by adopting the fixture's convention.
+
+One other flagged case no longer diverges:
+**`shape-mixing-H-and-a-rejected`**. `resolveHour()`
+(`src/parse.ts`) used to cross-check `H` against `a` instead of
+banning the combination outright, so `13:05 PM` was accepted (13:00 is
+consistent with PM) and only a genuine contradiction like `01:05 PM`
+threw. That choice has since been reverted — `H` and `a` are now
+refused together outright, unconditionally, matching the fixture. The
+fixture's own `"opinion"` text on that case still describes the old
+behavior; it's fixture data, not something this adapter edits, so
+treat the `opinionated` flag there as historical rather than current.
+
+## History: divergences that have since been fixed
+
+Everything below was once tracked in `KNOWN_FAILURES` at the top of
+`test/conformance.test.js`. That set is currently empty — every
+previously-found divergence has been resolved, either by fixing a
+real bug or by deliberately adopting the fixture's convention over a
+prior design choice. Kept here for context on what changed and why,
+in case any of it needs revisiting.
+
+**Fixed — real bug: offset seconds were dropped, not rejected.**
+`formatOffset()` (`src/tokens.ts`) assumed every offset string was
+exactly 6 characters — sign, `HH`, `:`, `MM` — and never checked for a
+seconds component. Verified against a real `Temporal.ZonedDateTime`
+for a pre-1900 `America/New_York` date: the actual offset is
+`-04:56:02`, 9 characters, because pre-1883 New York ran on local mean
+time. The old code read that string's middle two digits as minutes,
+so `X` silently produced `-0402` (wrong) instead of refusing. Now:
+`X`/`XX`/`XXX`/`x`/`xx` throw when the offset has a seconds component
+(none of them have anywhere to put it), and `xxx` — the variant that
+plays `ZZ`'s "always-signed, never-Z" role — passes the full value
+through unchanged.
+- `offset-sub-minute-rejected-by-X`
+- `offset-sub-minute-passes-through-ZZ`
+
+**Changed — offset-only `ZonedDateTime` construction, previously
+supported on purpose, is now refused.** `parse()` used to build a
+`ZonedDateTime` from an offset token alone, no `zzz` zone required.
+That was deliberate, not an oversight, but the fixture's position — an
+offset identifies a moment's distance from UTC, not a time zone, so
+building a `ZonedDateTime` from one alone papers over that distinction
+— was adopted instead. A pattern with an offset token and no `zzz` now
+throws; add `zzz` to the pattern (or parse into a
+`PlainDateTime`/`PlainDate`/`PlainTime` if a zone genuinely isn't
+needed).
+- `zone-required-for-zoneddatetime`
+- `zone-offset-token-rejected-on-plain-type`
+
+**Added — `y` token (unpadded, variable-width year).** temporal-fmt
+previously had only `yyyy` (fixed 4 digits) and `yy` (2-digit,
+truncated). `y` formats and parses a year at any width, sign preserved
+for years before ISO year 0 — same semantics as `yyyy` minus the
+fixed width. It has no bounded fallback the way `yyyy` does when
+something digit-consuming follows (`yyyy` can fall back to an exact
+4-digit fragment in that case; `y` being unpadded is the entire point
+of the token, so there's no narrower shape that still means the same
+thing). `buildCapturingPattern()` (`src/parsePattern.ts`) refuses at
+build time to place `y` directly next to another digit-reading token
+or a digit-leading literal, rather than trying to estimate an
+ambiguity cost for an unbounded-width fragment — there's no finite
+number of "width choices" to charge for "any number of digits."
+- `extreme-year-max-supported`
+- `extreme-year-negative`
+- `extreme-year-past-max-rejected` — previously passed even without a
+  real `y` token, because "no valid pattern matches" for the
+  then-unrecognized token happened to also throw. Now genuinely tests
+  275761 CE rejection, via the real max-year check on `y`'s parsed
+  value.
+
+**Fixed — misdiagnosed as a regex gap; the actual cause was `zzz`
+rejecting valid IANA zone aliases.** `offset-X-parse-accepts-four-digit`
+expects `X` to parse a 4-digit offset body (`+0530`) alongside a `zzz`
+zone. This was originally filed as "the capturing regex for `X` in
+`pattern.ts` doesn't offer the 4-digit shape as an alternative" — that
+diagnosis was wrong. The `X` regex fragment matches `+0530` correctly
+in isolation; the actual failure was `isValidTimeZone()`
+(`src/pattern.ts`) rejecting the fixture's zone name, `Asia/Kolkata`.
+`isValidTimeZone()` only checked `Intl.supportedValuesOf('timeZone')`,
+which lists canonical zone ids but not every IANA link/alias name —
+`Asia/Kolkata` is a legitimate, commonly-used alias for
+`Asia/Calcutta` that some ICU builds' `supportedValuesOf()` omits.
+Confirmed against `temporal-polyfill` directly:
+`Temporal.ZonedDateTime.from()` resolves `Asia/Kolkata` without
+complaint, so `parse()` was refusing input its own downstream
+construction step would have accepted. `isValidTimeZone()` now falls
+back to asking `Temporal` itself (a real `ZonedDateTime.from()` call)
+when the fast-path `Intl` lookup misses, rather than trusting only the
+`Intl` list.
+
+## Adapter mapping notes
+
+- `parse(formatStr, input, options)` takes `(formatStr, input)` —
+  reversed from the fixture's `pattern`/`input` field order.
+- temporal-fmt does have a typed error hierarchy (`TemporalFmtError`
+  and its subclasses in `src/errors.ts`), but the fixture's three
+  `expect.throws` values (`"ParseError"`, `"FormatError"`,
+  `"InvalidPatternError"`) don't map cleanly onto temporal-fmt's
+  dozen-plus subclasses, so the adapter doesn't try — it just checks
+  that something extending `Error` was thrown.
+- `target` in the fixture is informational only. temporal-fmt's
+  `parse()` infers the result shape from which fields the pattern
+  captures, so the adapter never passes `target` as an input.
+
 ## Contributing
 
 ```sh

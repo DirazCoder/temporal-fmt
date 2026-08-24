@@ -66,31 +66,41 @@ test('mixing a 24-hour token with a 12-hour token throws when the values disagre
   assert.throws(() => parse('HH h a', '15 9 AM'));
 });
 
-// HH + a (no h) is a different case from the two tests above: only one
-// hour token is present, so there's no ambiguity about which one to
-// trust — "a" is treated as a cross-check on the value HH already gives,
-// not a second, competing hour field. A consistent pairing is accepted;
-// a contradictory one throws.
-test('HH combined with a: consistent pairing succeeds', () => {
-  const result = parse('HH:mm a', '13:05 PM');
-  assert.equal(result.hour, 13);
+// HH + a (no h) previously treated "a" as a cross-check on HH's value
+// rather than a competing hour field — a consistent pairing like
+// "13:05 PM" was accepted, only a contradictory one threw. That's no
+// longer the behavior: HH and a both describe the hour, so the pattern
+// is refused outright regardless of whether the input agrees with
+// itself. Matches the conformance fixture's shape-mixing-H-and-a-rejected
+// case — see conformance/README.md.
+test('HH combined with a: any pairing is rejected, even a consistent one', () => {
+  assert.throws(
+    () => parse('HH:mm a', '13:05 PM'),
+    /mixes a 24-hour token .* with a day-period token/
+  );
 });
 
-test('HH combined with a: contradictory pairing throws', () => {
+test('HH combined with a: rejected regardless of whether the input agrees with itself', () => {
   assert.throws(
     () => parse('HH:mm a', '01:05 PM'),
-    /contains a day period that contradicts the 24-hour value/
+    /mixes a 24-hour token .* with a day-period token/
   );
 });
 
-test('HH combined with a: contradictory pairing throws at the boundary hour too', () => {
+test('HH combined with a: rejected at the boundary hour too', () => {
   // 12:xx is the other hour where AM/PM and a naive hour<12 check could
-  // disagree if the comparison were off by one — 12 is PM, not AM.
+  // disagree if the comparison were off by one — but the pattern is
+  // refused before any value comparison happens, so this isn't
+  // actually testing the boundary anymore, just confirming HH+a still
+  // throws for it like it does everywhere else.
   assert.throws(
     () => parse('HH:mm a', '12:05 AM'),
-    /contains a day period that contradicts the 24-hour value/
+    /mixes a 24-hour token .* with a day-period token/
   );
-  assert.equal(parse('HH:mm a', '12:05 PM').hour, 12);
+  assert.throws(
+    () => parse('HH:mm a', '12:05 PM'),
+    /mixes a 24-hour token .* with a day-period token/
+  );
 });
 
 test('AM/PM marker is case-insensitive by default', () => {
@@ -99,11 +109,14 @@ test('AM/PM marker is case-insensitive by default', () => {
   assert.equal(parse('h:mm a', '3:45 am').hour, 3);
 });
 
-test('HH combined with a: case-insensitive marker still cross-checks correctly', () => {
-  assert.equal(parse('HH:mm a', '13:05 pm').hour, 13);
+test('HH combined with a: rejected regardless of marker case', () => {
+  assert.throws(
+    () => parse('HH:mm a', '13:05 pm'),
+    /mixes a 24-hour token .* with a day-period token/
+  );
   assert.throws(
     () => parse('HH:mm a', '01:05 pm'),
-    /contains a day period that contradicts the 24-hour value/
+    /mixes a 24-hour token .* with a day-period token/
   );
 });
 
@@ -175,7 +188,7 @@ test('format string mixing "yyyy" and "yy" throws — the two year representatio
   // check runs after the regex match succeeds.
   assert.throws(
     () => parse('yyyy-yy-MM-dd', '2026-26-08-04'),
-    /mixes "yyyy" and "yy" year representations/
+    /mixes a full-year token .* with the two-digit "yy" token/
   );
 });
 
