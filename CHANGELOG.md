@@ -447,18 +447,18 @@ are 0.9.x-only and not included here.
   Intervals, Recurrence, Business calendars and holidays, Time zones,
   Config, Numbering systems, Type guards, and CLI.
 
-## 0.8.91 — 2026-08-20 (`2734169`)
+## 0.8.91 — 2026-08-20 (`2734169`, `0d4fb41`)
 ### Security
 - `wrapUntypedError()`'s locale-error classification used a regex with
   unbounded `.*` between two alternated words
   (`/locale.*produced no|locale.*not a valid/i`) — flagged by CodeQL as
   polynomial ReDoS-prone on adversarial input. Replaced with plain
   substring checks (`.includes(...)`), same classification, no regex
-  backtracking risk.
+  backtracking risk (`2734169`).
 ### Fixed
-- `cli.mjs` was missing from `package.json`'s `files`.
+- `cli.mjs` was missing from `package.json`'s `files` (`0d4fb41`).
 
-## 0.8.82 — 2026-08-20 (`c79d01e`)
+## 0.8.82 — 2026-08-20 (`87d4623`, `c79d01e`)
 ### Fixed
 - DST overlap: `offset: 'prefer'` could silently resolve to the wrong
   occurrence when an explicit offset token disagreed with it — now throws
@@ -466,7 +466,11 @@ are 0.9.x-only and not included here.
 - DST gaps: a wall-clock time that never happened could silently resolve
   to the nearest real instant — now throws when an offset token is
   present to disagree with the shift.
-  _(Reported in #8.)_
+  _(Reported in #8; `87d4623` landed the initial fix, `c79d01e` reworked
+  the disagreement check to compare the resolved `ZonedDateTime` fields
+  directly instead of pattern-matching on Temporal's error message text,
+  which isn't part of the spec and differs between the native `Temporal`
+  global and userland polyfills.)_
 
 ## 0.8.81 — 2026-08-20 (`ba6935e`)
 ### Added
@@ -660,23 +664,27 @@ Large feature pass — biggest release since 0.8.82. Highlights:
 - CI pins `actions/checkout`/`actions/setup-node` to commit SHAs.
 - Removed the unpinned `npm install -g npm@latest` release step.
 
-## 0.7.97 — 2026-08-15 (`9ebd41c` — backport of two 0.8.0 hardening fixes)
+## 0.7.97 — 2026-08-15 (`9ebd41c`, `bffc296` — backport of two 0.8.0 hardening fixes)
 ### Fixed
 - `parse()` 100,000-character input cap.
 - Memoized, capped `enumerateValidSplits`.
 ### Security
 - Same CI SHA-pinning and npm-install removal as 0.8.0.
+### Docs
+- `VERSIONS.md` wording tightened: `0.7.x` and `0.6.x` entries no longer
+  say "bug fixes" alongside "security fixes," since both lines are
+  security-fixes-only at this point (`bffc296`).
 
-## 0.7.96 — 2026-08-14 (`43f1825`)
+## 0.7.96 — 2026-08-14 (`806b3da`, `61d65e1`, `1639e97`, `d2aaed7`, `43f1825`)
 ### Added
-- More vitest tests targeting bugs the `node:test` suite alone wasn't
-  catching.
+- `vitest/` test suite added alongside the existing `node:test` suite,
+  targeting bugs the latter alone wasn't catching (`806b3da`).
 ### Changed
-- Dependency bump: `temporal-polyfill` 1.0.3 → 1.0.4.
 - CI workflow and README now point at `npm run test:all` instead of
-  `npm test`, so both suites actually run.
-- `0.6.x` support policy tightened further; unused comments and stale
-  dependencies cleaned up.
+  `npm test`, so both suites actually run (`61d65e1`).
+- `0.6.x` support policy tightened further (`1639e97`); unused CI
+  comments cleaned up (`d2aaed7`).
+- Dependency bump: `temporal-polyfill` 1.0.3 → 1.0.4 (`43f1825`).
 
 ## 0.7.95 — 2026-08-11 (`2861c7e`)
 ### Changed
@@ -684,15 +692,17 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   result — TS 7.0.2 doesn't have a stable declaration-emit API yet;
   the plan is to re-enable it once 7.1 ships. README updated to match.
 
-## 0.7.9 — 2026-08-10 (`cfcb962`)
+## 0.7.9 — 2026-08-10 (`cfcb962`, `077b4fa`, `56f830b`, `dd1bba6`)
 ### Fixed
 - The README's glued-numeric-token ambiguity example used a bare `Md`
   format string, which throws anyway (missing year) regardless of the
   ambiguity it was meant to demonstrate — fixed to use `yyyy-Md`, with a
-  note explaining why a standalone `Md`/`dM`/`Hm` always throws.
+  note explaining why a standalone `Md`/`dM`/`Hm` always throws
+  (`cfcb962`). One-character emoji tweak in the README right after
+  (`077b4fa`).
 ### Changed
-- Comments in the adversarial and combinatorial test suites refactored
-  for clarity, no test-behavior change.
+- Comments in the adversarial (`dd1bba6`) and combinatorial (`56f830b`)
+  test suites refactored for clarity, no test-behavior change.
 
 ## 0.7.8 — 2026-08-09 (`ff4e921`)
 ### Added
@@ -981,9 +991,11 @@ audit to help catch the bugs it fixes._
 - Tokenizer test suite, including the doubled-quote regression case.
 - `repository` field in `package.json`.
 
-## 0.1.0 — 2026-08-04 (`7563b83`)
+## 0.1.0 — 2026-08-04 (`8e301d5`)
 ### Added
 - Initial tagged release. The tag itself didn't exist at the time — it
-  was created retroactively, pointing at whatever commit was on `main`
-  right before `0.1.1` shipped. Everything before this point is
-  untagged repo history.
+  was created retroactively. Pointing this at the MIT License commit
+  rather than `7563b83`/`5a6dc0e`, since those two are really the start
+  of 0.1.1's work (repository field, test suite, tokenizer fix) — the
+  license commit is the last thing that landed before that work began.
+  Everything up to and including it is untagged repo history.
