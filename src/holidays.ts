@@ -1,42 +1,39 @@
-// Holiday framework. Core provides the abstraction only —
-// country-specific holiday datasets stay out of core; those can be
-// separate ecosystem packages built on top of this. A holiday calendar
-// is a function from a date → boolean ("is this a holiday?") plus
-// iteration helpers (nextHoliday, previousHoliday, holidaysBetween).
+// holiday framework. core just gives you the abstraction — actual
+// country-specific holiday lists live outside this package, could be
+// their own ecosystem packages built on top. a holiday calendar is
+// basically a date -> boolean function ("is this a holiday") plus some
+// iteration helpers (nextHoliday, previousHoliday, holidaysBetween)
 
 import { add } from './arithmetic.js';
 import { compare } from './comparison.js';
 
 export interface HolidayCalendar {
   isHoliday(value: unknown): boolean;
-  // Returns the list of holidays within [start, end] inclusive.
+  // everything in [start, end], inclusive on both ends
   holidaysBetween(start: unknown, end: unknown): unknown[];
 }
 
 export interface HolidaySpec {
-  // Month + day for fixed-date holidays (e.g. Jan 1 → New Year's).
+  // for fixed-date holidays, like Jan 1 for New Year's
   month?: number;
   day?: number;
-  // For floating holidays: a function that takes a year and returns
-  // the { month, day } of the holiday in that year. Used for "last
-  // Monday of May" style rules.
+  // for the floating ones — give it a year, get back { month, day } for
+  // that year. this is how you'd do "last Monday of May" type rules
   compute?: (year: number) => { month: number; day: number };
-  // Optional name (for introspection / debugging).
+  // just a name, mostly for debugging
   name?: string;
 }
 
-// Upper bound on the year range holidaysBetween() will walk. The loop
-// is year-granular with no input validation on the endpoints, so a
-// caller passing (say) year 1 to year 300000 makes it iterate — and
-// cache a holiday list — for every year in between; hostile or
-// accidental huge ranges used to hang the process and grow the
-// per-calendar cache without bound. 5,000 years matches the traversal
-// caps businessCalendar.ts and recurrence.ts already use for the same
-// class of "walk it one step at a time" APIs.
+// cap on how many years holidaysBetween() will walk through. it's a
+// year-by-year loop with no bounds checking on the inputs, so someone
+// passing year 1 to year 300000 would've made it iterate (and cache!)
+// every single year in between. either an accident or someone being
+// hostile, either way that used to just hang the process. 5000 matches
+// the same walk-cap businessCalendar.ts and recurrence.ts already use
 const MAX_HOLIDAY_YEAR_RANGE = 5_000;
 
 export function createHolidayCalendar(specs: HolidaySpec[]): HolidayCalendar {
-  // Pre-compute holidays for a year on demand, cache by year.
+  // computes a year's holiday list lazily, then caches it
   const cache = new Map<number, Array<{ month: number; day: number; name?: string }>>();
   function forYear(year: number) {
     let list = cache.get(year);
@@ -89,8 +86,9 @@ export function createHolidayCalendar(specs: HolidaySpec[]): HolidayCalendar {
   };
 }
 
-// Returns the next holiday strictly after `value`. Returns undefined
-// if no holiday is registered within the next 5 years (sanity cap).
+// finds the next holiday strictly after `value`. gives up and returns
+// undefined if nothing shows up within 5 years — sanity cap so this
+// can't loop forever on an empty calendar
 export function nextHoliday(cal: HolidayCalendar, value: unknown): unknown | undefined {
   let candidate = add(value, 1, 'days');
   for (let i = 0; i < 365 * 5; i++) {
@@ -109,8 +107,8 @@ export function previousHoliday(cal: HolidayCalendar, value: unknown): unknown |
   return undefined;
 }
 
-// holidaysBetween is exposed as a HolidayCalendar method (see above);
-// this standalone helper delegates to it for ergonomic access.
+// holidaysBetween already exists as a method on HolidayCalendar (above),
+// this is just a standalone version so you don't have to type cal.holidaysBetween
 export function holidaysBetween(cal: HolidayCalendar, start: unknown, end: unknown): unknown[] {
   return cal.holidaysBetween(start, end);
 }

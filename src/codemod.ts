@@ -1,13 +1,12 @@
-// Day.js / date-fns format-string translation — backs the CLI's
-// `translate` subcommand. The mapping tables already live in
-// ideData.ts for the IDE tooling, so this module builds the actual
-// string translator on top of them rather than depending on anything
-// external.
+// translates Day.js / date-fns format strings — this is what backs the
+// CLI's `translate` subcommand. the mapping tables were already sitting
+// in ideData.ts (built for the IDE tooling), so this just builds the
+// actual string translator on top instead of pulling in anything else.
 //
-// Scope: format *strings* only (`"YYYY-MM-DD"` -> `"yyyy-MM-dd"`), not
-// an AST codemod that rewrites call sites. Rewriting
-// `dayjs(x).format(fmt)` call expressions across a codebase is a
-// separate, bigger job — see `temporal-fmt-codemod` for that.
+// heads up: this only handles format *strings* ("YYYY-MM-DD" -> "yyyy-MM-dd"),
+// not an actual AST codemod that goes and rewrites call sites in your code.
+// that's a bigger separate thing — check temporal-fmt-codemod if that's
+// what you actually need
 
 import { DAYJS_TO_TEMPORAL_FMT, DATE_FNS_TO_TEMPORAL_FMT, type TokenConversionHint } from './ideData.js';
 
@@ -16,10 +15,10 @@ interface SourcePiece {
   value: string;
 }
 
-// Day.js and date-fns both escape literal text by wrapping it in
-// square brackets (`[MM]` stays literal "MM"), unlike temporal-fmt's
-// single-quote escaping. Splitting on that first keeps the token scan
-// below from matching inside an escaped span.
+// Day.js and date-fns escape literal text with square brackets — [MM]
+// stays as literal "MM" — not single quotes like temporal-fmt does.
+// splitting on brackets first keeps the token scan below from accidentally
+// matching stuff inside an escaped span
 function splitOnBrackets(source: string): SourcePiece[] {
   const pieces: SourcePiece[] = [];
   let i = 0;
@@ -42,11 +41,9 @@ function splitOnBrackets(source: string): SourcePiece[] {
   return pieces;
 }
 
-// Splits a "token" span (the non-bracketed parts of the source string)
-// into runs of identical letters and everything else, greedy-longest
-// against the known token table first — same overall approach as
-// tokenize.ts, but here we're scanning the *source* library's
-// vocabulary rather than temporal-fmt's own.
+// splits a non-bracketed span into runs, matching greedy-longest against
+// the known token table — basically the same idea as tokenize.ts, just
+// scanning the SOURCE library's tokens here instead of temporal-fmt's own
 function splitIntoRuns(span: string, sortedFrom: string[]): SourcePiece[] {
   const pieces: SourcePiece[] = [];
   let i = 0;
@@ -76,8 +73,8 @@ function translate(source: string, table: TokenConversionHint[], sourceLibLabel:
   let out = '';
   for (const piece of bracketPieces) {
     if (piece.kind === 'literal') {
-      // Re-escape for temporal-fmt's quote syntax; a literal quote
-      // character inside the escaped span needs doubling.
+      // re-escape for temporal-fmt's quote syntax — any literal quote
+      // char inside the escaped bit needs doubling up
       out += `'${piece.value.replace(/'/g, "''")}'`;
       continue;
     }
@@ -93,8 +90,8 @@ function translate(source: string, table: TokenConversionHint[], sourceLibLabel:
         }
         out += mapped;
       } else if (/[a-zA-Z]/.test(run.value)) {
-        // Unrecognized letters can't pass through unescaped — temporal-fmt
-        // would read them as its own tokens. Quote the whole run.
+        // can't just let unrecognized letters through as-is — temporal-fmt
+        // would read them as its own tokens by accident. gotta quote the run
         out += `'${run.value.replace(/'/g, "''")}'`;
       } else {
         out += run.value;

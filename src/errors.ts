@@ -1,36 +1,37 @@
-// Structured error classes for parse()/format() failures.
+// structured error classes for parse()/format() failures.
 //
-// As of 0.9.0, every throw site on the parse/format data path —
+// as of 0.9.0 every throw site on the parse/format data path —
 // tokenize.ts, pattern.ts, format.ts, parse.ts (parse/safeParse/tryParse/
-// parseToParts/compileParser), and the two data-path throws in
+// parseToParts/compileParser), plus the two data-path throws in
 // localeVocab.ts (partValue/assertNoCollision on the getLocaleVocab side)
-// — throws these typed classes directly instead of plain
-// `new Error(message)`. Every migrated site kept its exact pre-0.9.0
-// message text — subclasses of TemporalFmtError still satisfy
-// `instanceof Error` and message-matching regexes (e.g.
-// `/token "HH" requires/`), so this was safe to do without a semver-major
-// bump for either check. What *is* a breaking change for 0.9.0: code that
-// specifically checked `err.constructor === Error` or `err.name ===
-// 'Error'` will see a different name now (e.g. 'FormatSyntaxError'). See
-// the 0.9.0 changelog entry.
+// — throws one of these typed classes directly instead of a plain
+// `new Error(message)`. every site we migrated kept its exact pre-0.9.0
+// message text, and since subclasses of TemporalFmtError still pass
+// `instanceof Error` and match the same message regexes (e.g.
+// `/token "HH" requires/`), this didn't need a semver-major bump for
+// either of those checks. what DOES break in 0.9.0: if anyone was
+// specifically checking `err.constructor === Error` or `err.name ===
+// 'Error'`, that'll now see a different name (e.g. 'FormatSyntaxError').
+// noted in the 0.9.0 changelog.
 //
-// Not migrated, on purpose:
+// deliberately did NOT migrate:
 //  - localeVocab.ts's registration-time throws (assertValidVocab,
 //    registerLocaleVocab itself) — these are config-time API-misuse
-//    errors on data the developer supplies once at startup, not runtime
-//    parse/format failures, so they don't fit this module's
+//    errors on data a developer hands in once at startup, not runtime
+//    parse/format failures, so they don't really fit this module's
 //    TemporalFmtErrorCode taxonomy as-is. assertNoCollision is shared
-//    between the registration path and the data path (getLocaleVocab), so
-//    its throw stays plain `Error` for both until that split is done —
-//    see the tracking note at its call site.
+//    between the registration path and the data path (getLocaleVocab)
+//    though, so its throw stays a plain Error for both until that gets
+//    split apart — see the tracking note where it's called.
 //
-// wrapUntypedError() below still exists for localeVocab.ts's registration
-// throws and for anything a caller passes into safeParse()/tryParse() from
-// outside this package. On the data path, safeParse's `if (err instanceof
-// TemporalFmtError) return { ok: false, error: err }` now catches every
-// throw before it would reach the classifier, so the regex branches here
-// are effectively dead for parse/format/tokenize/pattern — left in place
-// as the fallback for anything not yet on a typed throw site.
+// wrapUntypedError() below is still around for localeVocab.ts's
+// registration throws, and for anything a caller passes into
+// safeParse()/tryParse() from outside this package. on the data path
+// itself, safeParse's `if (err instanceof TemporalFmtError) return { ok:
+// false, error: err }` catches everything before it'd even reach the
+// classifier here, so honestly the regex branches below are dead for
+// parse/format/tokenize/pattern at this point — kept as the fallback for
+// whatever hasn't been migrated to a typed throw site yet
 
 export type TemporalFmtErrorCode =
   | 'FORMAT_SYNTAX_ERROR'
@@ -56,11 +57,11 @@ export interface TemporalFmtErrorFields {
   reason?: string;
 }
 
-// Base class. `message` is the human-readable summary; the structured
-// fields are the machine-readable parts a linter or codemod reports on.
-// `Error.captureStackTrace` is called manually (where available) so
-// the stack points at the call site, not at this constructor — same
-// pattern Node uses for its own error classes.
+// base class. `message` is the human-readable summary, the structured
+// fields are the machine-readable bits a linter or codemod would report
+// on. calling Error.captureStackTrace manually (where it exists) so the
+// stack points at wherever this got thrown from, not at this constructor
+// — same trick Node uses for its own error classes
 export class TemporalFmtError extends Error {
   readonly code: TemporalFmtErrorCode;
   readonly input?: string;
@@ -82,17 +83,18 @@ export class TemporalFmtError extends Error {
     this.expected = fields.expected;
     this.actual = fields.actual;
     this.reason = fields.reason;
-    // Avoid setting the stack to point at this constructor — keeps it
-    // useful. captureStackTrace is V8-only; on other engines the
-    // default stack (this constructor line) is what callers get.
+    // don't want the stack pointing at this constructor line — captureStackTrace
+    // is V8-only though, so on other engines callers just get the default
+    // stack (pointing here) since there's nothing better to do about it
     const capture = (Error as unknown as { captureStackTrace?: (target: Error, ctor?: Function) => void }).captureStackTrace;
     if (typeof capture === 'function') {
       capture(this, this.constructor);
     }
   }
 
-  // Lets callers do `err.toJSON()` for logging. Plain `Error` doesn't
-  // serialize its non-enumerable fields; this picks them up explicitly.
+  // lets callers just call err.toJSON() for logging. plain Error doesn't
+  // serialize its non-enumerable fields on its own, so this picks them
+  // up explicitly
   toJSON(): TemporalFmtErrorFields & { name: string; message: string } {
     return {
       name: this.name,
@@ -109,10 +111,10 @@ export class TemporalFmtError extends Error {
   }
 }
 
-// Each subclass fixes `code` so callers can switch on it without
-// re-checking message text. The constructor takes only the fields
-// that vary per call; `code` and a default `message` template are
-// provided by the subclass.
+// each subclass just fixes `code` so callers can switch on it without
+// having to re-check message text. the constructor only takes the
+// fields that actually vary per call; `code` and the default message
+// template come from the subclass itself
 
 export class FormatSyntaxError extends TemporalFmtError {
   constructor(fields: Omit<TemporalFmtErrorFields, 'code'> & { message?: string }) {
@@ -159,18 +161,19 @@ export class InvalidDateError extends TemporalFmtError {
 }
 
 /* c8 ignore start @preserve -- InvalidTimeError is part of the public
-   error-class surface (exported from index.ts, code 'INVALID_TIME')
-   but nothing in this package constructs one. Investigated wiring it
-   in the same way InvalidTimeZoneError was just wired (see parse.ts's
-   zzz-validation loop): checked whether hour/minute/second have a
-   post-match semantic range check the way zone ids do. They don't —
+   error-class surface (exported from index.ts, code 'INVALID_TIME') but
+   nothing in this package actually constructs one. went and checked
+   whether it could get wired in the same way InvalidTimeZoneError just
+   was (see parse.ts's zzz-validation loop) — does hour/minute/second have
+   a post-match semantic range check the way zone ids do? nope.
    pattern.ts's regex fragments for HH/H/hh/h/mm/m/ss/s already enforce
-   their valid ranges at the regex level (e.g. HH is '(?:[01]\d|2[0-3])',
-   which can't match "99" in the first place), so an out-of-range time
-   is rejected as a plain shape mismatch before any semantic check
-   could run. There's no live gap to hook this into without inventing a
-   redundant check purely to give this class a body. Left unconstructed
-   until the library actually has a real invalid-time case to report. */
+   their valid ranges right at the regex level (e.g. HH is
+   '(?:[01]\d|2[0-3])', which literally can't match "99"), so an
+   out-of-range time just gets rejected as a plain shape mismatch before
+   any semantic check would even run. no live gap to hook this into
+   without inventing a redundant check purely to give this class a body.
+   leaving it unconstructed until the library actually hits a real
+   invalid-time case worth reporting */
 export class InvalidTimeError extends TemporalFmtError {
   constructor(fields: Omit<TemporalFmtErrorFields, 'code'> & { message?: string }) {
     const { message, ...rest } = fields;
@@ -207,15 +210,15 @@ export class InvalidTimeZoneError extends TemporalFmtError {
 
 /* c8 ignore start @preserve -- InvalidCalendarError is part of the
    public error-class surface (exported from index.ts, code
-   'INVALID_CALENDAR') but nothing in this package constructs one.
-   Checked for a wiring opportunity the same way InvalidTimeZoneError
-   got one: there's no user-supplied calendar identifier anywhere in
-   the library to validate against a supported list. resolveCalendar()
+   'INVALID_CALENDAR') but same story as InvalidTimeError above — nothing
+   in this package constructs one. checked for a wiring opportunity the
+   same way: there's no user-supplied calendar identifier anywhere in the
+   library that we'd validate against a supported list. resolveCalendar()
    in parse.ts derives the calendar entirely from Intl's own resolution
-   of the locale string — it's never handed an arbitrary "calendar"
-   value a caller could get wrong. There's no live input to reject.
-   Left unconstructed until the library actually accepts a calendar
-   parameter that could be invalid. */
+   of the locale string — it's never handed an arbitrary "calendar" value
+   a caller could actually get wrong. no live input to reject here.
+   leaving it unconstructed until the library accepts an actual calendar
+   parameter that could be invalid */
 export class InvalidCalendarError extends TemporalFmtError {
   constructor(fields: Omit<TemporalFmtErrorFields, 'code'> & { message?: string }) {
     const { message, ...rest } = fields;
@@ -261,27 +264,28 @@ export class InvalidDurationError extends TemporalFmtError {
   }
 }
 
-// Wraps a plain Error thrown from a code path that hasn't been
-// migrated to typed errors yet. Carries the original message in
-// `reason` so callers reading the typed surface still see what
-// failed. Used by safeParse() in parse.ts.
+// wraps a plain Error thrown from a code path that hasn't been migrated
+// to typed errors yet. keeps the original message around in `reason` so
+// callers reading the typed surface still see what actually failed.
+// used by safeParse() in parse.ts.
 //
-// As of the 0.9.0 migration, every throw site on the parse/format data
+// after the 0.9.0 migration, every throw site on the parse/format data
 // path throws a TemporalFmtError directly, so safeParse's `instanceof
-// TemporalFmtError` check always passes before this function would be
-// called — nothing in the current test suite reaches any branch below.
-// Kept as the safety net for wrapping a future unmigrated throw site
-// (see the c8-ignored call in parse.ts's safeParse), same reasoning as
-// that call site: removing this would silently drop the "safeParse
-// always returns a TemporalFmtError" contract the moment anyone adds a
-// throw new Error(...) without wiring a typed class for it.
+// TemporalFmtError` check always passes before this function would even
+// get called — nothing in the current test suite actually reaches any
+// branch below. kept as the safety net for whenever someone adds an
+// unmigrated throw site down the line (see the c8-ignored call in
+// parse.ts's safeParse) — same reasoning as that call site: removing
+// this would silently break the "safeParse always returns a
+// TemporalFmtError" contract the moment anyone adds a bare
+// `throw new Error(...)` without wiring up a typed class for it
 /* c8 ignore start @preserve -- unreachable from the current test suite,
    see rationale above */
 export function wrapUntypedError(err: Error, context: { input?: string; format?: string }): TemporalFmtError {
-  // Try to classify by inspecting the message — covers the existing
-  // parse()/format() throw sites without modifying them. Anything
+  // try to classify by looking at the message — covers the existing
+  // parse()/format() throw sites without having to touch them. anything
   // that doesn't match a known pattern falls through to a generic
-  // ParseMismatchError, which still has the structured fields.
+  // ParseMismatchError, still with the structured fields intact
   const msg = err.message;
   if (/unknown token|isn't a recognized token/.test(msg)) {
     return new UnknownTokenError({ input: context.input, format: context.format, reason: msg });

@@ -1,45 +1,40 @@
-// Relative-grammar registration. Extends the existing
-// parseRelative.ts with an extension point for registering additional
-// grammars beyond the four built in (English, Spanish, French, German).
+// lets people register their own relative-date grammars on top of
+// parseRelative.ts, which only ships with English/Spanish/French/German
+// baked in.
 //
-// The existing parseRelative() detects the language from the locale
-// option and dispatches to the matching grammar. registerRelativeGrammar()
-// lets a caller add a new language without modifying parseRelative.ts.
+// parseRelative() looks at the locale option, figures out the language,
+// and dispatches. registerRelativeGrammar() means someone can bolt on
+// a new language without touching parseRelative.ts itself.
 //
-// Grammar shape: a list of matchers, each returning either a Temporal
-// field bag describing the resolved date or null. parseRelative tries
-// each matcher in order until one matches. This mirrors the ENGLISH/
-// SPANISH/FRENCH/GERMAN_GRAMMAR structure parseRelative already uses
-// internally.
+// a grammar is just a list of matchers, each one either resolves to a
+// Temporal field bag or returns null. tries them in order, first match
+// wins — same shape as the ENGLISH/SPANISH/FRENCH/GERMAN_GRAMMAR objects
+// parseRelative already has internally, just made pluggable
 
 import { getTemporal, type TemporalNamespace } from './temporalProvider.js';
 
 export interface RelativeGrammarMatch {
-  // The Temporal fields the matcher resolved. Used to construct a
-  // PlainDate / PlainDateTime via Temporal.PlainDate.from().
+  // whatever fields the matcher figured out, gets fed to Temporal.PlainDate.from()
   year?: number;
   month?: number;
   day?: number;
-  // Optional: instead of computing fields directly, return a function
-  // that takes the reference date and returns the resolved date. Used
-  // for phrases like "next Tuesday" that depend on the reference's
-  // weekday.
+  // for cases like "next Tuesday" where you can't compute the fields
+  // without knowing the reference date's weekday first — pass a function
+  // instead of raw fields
   resolve?: (reference: { year: number; month: number; day: number; dayOfWeek: number }) => { year: number; month: number; day: number };
 }
 
 export interface RelativeGrammar {
-  // Locale language subtag this grammar handles ('en', 'es', etc.).
-  // Matched against the `locale` option's language subtag.
+  // language subtag ('en', 'es', etc), matched against the locale option
   language: string;
-  // Matchers in priority order. First match wins.
+  // tried top to bottom, first one that matches wins
   matchers: Array<(input: string) => RelativeGrammarMatch | null>;
 }
 
-// Cap on registered grammars. Replacement registration for an existing
-// language never grows the registry, so the cap only gates new languages —
-// the same convention registerLocaleVocab uses for custom vocabularies.
-// Without it, a caller looping registerRelativeGrammar() grows the array
-// (and the per-language scan in tryRegisteredGrammar) without bound.
+// cap so nobody can loop registerRelativeGrammar() and blow up the array
+// (and the scan in tryRegisteredGrammar with it) forever. re-registering
+// an existing language doesn't count against this, only actually new ones.
+// same idea as what registerLocaleVocab does for custom vocabs
 const MAX_REGISTERED_GRAMMARS = 100;
 
 const registeredGrammars: RelativeGrammar[] = [];
@@ -51,7 +46,7 @@ export function registerRelativeGrammar(grammar: RelativeGrammar): void {
   if (!Array.isArray(grammar.matchers) || grammar.matchers.length === 0) {
     throw new Error('temporal-fmt: registerRelativeGrammar requires at least one matcher.');
   }
-  // Replace any existing grammar for the same language.
+  // if this language's already registered, just swap it out
   const existingIdx = registeredGrammars.findIndex((g) => g.language === grammar.language);
   if (existingIdx >= 0) {
     registeredGrammars[existingIdx] = grammar;
@@ -63,9 +58,8 @@ export function registerRelativeGrammar(grammar: RelativeGrammar): void {
   }
 }
 
-// Called by parseRelative() to try registered grammars before falling
-// back to the built-in ones. Returns the resolved Temporal.PlainDate or
-// null if no registered grammar matched.
+// parseRelative() calls this first, before falling back to the built-ins.
+// null means nothing registered matched
 export function tryRegisteredGrammar(
   language: string,
   input: string,
@@ -90,12 +84,12 @@ export function tryRegisteredGrammar(
   return null;
 }
 
-// Returns the list of registered languages (for introspection).
+// just for introspection, lists what's registered
 export function listRegisteredGrammars(): string[] {
   return registeredGrammars.map((g) => g.language);
 }
 
-// Suppress unused import — TemporalNamespace is referenced by the type
-// signature above (via the return type of tryRegisteredGrammar, which
-// is the result of temporal.PlainDate.from).
+// this is just here so TS doesn't complain about the unused import —
+// TemporalNamespace shows up in the type signature above but not as a
+// real runtime reference
 void (undefined as unknown as TemporalNamespace);

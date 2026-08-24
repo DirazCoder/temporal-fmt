@@ -1,21 +1,21 @@
-// This package's tsconfig assumes lib: ["ESNext"] only — no ambient
-// `Temporal` namespace type. Everywhere else in this codebase only ever
-// *reads* fields off a Temporal-like object the caller already built
-// (TemporalLike in tokens.ts). This module is the single choke point for
-// touching a *namespace*-shaped Temporal (PlainDate.from, etc.): parse()
-// uses it to construct a result, tokens.ts uses it to probe native
-// Intl<->Temporal support. Consumers can hand us an implementation via
-// setTemporal(), or we fall back to globalThis.Temporal
+// tsconfig here is lib: ["ESNext"] only, so there's no ambient Temporal
+// namespace type to lean on. everywhere else in the codebase we just read
+// fields off whatever Temporal-like object gets passed in (see TemporalLike
+// in tokens.ts) but this file is the one place that actually touches the
+// Temporal namespace itself — PlainDate.from and friends. parse() uses it
+// to build results, tokens.ts uses it to check native Intl<->Temporal
+// support. you can hand us your own implementation via setTemporal(), or
+// we just grab globalThis.Temporal if there is one
 interface TemporalFactory {
   from(fields: Record<string, number | string | undefined>, options?: { overflow?: 'constrain' | 'reject'; disambiguation?: 'compatible' | 'earlier' | 'later' | 'reject'; offset?: 'use' | 'ignore' | 'prefer' | 'reject' }): unknown;
-  // compare() lives on the namespace (Temporal.PlainDate.compare), not on
-  // instances. Optional here since a consumer might be passing a
-  // stripped-down Temporal shim that doesn't expose it.
+  // compare() is on the namespace, not instances (Temporal.PlainDate.compare).
+  // made optional since someone might hand us a stripped-down shim that
+  // doesn't bother implementing it
   compare?(one: unknown, two: unknown): number;
 }
 
-// Instant is constructed via fromEpochMilliseconds / fromEpochNanoseconds
-// rather than from(fields). Separate interface.
+// Instant doesn't use from(fields) like the others, it's
+// fromEpochMilliseconds / fromEpochNanoseconds. needs its own shape.
 interface InstantFactory {
   from(iso: string): unknown;
   fromEpochMilliseconds(ms: number): unknown;
@@ -23,15 +23,14 @@ interface InstantFactory {
   fromEpochNanoseconds(ns: bigint): unknown;
 }
 
-// Duration is constructed via from(fields). Carries round() and compare().
+// Duration uses from(fields) too, but also has round() and compare()
 interface DurationFactory extends TemporalFactory {
   compare?(one: unknown, two: unknown): number;
   prototype?: { round(options: unknown): unknown };
 }
 
-// PlainYearMonth / PlainMonthDay are also constructed via from(fields).
-// Same factory shape, kept separate for type clarity in callers that
-// want to narrow.
+// PlainYearMonth / PlainMonthDay also just use from(fields) — same shape
+// as TemporalFactory really, kept as its own type so callers can narrow
 export interface TemporalNamespace {
   PlainDate: TemporalFactory;
   PlainTime: TemporalFactory;
@@ -45,13 +44,12 @@ export interface TemporalNamespace {
 
 let injectedTemporal: TemporalNamespace | undefined;
 
-// Anything that caches a result derived from *which* Temporal
-// implementation is active (right now: tokens.ts's native-Intl-support
-// probe) registers here so it gets invalidated whenever setTemporal()
-// swaps the implementation — see the comment on setTemporal() below for
-// why that matters. A plain array instead of an event-emitter-style API
-// since this only ever needs "call every listener, in registration order,
-// with no payload" — nothing here needs unsubscribe or payload data.
+// anything caching something tied to WHICH Temporal impl is active
+// (right now just tokens.ts's native-Intl probe) registers a listener
+// here so it knows to invalidate when setTemporal() swaps things out —
+// see setTemporal() below for why that matters. kept this as a plain
+// array instead of a full event emitter since all we need is "call
+// everyone back, in order, no payload" — didn't need unsubscribe either
 const onTemporalChanged: Array<() => void> = [];
 
 export function subscribeToTemporalChanges(listener: () => void): void {
@@ -73,14 +71,11 @@ export function subscribeToTemporalChanges(listener: () => void): void {
  */
 export function setTemporal(temporal?: TemporalNamespace): void {
   injectedTemporal = temporal;
-  // tokens.ts's native-Intl-support probe is keyed on whichever Temporal
-  // implementation was active the first time a locale-aware format() ran —
-  // if that implementation changes later (native -> polyfill or back), the
-  // memoized probe result can go stale and disagree with what's now
-  // actually active. Resetting it here means the next locale-aware format()
-  // after any setTemporal() call re-probes against the implementation
-  // that's active *now*, at the (small, one-time-per-switch) cost of
-  // re-running the probe.
+  // tokens.ts caches its native-Intl probe result based on whatever
+  // Temporal was active the first time it ran. if that changes later
+  // (native -> polyfill, say) the cached result goes stale. so just reset
+  // everyone on any setTemporal() call — costs one extra probe re-run,
+  // worth it to not silently use a stale answer
   for (const listener of onTemporalChanged) listener();
 }
 

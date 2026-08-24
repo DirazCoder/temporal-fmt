@@ -1,43 +1,38 @@
-// Central configuration. Per-call options are the
-// default convention throughout this library (see formatDistance's
-// cutoffs precedent — explicitly NOT a global). This module provides
-// a typed ConfigOptions surface that callers can build once and pass
-// to any temporal-fmt function, plus a set of defaults that mirror
-// the existing per-call defaults.
+// central config stuff. per-call options is the convention we use
+// everywhere else in this lib (formatDistance's cutoffs did it this way
+// first — deliberately NOT a global). so this module just gives callers
+// a typed config object they can build once and pass around, defaults
+// match whatever the per-call defaults already were.
 //
-// No global mutable state. The plan is explicit: "No mysterious
-// mutable global state — this is a hard constraint, not a preference."
-// This module honors that: createConfig() returns an immutable config
-// object; there is no setConfig().
+// no global mutable state, on purpose. don't want a setConfig() anywhere —
+// createConfig() just hands back a frozen object and that's it.
 
 import { DEFAULT_LOCALE } from './tokens.js';
 import type { NumberingSystem } from './numbering.js';
 
 export interface TemporalFmtConfig {
-  // BCP-47 locale tag. Default 'en-US'.
+  // BCP-47 tag, defaults to 'en-US'
   locale: string;
-  // Calendar identifier ('gregory', 'hebrew', etc.) or undefined to
-  // use the locale's default.
+  // 'gregory', 'hebrew', whatever — leave undefined and it'll just use
+  // whatever the locale defaults to
   calendar?: string;
-  // IANA timezone id ('America/New_York', etc.) or undefined to use
-  // the system timezone.
+  // IANA id like 'America/New_York', or leave it undefined for system tz
   timezone?: string;
-  // Numbering system. Default 'latn'.
+  // defaults to 'latn'
   numberingSystem: NumberingSystem | string;
-  // ISO week rules: 1 = Monday, 7 = Sunday. Default 1 (matches the
-  // existing isoWeek.ts convention).
+  // 1 = Monday, 7 = Sunday. default's 1, matches what isoWeek.ts already does
   firstDayOfWeek: 1 | 7;
-  // Rounding mode for round()/roundDuration(). Default 'nearest'.
+  // for round()/roundDuration(), defaults to 'nearest'
   roundingMode: 'nearest' | 'floor' | 'ceil' | 'trunc';
-  // Disambiguation for ZonedDateTime construction during gaps/overlaps.
-  // Default 'compatible' (Temporal's default).
+  // what to do when a ZonedDateTime construction hits a gap/overlap.
+  // defaults to 'compatible' since that's Temporal's own default too
   disambiguation: 'compatible' | 'earlier' | 'later' | 'reject';
-  // Overflow mode for field construction (Feb 30 etc.).
-  // Default 'reject' (matches parse()'s existing behavior).
+  // handles stuff like Feb 30 when building fields. defaults to 'reject',
+  // same as what parse() already did before this existed
   overflow: 'constrain' | 'reject';
-  // Parse leniency. Default false (strict).
+  // strict by default (false)
   parseLenient: boolean;
-  // Duration zero-value display. Default false (omit zeros).
+  // false by default so zero values just get omitted, not printed
   durationShowZeroValues: boolean;
 }
 
@@ -52,13 +47,12 @@ export const DEFAULT_CONFIG: TemporalFmtConfig = {
   durationShowZeroValues: false,
 };
 
-// Creates a config object with the caller's overrides merged onto
-// the defaults. Returns a frozen object so callers can't mutate it
-// after the fact — same immutability convention as Temporal's own
-// options.
+// merges whatever overrides get passed in on top of the defaults, then
+// freezes it so nobody can mutate it after — Temporal's own options
+// work this way too so figured we'd match that
 export function createConfig(overrides: Partial<TemporalFmtConfig> = {}): Readonly<TemporalFmtConfig> {
   const merged: TemporalFmtConfig = { ...DEFAULT_CONFIG, ...overrides };
-  // Validate.
+  // sanity checks before we freeze it
   if (typeof merged.locale !== 'string' || merged.locale.length === 0) {
     throw new Error(`temporal-fmt: config.locale must be a non-empty string (got ${String(merged.locale)}).`);
   }
@@ -77,16 +71,15 @@ export function createConfig(overrides: Partial<TemporalFmtConfig> = {}): Readon
   return Object.freeze(merged);
 }
 
-// Merges a per-call options object with a config. Per-call options take
-// precedence. Used by format()/parse()/etc. to fold a caller's config
-// into the per-call options they pass.
+// merges a config into per-call options — whatever's already set in
+// per-call wins. format()/parse()/etc use this to fold config in
 export function mergeWithConfig<T extends Record<string, unknown>>(
   config: Readonly<TemporalFmtConfig> | undefined,
   perCall: T,
 ): T & { locale?: string; calendar?: string; timezone?: string; numberingSystem?: string; lenient?: boolean } {
   if (!config) return perCall;
   const result = { ...perCall } as T & { locale?: string; calendar?: string; timezone?: string; numberingSystem?: string; lenient?: boolean };
-  // Only fill in fields the per-call options don't specify.
+  // only filling in what per-call didn't already set
   if (result.locale === undefined) result.locale = config.locale;
   if (result.calendar === undefined && config.calendar !== undefined) result.calendar = config.calendar;
   if (result.timezone === undefined && config.timezone !== undefined) result.timezone = config.timezone;

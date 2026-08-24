@@ -1,24 +1,22 @@
-// ISO 8601 week numbering: a week runs Monday–Sunday, and week 1 of a year
-// is the week containing the year's first Thursday (equivalently, the week
-// containing January 4). This means late-December dates can fall in week 1
-// of the *next* year, and early-January dates can fall in week 52 or 53 of
-// the *previous* year. The "ISO week-numbering year" (what `RRRR` formats)
-// is that adjacent year, not the calendar year.
+// ISO week stuff. week runs Mon-Sun, and week 1 is whichever week has
+// the year's first Thursday in it (same as saying "the week with Jan 4").
+// took me a minute to wrap my head around this but the upshot is late-Dec
+// dates can land in week 1 of NEXT year, and early-Jan dates can land in
+// week 52/53 of the PREVIOUS year. that adjacent year is what RRRR prints,
+// not the plain calendar year.
 //
-// Computed here from the date's own year/month/day plus its ISO dayOfWeek
-// (1=Mon..7=Sun, matching Temporal's numbering) using plain Gregorian
-// arithmetic — no Temporal factory needed. format() only has the fields
-// the caller already put on the object, and requiring a Temporal
-// implementation just for ISO week would be a regression for callers who
-// use format() without setTemporal() on a non-26 Node.
+// doing this with plain year/month/day + dayOfWeek math instead of asking
+// Temporal for it, since format() only has whatever fields got handed in
+// and dragging in a whole Temporal implementation just for week numbers
+// felt like overkill (also breaks for people not on setTemporal()).
 
 const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 const CUMULATIVE_DAYS_BY_MONTH = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
 
 export function isGregorianLeapYear(year: number): boolean {
-  // Gregorian rule: divisible by 4, except centuries which must also be
-  // divisible by 400. Temporal's iso8601 calendar is proleptic Gregorian
-  // (no Julian cutover), so this applies for every year, including BCE.
+  // divisible by 4, unless it's a century, then it also needs /400.
+  // Temporal's iso8601 calendar never switches to Julian, so this rule
+  // just applies all the way back, even for BCE years.
   return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
 }
 
@@ -32,40 +30,38 @@ export function dayOfYear(year: number, month: number, day: number): number {
   return doy;
 }
 
-// Jan 1, 2000 was a Saturday — ISO dayOfWeek 6. Anchoring day-of-week
-// computations to a known reference date is simpler and cheaper than
-// pulling in Zeller's congruence, and the reference never changes.
+// Jan 1 2000 was a Saturday (ISO dow 6). picked this as an anchor point
+// since it's easier than reaching for Zeller's congruence every time,
+// and obviously this fact about Jan 1 2000 isn't going to change on us
 const REFERENCE_YEAR = 2000;
 const REFERENCE_JAN1_DAY_OF_WEEK = 6;
 
 function dayOfWeekOfJan1(year: number): number {
-  // Sum full-year deltas from the 2000 anchor rather than recomputing from
-  // scratch each call — the per-call work is a single mod this way, and
-  // the loop rarely runs far (a typical caller passes a current-era year).
+  // walk year by year from 2000 instead of doing this from scratch every
+  // time — most callers pass a current-era year so this loop is short anyway
   let offset = 0;
   if (year >= REFERENCE_YEAR) {
     for (let y = REFERENCE_YEAR; y < year; y++) offset += daysInYear(y);
   } else {
     for (let y = year; y < REFERENCE_YEAR; y++) offset -= daysInYear(y);
   }
-  // Convert "days since Jan 1, 2000" into an ISO day-of-week (1=Mon..7=Sun).
-  // Jan 1, 2000 was ISO 6 (Sat), so zero-indexed dow = (6-1 + offset) mod 7.
+  // now turn "days since Jan 1 2000" into an ISO weekday. Jan 1 2000 was a 6
+  // (Sat), so: zero-indexed = (6-1 + offset) mod 7, then bump back to 1-indexed
   const zeroIndexed = (((6 - 1 + offset) % 7) + 7) % 7;
   return zeroIndexed + 1;
 }
 
 export interface IsoWeekDate {
   isoYear: number;
-  week: number; // 1..53
+  week: number; // goes 1 to 53
 }
 
 export function isoWeekYearAndWeek(year: number, month: number, day: number, dayOfWeek: number): IsoWeekDate {
-  // Step 1: find the Thursday of the current ISO week. The ISO week-numbering
-  // year is whichever calendar year that Thursday falls in. Computing it via
-  // day-of-year offsets (rather than constructing a Temporal.PlainDate and
-  // adding days) keeps this function pure-numeric.
+  // step 1: figure out the Thursday of this week — whatever calendar year
+  // that Thursday's in IS the ISO week-numbering year. doing this with
+  // day-of-year offsets so we don't need an actual Temporal.PlainDate here
   const doy = dayOfYear(year, month, day);
-  const thursdayDoyRelative = doy + (4 - dayOfWeek); // may be <1 or >daysInYear
+  const thursdayDoyRelative = doy + (4 - dayOfWeek); // can go negative or past daysInYear, that's fine
 
   let isoYear: number;
   let thursdayDoy: number;
@@ -80,12 +76,12 @@ export function isoWeekYearAndWeek(year: number, month: number, day: number, day
     thursdayDoy = thursdayDoyRelative;
   }
 
-  // Step 2: locate the first Thursday of isoYear — its week is week 1. The
-  // first Thursday's day-of-year depends on what weekday Jan 1 of isoYear is.
+  // step 2: find the first Thursday of isoYear, that one's week 1 by definition.
+  // depends entirely on which weekday Jan 1 lands on
   const jan1Dow = dayOfWeekOfJan1(isoYear);
-  const firstThursdayDoy = 1 + ((4 - jan1Dow + 7) % 7); // 1..7
+  const firstThursdayDoy = 1 + ((4 - jan1Dow + 7) % 7); // always lands somewhere 1-7
 
-  // Step 3: count full weeks between the two Thursdays.
+  // step 3: just count how many full weeks between the two Thursdays
   const week = 1 + Math.floor((thursdayDoy - firstThursdayDoy) / 7);
   return { isoYear, week };
 }

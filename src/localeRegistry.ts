@@ -1,31 +1,30 @@
-// Locale registration and lookup. Extends the
-// existing registerLocaleVocab() surface in localeVocab.ts with
-// registerLocale() / getLocale() / hasLocale() and a richer LocaleVocab
-// that covers quarters, eras, ordinals, duration units, and relative-
-// time language.
+// locale registration + lookup. builds on the registerLocaleVocab()
+// stuff already in localeVocab.ts, adds registerLocale() / getLocale() /
+// hasLocale() plus a beefier LocaleVocab that covers quarters, eras,
+// ordinals, duration units, and relative-time words.
 //
-// The existing localeVocab.ts stays as the implementation for months/
-// weekdays/day-periods (those are what tokens.ts's MMMM/MMM/EEEE/EEE/a
-// tokens read). This module wraps it and adds the extended fields.
+// localeVocab.ts itself is unchanged and still handles months/weekdays/
+// day-periods (what tokens.ts reads for MMMM/MMM/EEEE/EEE/a). this module
+// just wraps that and bolts the extra fields on top
 
 import { registerLocaleVocab, getLocaleVocab, type LocaleVocab as BaseLocaleVocab } from './localeVocab.js';
 import { InvalidLocaleError } from './errors.js';
 
 export interface ExtendedLocaleVocab extends BaseLocaleVocab {
-  // Quarters: Q1..Q4 long form ("First quarter", etc.). Default falls
-  // back to "Q1".."Q4" if not registered.
+  // Q1-Q4 long form ("First quarter" etc). falls back to "Q1".."Q4" if
+  // nothing's registered
   quartersLong?: string[];
   quartersShort?: string[];
-  // Eras: ["BC", "AD"] for gregory, etc. Default ["BC", "AD"].
+  // like ["BC", "AD"] for gregory. defaults to ["BC", "AD"]
   erasLong?: string[];
   erasShort?: string[];
-  // Ordinal suffix rules: ["st", "nd", "rd", "th"] for English. Default
-  // empty (the existing 'do' token has English-only ordinal logic baked
-  // into tokens.ts; this field lets a custom locale override it).
+  // suffixes like ["st", "nd", "rd", "th"] for English. empty by default —
+  // the 'do' token already has English ordinal logic hardcoded in
+  // tokens.ts, this just lets a custom locale override that
   ordinals?: string[];
-  // Duration unit names: long singular/plural for each unit. Used by
-  // formatDuration's locale-aware path when Intl.NumberFormat isn't
-  // desired (e.g. for a made-up locale Intl doesn't know about).
+  // long singular/plural names per unit. used by formatDuration's
+  // locale-aware path for cases where Intl.NumberFormat won't cut it,
+  // like a made-up locale Intl's never heard of
   durationUnits?: {
     years: [string, string];
     months: [string, string];
@@ -36,9 +35,9 @@ export interface ExtendedLocaleVocab extends BaseLocaleVocab {
     seconds: [string, string];
     milliseconds: [string, string];
   };
-  // Relative-time language: words for "ago" / "in" / "now". Used by
-  // formatRelative()'s locale-aware path when Intl.RelativeTimeFormat
-  // isn't available or doesn't cover a registered locale.
+  // words for "ago" / "in" / "now". used by formatRelative()'s
+  // locale-aware path when Intl.RelativeTimeFormat isn't around or
+  // doesn't know about a locale someone registered
   relativeTime?: {
     past: string;
     future: string;
@@ -46,11 +45,11 @@ export interface ExtendedLocaleVocab extends BaseLocaleVocab {
   };
 }
 
-// Bounded indirectly: every entry here is added by registerLocale(), which
-// first passes registerLocaleVocab() — and THAT registry caps new locales
-// at 500 (MAX_CUSTOM_VOCABS, RangeError past it). So extendedVocabs can
-// never exceed 500 keys; no separate cap is needed (and an unreachable one
-// would only add dead branches).
+// bounded indirectly — everything added here goes through registerLocale(),
+// which calls registerLocaleVocab() first, and THAT registry already caps
+// out at 500 new locales (MAX_CUSTOM_VOCABS, throws RangeError past it).
+// so extendedVocabs can never actually exceed 500 keys, no need for a
+// separate cap here (would just be dead code anyway)
 const extendedVocabs = new Map<string, ExtendedLocaleVocab>();
 const MAX_LOCALE_TAG_LENGTH = 256;
 const MAX_VOCAB_STRING_LENGTH = 256;
@@ -70,10 +69,10 @@ export function registerLocale(locale: string, vocab: ExtendedLocaleVocab): void
   if (locale.length > MAX_LOCALE_TAG_LENGTH) {
     throw new InvalidLocaleError({ actual: String(locale.length), reason: `locale tag must be at most ${MAX_LOCALE_TAG_LENGTH} characters` });
   }
-  // Validate the base vocab fields (months/weekdays/day-periods) via
-  // the existing registerLocaleVocab — it has the strict-shape checks.
+  // base vocab fields (months/weekdays/day-periods) get validated by
+  // registerLocaleVocab already, it's got the strict shape checks
   registerLocaleVocab(locale, vocab);
-  // Extended fields are optional; only validate the ones that are present.
+  // extended fields are all optional, only check the ones actually there
   validateExtended(vocab, locale);
   const key = canonicalKey(locale);
   extendedVocabs.set(key, { ...vocab });
@@ -105,13 +104,14 @@ function validateExtended(vocab: ExtendedLocaleVocab, locale: string): void {
 }
 
 export function getLocale(locale: string): ExtendedLocaleVocab | undefined {
-  // Returns the extended vocab for a locale, OR undefined (falls back
-  // to Intl). Combines the base vocab (from localeVocab.ts, which
-  // includes Intl defaults) with any extended fields registered here.
+  // gives back the extended vocab for a locale, or undefined if there's
+  // nothing (falls back to Intl at that point). combines the base vocab
+  // (from localeVocab.ts, Intl-derived) with whatever extended fields
+  // got registered here
   const key = canonicalKey(locale);
   const ext = extendedVocabs.get(key);
   if (ext) return ext;
-  // Fall back to base vocab (Intl-derived) without extended fields.
+  // nothing extended registered — just fall back to the base Intl vocab
   try {
     const base = getLocaleVocab(locale);
     return { ...base };
@@ -125,5 +125,5 @@ export function hasLocale(locale: string): boolean {
   return extendedVocabs.has(key);
 }
 
-// Re-export the base vocab types for callers that want them.
+// re-exporting the base vocab types in case anyone wants them
 export type { LocaleVocab } from './localeVocab.js';

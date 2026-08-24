@@ -1,22 +1,21 @@
-// Business calendar. Customizable weekend definitions, holiday set,
-// observed holidays, working hours, optional half days. The holiday
-// check is delegated to a holiday calendar (holidays.ts) so this
-// module stays focused on weekday-vs-weekend logic.
+// business calendar stuff — configurable weekends, holiday sets, observed
+// holidays, working hours, half days if you need em. holiday checking
+// itself is handed off to a HolidayCalendar (holidays.ts) so this file
+// can just worry about the weekday-vs-weekend part
 
 import { add } from './arithmetic.js';
 import type { HolidayCalendar } from './holidays.js';
 
 export interface BusinessCalendarOptions {
-  // Default [6, 7] (Sat/Sun). ISO weekdays 1-7.
+  // defaults to [6, 7] (Sat/Sun). ISO weekday numbers, 1-7
   weekend?: number[];
-  // Holiday calendar to consult. Optional — if absent, only weekend
-  // logic applies.
+  // pass a holiday calendar if you want holidays factored in too —
+  // skip it and you just get weekend logic
   holidays?: HolidayCalendar;
-  // Working hours per weekday. 1=Mon..7=Sun. Default: 8 hours for
-  // weekdays, 0 for weekend. Used by addBusinessDays() to compute
-  // partial-day arithmetic.
+  // hours per weekday, 1=Mon..7=Sun. defaults to 8hrs weekdays, 0 weekend.
+  // addBusinessDays() uses this for partial-day math
   workingHours?: Record<number, number>;
-  // Half days: weekdays where working hours are reduced. Default empty.
+  // which weekdays get reduced hours. empty by default
   halfDays?: number[];
 }
 
@@ -29,11 +28,11 @@ export interface BusinessCalendar {
 
 export function createBusinessCalendar(options: BusinessCalendarOptions = {}): BusinessCalendar {
   const weekend = new Set(options.weekend ?? [6, 7]);
-  // Copy before filling defaults — writing the missing weekday entries
-  // straight into options.workingHours mutated the caller's object
-  // (their { 1: 6 } grew keys 2..7 as a side effect of "creating" a
-  // calendar, and a shared object across calendars cross-contaminated
-  // them with the first calendar's defaults).
+  // gotta copy this before filling in defaults — used to write the missing
+  // weekday entries straight into options.workingHours, which mutated
+  // the caller's actual object. so someone's { 1: 6 } would silently grow
+  // keys 2-7 just from "creating" a calendar, and if they reused that
+  // object across calendars, the first one's defaults leaked into all of them
   const workingHours: Record<number, number> = { ...(options.workingHours ?? {}) };
   for (let i = 1; i <= 7; i++) {
     if (workingHours[i] === undefined) {
@@ -50,10 +49,9 @@ export function createBusinessCalendar(options: BusinessCalendarOptions = {}): B
 
 export function isBusinessDay(cal: BusinessCalendar, value: unknown): boolean {
   const v = value as { dayOfWeek?: number; year?: number; month?: number; day?: number };
-  // add() in arithmetic.ts doesn't update dayOfWeek (it returns a field
-  // bag with whatever dayOfWeek the input had). Compute it from year/month/day
-  // whenever those are present — more reliable than trusting the cached
-  // dayOfWeek value.
+  // add() over in arithmetic.ts doesn't touch dayOfWeek — it just hands back
+  // whatever dayOfWeek the input had, stale or not. so recompute it from
+  // year/month/day whenever we've got those, don't trust the cached value
   let dow = v.dayOfWeek;
   if (typeof v.year === 'number' && typeof v.month === 'number' && typeof v.day === 'number') {
     const d = new Date(Date.UTC(v.year, v.month - 1, v.day));
@@ -70,8 +68,8 @@ export function isBusinessDay(cal: BusinessCalendar, value: unknown): boolean {
 
 export function nextBusinessDay(cal: BusinessCalendar, value: unknown): unknown {
   let candidate = add(value, 1, 'days');
-  // Loop until we find a business day. Capped at 7 iterations since a
-  // week is the natural upper bound for a Sat/Sun + holiday combo.
+  // keep going till we hit a business day. capped at 14 just to be safe —
+  // a week is really the natural bound even with weekend + holidays combined
   for (let i = 0; i < 14; i++) {
     if (isBusinessDay(cal, candidate)) return candidate;
     candidate = add(candidate, 1, 'days');

@@ -1,56 +1,59 @@
-// Type guards for Temporal values. The rest of this library works off the
-// duck-typed `TemporalLike` shape (year/month/day/hour/...) rather than
-// `instanceof Temporal.X`, because `instanceof` breaks across polyfill/
-// native boundaries — a polyfill's `Temporal.PlainDate` is a different
-// constructor from the native one, so a `value instanceof Temporal.PlainDate`
-// check would silently fail when the caller is using a polyfill while the
-// guard happens to be looking at native Temporal, or vice versa. Same
-// reasoning as tokens.ts's `intlSupportsNativeTemporal` probe: identity
-// checks don't survive the polyfill/native swap.
+// type guards for Temporal values. the rest of this lib works off the
+// duck-typed TemporalLike shape (year/month/day/hour/...) instead of
+// `instanceof Temporal.X`, because instanceof just breaks across
+// polyfill/native boundaries — a polyfill's Temporal.PlainDate is a
+// completely different constructor from the native one, so
+// `value instanceof Temporal.PlainDate` would silently fail if the
+// caller's using a polyfill while the guard's looking at native
+// Temporal, or the other way around. same reasoning as tokens.ts's
+// intlSupportsNativeTemporal probe — identity checks just don't survive
+// a polyfill/native swap.
 //
-// These guards check structural shape instead: presence of the type-
-// discriminating method each Temporal type carries. Method presence is
-// part of the Temporal spec contract — every implementation, native or
-// polyfill, must expose the same methods on the same types — so it's a
-// stable signal without dragging in a Temporal namespace.
+// so instead these guards check structural shape: does it have the
+// type-discriminating method each Temporal type carries. method
+// presence is part of the actual Temporal spec contract — every
+// implementation, native or polyfill, has to expose the same methods on
+// the same types — so it's a stable signal without needing to import a
+// Temporal namespace at all.
 //
-// Per-type discriminators (verified against @js-temporal/polyfill's
-// prototype method list, which matches the spec):
+// per-type discriminators (double checked these against
+// @js-temporal/polyfill's actual prototype method list, matches spec):
 //
-//   PlainDate       — `toPlainDateTime` + `withCalendar` + year/month/day,
-//                     no hour. (PlainDateTime also has `toPlainDateTime`'s
-//                     sibling `toPlainDate`/`toPlainTime`, but carries
-//                     hour — distinguished by time-field presence.)
-//   PlainTime       — no `toPlainDateTime`, no `withCalendar`. Has hour,
-//                     no year/month/day. (The only Temporal date/time type
-//                     that has neither `withCalendar` nor any `toPlainX`
-//                     method.)
-//   PlainDateTime   — `toPlainDate` + `withPlainTime` + year/month/day
-//                     AND hour. (`withPlainTime` is unique — only
-//                     PlainDateTime and ZonedDateTime carry it; ZonedDateTime
-//                     also carries `toInstant`, which PlainDateTime doesn't.)
-//   ZonedDateTime   — `toInstant` + `withTimeZone`. (Both are unique —
-//                     only ZonedDateTime carries `withTimeZone`.)
-//   Instant         — `toZonedDateTimeISO`, no `toInstant`. (Instant IS
-//                     the instant; the `toInstant` method belongs to
-//                     ZonedDateTime. `toZonedDateTimeISO` exists on
-//                     Instant and ZonedDateTime per the spec, but on
-//                     ZonedDateTime it's not exposed via the prototype
-//                     in either native or polyfill — only Instant has it
-//                     as a method. Verified by probing both.)
-//   PlainYearMonth  — `toPlainDate` (takes a day arg) + year/month,
-//                     no day. (PlainDate also has `toPlainDate`-shaped
-//                     methods but carries day; PlainMonthDay also has
-//                     `toPlainDate` but carries day, not year.)
-//   PlainMonthDay   — `toPlainDate` + month/day, no year. Plus: lacks
-//                     `add`/`subtract`/`until`/`since` (calendar arithmetic
-//                     doesn't apply to a month-day without a year).
-//   Duration        — `total` + `abs` + `negated`. (All three are unique
-//                     to Duration; no other Temporal type carries any of them.)
+//   PlainDate       — toPlainDateTime + withCalendar + year/month/day,
+//                     no hour. (PlainDateTime also has toPlainDateTime's
+//                     sibling toPlainDate/toPlainTime, but carries hour —
+//                     that's what distinguishes them.)
+//   PlainTime       — no toPlainDateTime, no withCalendar. has hour,
+//                     no year/month/day. (only Temporal date/time type
+//                     with neither withCalendar nor any toPlainX method.)
+//   PlainDateTime   — toPlainDate + withPlainTime + year/month/day
+//                     AND hour. (withPlainTime is unique — only
+//                     PlainDateTime and ZonedDateTime carry it;
+//                     ZonedDateTime also carries toInstant, which
+//                     PlainDateTime doesn't.)
+//   ZonedDateTime   — toInstant + withTimeZone. (both unique — only
+//                     ZonedDateTime carries withTimeZone.)
+//   Instant         — toZonedDateTimeISO, no toInstant. (Instant IS the
+//                     instant — toInstant belongs to ZonedDateTime.
+//                     toZonedDateTimeISO exists on both Instant and
+//                     ZonedDateTime per spec, but on ZonedDateTime it's
+//                     not actually exposed on the prototype in either
+//                     native or polyfill — only Instant has it as a real
+//                     method. checked both to confirm.)
+//   PlainYearMonth  — toPlainDate (takes a day arg) + year/month, no
+//                     day. (PlainDate also has a toPlainDate-shaped
+//                     method but carries day; PlainMonthDay also has
+//                     toPlainDate but carries day, not year.)
+//   PlainMonthDay   — toPlainDate + month/day, no year. also lacks
+//                     add/subtract/until/since (calendar arithmetic
+//                     doesn't really make sense on a month-day without
+//                     a year anyway).
+//   Duration        — total + abs + negated. (all three unique to
+//                     Duration, nothing else carries any of them.)
 
-// The shapes below intentionally mirror TemporalLike in tokens.ts but
-// stay loose enough to also match real Temporal objects (which carry
-// the spec methods the field-only TemporalLike doesn't).
+// this shape intentionally mirrors TemporalLike over in tokens.ts, but
+// stays loose enough to also match real Temporal objects (which carry
+// the spec methods the field-only TemporalLike doesn't have)
 interface TemporalInstance {
   toInstant?: () => unknown;
   toPlainDate?: (arg?: unknown) => unknown;
@@ -71,8 +74,8 @@ interface TemporalInstance {
   abs?: () => unknown;
   negated?: () => unknown;
   toString?: () => string;
-  // Fields from TemporalLike — present on all date-carrying Temporal
-  // types but absent on PlainTime (which has no calendar position).
+  // these come from TemporalLike — present on all the date-carrying
+  // Temporal types but absent on PlainTime (no calendar position there)
   year?: number;
   month?: number;
   day?: number;
@@ -81,12 +84,11 @@ interface TemporalInstance {
   second?: number;
   calendarId?: string;
   timeZoneId?: string;
-  // PlainMonthDay stores its month as `monthCode` (e.g. "M08"), not
-  // as a numeric `month` field — without a year there's no way to
-  // disambiguate which month a calendar-independent numeric month
-  // refers to in leap-year-aware calendars, so the spec uses
-  // `monthCode` instead. PlainMonthDay is the only Temporal type that
-  // exposes `monthCode` without also exposing `month`.
+  // PlainMonthDay stores its month as monthCode (like "M08") instead of
+  // a plain numeric month — without a year there's no way to know which
+  // month a calendar-independent numeric month even refers to once
+  // leap-year-aware calendars get involved, so the spec uses monthCode
+  // instead. PlainMonthDay's the only type that has monthCode but not month
   monthCode?: string;
 }
 
@@ -94,13 +96,14 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
 }
 
-// Hostile-getter hardening: the structural guards below read properties
-// (year, hour, Symbol.toStringTag, ...) off arbitrary caller values. An
-// object with a throwing getter used to turn isPlainDate(obj) — a function
-// whose whole contract is returning a boolean — into an exception factory.
-// Every exported guard now runs through this wrapper: a throw during
-// probing means "not one of ours", not a crash. One shared catch (rather
-// than one per guard) keeps the coverage burden honest too.
+// hardening against hostile getters: the guards below read properties
+// (year, hour, Symbol.toStringTag, ...) off whatever value the caller
+// hands us. an object with a throwing getter used to turn isPlainDate(obj)
+// — a function whose entire contract is "return a boolean" — into an
+// exception factory instead. every exported guard now goes through this
+// wrapper, so a throw during probing just means "not one of ours", not a
+// crash. one shared catch here instead of one per guard also keeps the
+// coverage numbers honest
 function guardOrFalse<T>(impl: (value: unknown) => value is T): (value: unknown) => value is T {
   return (value: unknown): value is T => {
     try {
@@ -120,11 +123,11 @@ function hasMethod<T extends keyof TemporalInstance>(
 
 // Symbol.toStringTag is the spec-mandated brand for Temporal types —
 // every Temporal instance carries a tag like "Temporal.PlainDate" via
-// this well-known symbol, regardless of whether it's native or polyfill.
-// Used by the per-type guards as a fast positive signal: a tag match
-// is sufficient, the structural fallback (field presence + method checks)
-// is only consulted when the tag isn't set (which can happen with
-// hand-built mock objects or partial implementations).
+// this symbol regardless of native vs polyfill. the per-type guards use
+// this as a fast positive check: a tag match is enough on its own, the
+// structural fallback (field presence + method checks) only kicks in
+// when there's no tag set, which can happen with hand-built mocks or
+// partial implementations
 function hasTag(value: unknown, typeName: string): boolean {
   if (!isObject(value)) return false;
   const tag = (value as { [Symbol.toStringTag]?: unknown })[Symbol.toStringTag];
@@ -147,9 +150,9 @@ export const isPlainTime: (value: unknown) => value is TemporalInstance = guardO
   if (hasTag(value, 'PlainTime')) return true;
   if (!isObject(value)) return false;
   const v = value as TemporalInstance;
-  // PlainTime is the only Temporal type with `hour` but no `year` and
-  // neither `withCalendar` nor any `toPlainX` method. That combination
-  // is unique among the eight types.
+  // PlainTime is the only type with hour but no year, and neither
+  // withCalendar nor any toPlainX method. that combo is unique among
+  // all eight types
   return typeof v.hour === 'number'
     && typeof v.year === 'undefined'
     && !hasMethod(v, 'withCalendar')
@@ -161,9 +164,9 @@ export const isPlainDateTime: (value: unknown) => value is TemporalInstance = gu
   if (hasTag(value, 'PlainDateTime')) return true;
   if (!isObject(value)) return false;
   const v = value as TemporalInstance;
-  // `withPlainTime` is on PlainDateTime and ZonedDateTime; ZonedDateTime
-  // also carries `toInstant`. The combination "has withPlainTime, no
-  // toInstant" uniquely identifies PlainDateTime.
+  // withPlainTime shows up on both PlainDateTime and ZonedDateTime, but
+  // ZonedDateTime also has toInstant. so "has withPlainTime, no
+  // toInstant" uniquely picks out PlainDateTime
   return typeof v.year === 'number'
     && typeof v.month === 'number'
     && typeof v.day === 'number'
@@ -176,7 +179,7 @@ export const isZonedDateTime: (value: unknown) => value is TemporalInstance = gu
   if (hasTag(value, 'ZonedDateTime')) return true;
   if (!isObject(value)) return false;
   const v = value as TemporalInstance;
-  // `withTimeZone` is unique to ZonedDateTime across every Temporal type.
+  // withTimeZone is unique to ZonedDateTime, nothing else has it
   return typeof v.year === 'number'
     && typeof v.month === 'number'
     && typeof v.day === 'number'
@@ -188,10 +191,10 @@ export const isZonedDateTime: (value: unknown) => value is TemporalInstance = gu
 export const isInstant: (value: unknown) => value is TemporalInstance = guardOrFalse(function isInstantImpl(value: unknown): value is TemporalInstance {
   if (hasTag(value, 'Instant')) return true;
   if (!isObject(value)) return false;
-  // Instant carries `toZonedDateTimeISO` and no `toInstant` (it IS the
-  // instant). It also has no year/month/day/hour fields — those are
-  // only meaningful against a calendar and zone, which Instant alone
-  // doesn't carry.
+  // Instant has toZonedDateTimeISO but no toInstant — makes sense, it
+  // IS the instant already. also has no year/month/day/hour fields since
+  // those only mean anything against a calendar + zone, which Instant
+  // alone doesn't carry
   const v = value as TemporalInstance;
   return hasMethod(v, 'toZonedDateTimeISO')
     && !hasMethod(v, 'toInstant')
@@ -202,8 +205,8 @@ export const isPlainYearMonth: (value: unknown) => value is TemporalInstance = g
   if (hasTag(value, 'PlainYearMonth')) return true;
   if (!isObject(value)) return false;
   const v = value as TemporalInstance;
-  // Has year+month, no day, carries `toPlainDate` (used to attach a day).
-  // PlainMonthDay also carries `toPlainDate` but has no `year` field.
+  // has year+month but no day, carries toPlainDate (used to attach a day
+  // later). PlainMonthDay also has toPlainDate but doesn't have year
   return typeof v.year === 'number'
     && typeof v.month === 'number'
     && typeof v.day === 'undefined'
@@ -214,10 +217,10 @@ export const isPlainMonthDay: (value: unknown) => value is TemporalInstance = gu
   if (hasTag(value, 'PlainMonthDay')) return true;
   if (!isObject(value)) return false;
   const v = value as TemporalInstance;
-  // PlainMonthDay has `day` and `monthCode` but no `year` and no numeric
-  // `month`. The `monthCode` field is the discriminator — every other
-  // Temporal type that has a month concept either exposes `month` (numeric,
-  // calendar-aware) or doesn't expose months at all (PlainTime, Duration).
+  // PlainMonthDay has day and monthCode but no year and no numeric month.
+  // monthCode's the discriminator here — every other Temporal type with
+  // a month concept either has month (numeric, calendar-aware) or
+  // doesn't have months at all (PlainTime, Duration)
   return typeof v.year === 'undefined'
     && typeof v.month === 'undefined'
     && typeof v.day === 'number'
@@ -228,28 +231,26 @@ export const isPlainMonthDay: (value: unknown) => value is TemporalInstance = gu
 export const isDuration: (value: unknown) => value is Record<string, unknown> = guardOrFalse(function isDurationImpl(value: unknown): value is Record<string, unknown> {
   if (hasTag(value, 'Duration')) return true;
   if (!isObject(value)) return false;
-  // `total` is unique to Duration across every Temporal type — no other
-  // type carries it (verified by probing the prototype of each).
-  // `abs` and `negated` are also Duration-only. Checking any one of
-  // them is sufficient; checking `total` because it's the most semantically
-  // distinctive (a Duration-specific operation no other type would
-  // coincidentally need).
+  // total is unique to Duration across the whole Temporal set — nothing
+  // else has it (checked every prototype to confirm). abs and negated
+  // are also Duration-only, checking any one of the three would work;
+  // going with total since it's the most semantically distinctive one —
+  // a Duration-specific operation nothing else would coincidentally need
   const v = value as TemporalInstance;
   return hasMethod(v, 'total');
 });
 
-// Umbrella guard: any Temporal namespace member. Used by `assertTemporal`
-// below for the "this needs to be some Temporal thing" case. Two signals
-// checked in order:
-//   1. `Symbol.toStringTag` — every Temporal type brands itself as
-//      `Temporal.X` via this well-known symbol. This is the spec-
-//      mandated brand, present on native and polyfill instances alike.
-//   2. The discriminating-method fallback — covers any case where a
-//      future/partial Temporal impl doesn't set the tag. Method
-//      presence is part of the Temporal spec contract; combined with
-//      `equals` + `with` (both present on every Temporal instance),
-//      it's a reliable signal that doesn't rely on the toStringTag
-//      being set.
+// umbrella guard: is this ANY Temporal namespace member. used by
+// assertTemporal below for the "this needs to be some Temporal thing"
+// case. checks two signals in order:
+//   1. Symbol.toStringTag — every Temporal type brands itself as
+//      Temporal.X via this symbol. spec-mandated, present on native
+//      and polyfill instances alike.
+//   2. the discriminating-method fallback — covers whatever future or
+//      partial Temporal implementation doesn't bother setting the tag.
+//      method presence is part of the spec contract, so combined with
+//      equals + with (both on every Temporal instance) it's still a
+//      reliable signal even without the tag being set
 export const isTemporal: (value: unknown) => value is TemporalInstance = guardOrFalse(function isTemporalImpl(value: unknown): value is TemporalInstance {
   if (!isObject(value)) return false;
   const tag = (value as { [Symbol.toStringTag]?: unknown })[Symbol.toStringTag];
@@ -269,10 +270,10 @@ export const isTemporal: (value: unknown) => value is TemporalInstance = guardOr
     || hasMethod(v, 'total');
 });
 
-// Assertion helpers — throw descriptively rather than returning false.
-// Same convention as the rest of the library: descriptive thrown errors
-// instead of silent failures. The thrown Error carries a `valueType`
-// hint in the message so the caller can see what they actually passed.
+// assertion helpers — throw with a real message instead of just
+// returning false. same convention the rest of this lib uses: descriptive
+// thrown errors instead of failing silently. the thrown error includes
+// a valueType hint so the caller can actually see what they passed in
 function describeValue(value: unknown): string {
   if (value === null) return 'null';
   if (Array.isArray(value)) return 'array';

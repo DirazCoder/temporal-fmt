@@ -5,7 +5,7 @@ export type Piece =
   | { kind: 'token'; value: string }
   | { kind: 'literal'; value: string };
 
-// longest-first so the greedy scan never matches "M" when "MMMM" was there
+// gotta sort longest-first or the greedy scan grabs "M" when "MMMM" was actually there
 const SORTED_TOKEN_STRINGS = TOKENS.map(([tok]) => tok).sort((a, b) => b.length - a.length);
 
 /**
@@ -22,7 +22,7 @@ export function tokenize(format: string): Piece[] {
     const ch = format[i];
 
     if (ch === "'") {
-      // check doubled-quote first or "''best''" parses wrong
+      // gotta check the doubled-quote case first, otherwise "''best''" parses wrong
       if (format[i + 1] === "'") {
         appendLiteral(pieces, "'");
         i += 2;
@@ -61,13 +61,12 @@ export function tokenize(format: string): Piece[] {
 
     const match = SORTED_TOKEN_STRINGS.find((tok) => format.startsWith(tok, i));
     if (match) {
-      // match is already the longest registered token starting at i, so
-      // one more of its last character can't be a token of its own —
-      // it'd fall through to whatever token or literal rule handles that
-      // character next, silently splicing an unrelated field onto this
-      // one (e.g. "zzzz" used to read as zzz + literal "z", "MMMMM" as
-      // MMMM + the numeric-month token M). Treat the whole overlong run
-      // as one unrecognized token instead.
+      // this is already the longest token that starts here, so if there's
+      // one more of the same char after it, that's not a real token — it'd
+      // just silently fall through to whatever handles that next char and
+      // get glued onto this one. found this the hard way: "zzzz" was
+      // parsing as zzz + literal "z", "MMMMM" as MMMM + the M token. so now
+      // we just treat the whole overlong run as one bad token instead
       const runChar = match[match.length - 1];
       if (format[i + match.length] === runChar) {
         let end = i + match.length;

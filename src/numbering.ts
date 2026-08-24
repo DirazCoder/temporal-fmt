@@ -1,25 +1,25 @@
-// Numbering systems. Default: latn (ASCII digits).
-// Optional: arab, deva, beng, etc. Configurable on formatting.
+// numbering systems. latn (ASCII digits) is the default, but arab, deva,
+// beng, etc are all options, configurable per format call.
 //
-// The library's existing tokens always render ASCII digits (see
-// tokens.ts's pad() — uses String(n) which produces ASCII). This
-// module adds the ability to convert the output to a locale's native
-// digits via Intl.NumberFormat, which is the standard mechanism JS
-// provides for digit transliteration.
+// the tokens in this lib always spit out ASCII digits normally (check
+// tokens.ts's pad() — just String(n), which is ASCII). this module bolts
+// on the ability to convert that output to a locale's native digits via
+// Intl.NumberFormat, since that's the standard way JS does digit
+// transliteration anyway.
 //
-// On the parse side: parse() only accepts ASCII digits, matching how
-// the existing NUMERIC_FRAGMENTS regex is built. A parseNumberingSystem
-// option could convert input digits to ASCII before matching — but
-// that's a per-call opt-in, not silent acceptance of every numeral
-// system.
+// parse side is stricter: parse() only accepts ASCII digits, matches how
+// NUMERIC_FRAGMENTS is already built. could add a parseNumberingSystem
+// option to convert input digits to ASCII first — but that should be an
+// explicit opt-in per call, not silently accepting any numeral system
+// that shows up
 
 import { DEFAULT_LOCALE, type FormatOptions } from './tokens.js';
 import { InvalidLocaleError } from './errors.js';
 
 export type NumberingSystem = 'latn' | 'arab' | 'deva' | 'beng' | 'guru' | 'gujr' | 'orya' | 'tamldec' | 'telu' | 'knda' | 'mlym' | 'fullwide' | 'hanidec';
 
-// All supported NumberingSystem values. latn is the default and what
-// the rest of the library produces natively.
+// every NumberingSystem value we support. latn's the default and
+// what the rest of this lib naturally produces
 export const SUPPORTED_NUMBERING_SYSTEMS: ReadonlySet<string> = new Set([
   'latn', 'arab', 'deva', 'beng', 'guru', 'gujr', 'orya', 'tamldec',
   'telu', 'knda', 'mlym', 'fullwide', 'hanidec',
@@ -27,20 +27,19 @@ export const SUPPORTED_NUMBERING_SYSTEMS: ReadonlySet<string> = new Set([
 
 const digitMapCache = new Map<string, Record<string, string>>();
 
-// Builds a per-numbering-system digit transliteration map. Uses
-// Intl.NumberFormat to render 0-9 in the requested system, then
-// builds the lookup table. Cached because constructing a formatter
-// is expensive and we re-use the same map for every digit in the
-// output.
+// builds a digit-transliteration map per numbering system. renders 0-9
+// through Intl.NumberFormat in the target system, then builds the lookup
+// table from that. caching it since spinning up a formatter isn't free
+// and we reuse the same map for every digit we convert
 function getDigitMap(system: string): Record<string, string> {
   let map = digitMapCache.get(system);
   if (map) return map;
-  /* c8 ignore start @preserve -- dead by construction, not just
-     untested: both callers (convertDigits, convertDigitsToAscii) already
-     return early on system === 'latn' before calling getDigitMap at all,
-     so this function is never invoked with 'latn'. Kept as a defensive
-     fallback rather than trusting that stays true for any future
-     caller. */
+  /* c8 ignore start @preserve -- this branch is dead by construction, not
+     just untested: both callers (convertDigits, convertDigitsToAscii)
+     already bail out early on system === 'latn' before ever calling
+     getDigitMap, so it never actually gets invoked with 'latn'. keeping
+     it anyway as a defensive fallback rather than betting that stays
+     true forever */
   if (system === 'latn') {
     map = {};
     for (let i = 0; i < 10; i++) map[String(i)] = String(i);
@@ -56,8 +55,8 @@ function getDigitMap(system: string): Record<string, string> {
   return map;
 }
 
-// Converts every ASCII digit in `s` to its equivalent in the requested
-// numbering system. Non-digit characters pass through unchanged.
+// swaps every ASCII digit in `s` for its equivalent in the target
+// numbering system. anything that's not a digit passes through untouched
 export function convertDigits(s: string, system: string): string {
   if (system === 'latn') return s;
   if (!SUPPORTED_NUMBERING_SYSTEMS.has(system)) {
@@ -67,11 +66,10 @@ export function convertDigits(s: string, system: string): string {
   let result = '';
   for (const ch of s) {
     if (ch >= '0' && ch <= '9') {
-      // map[ch] is always populated for '0'-'9' since getDigitMap builds
-      // all ten digit keys for every supported system and ch is already
-      // range-checked above; the ?? ch fallback exists only as a
-      // type-safety guard against Record's implicit undefined, not a
-      // reachable runtime path.
+      // map[ch] is always populated for 0-9 — getDigitMap builds all ten
+      // keys for every system we support, and ch is already range-checked
+      // above. the ?? ch is really just there to satisfy TS about Record's
+      // implicit undefined, not because this path is actually reachable
       /* c8 ignore next */
       result += map[ch] ?? ch;
     } else {
@@ -81,22 +79,22 @@ export function convertDigits(s: string, system: string): string {
   return result;
 }
 
-// Parses a string with non-ASCII digits back to ASCII. The inverse of
-// convertDigits — used by parse() when an explicit `numberingSystem`
-// option is passed. Throws on unsupported systems.
+// inverse of convertDigits — takes non-ASCII digits back to ASCII. used
+// by parse() when someone passes an explicit numberingSystem option.
+// throws on anything unsupported
 export function convertDigitsToAscii(s: string, system: string): string {
-  // Same dead-by-construction situation as applyParseNumbering's own
-  // 'latn' guard: this function's only caller (applyParseNumbering)
-  // already returns early on system === 'latn' before reaching this
-  // call, so system is never 'latn' here in practice. Kept as a
-  // defensive guard for any future direct caller.
+  // same dead-by-construction thing as the 'latn' guard above —
+  // applyParseNumbering (the only caller) already returns early on
+  // 'latn' before this ever gets called, so system's never actually
+  // 'latn' here in practice. leaving the guard anyway in case someone
+  // calls this directly someday without going through that guard
   /* c8 ignore next */
   if (system === 'latn') return s;
   if (!SUPPORTED_NUMBERING_SYSTEMS.has(system)) {
     throw new InvalidLocaleError({ actual: system, reason: `numbering system "${system}" is not supported.` });
   }
   const map = getDigitMap(system);
-  // Build reverse map.
+  // just flip the map around
   const reverse: Record<string, string> = {};
   for (const k of Object.keys(map)) reverse[map[k]!] = k;
   let result = '';
@@ -106,49 +104,47 @@ export function convertDigitsToAscii(s: string, system: string): string {
   return result;
 }
 
-// Augmented FormatOptions that includes the numberingSystem field.
-// Callers pass { numberingSystem: 'arab' } to format() to get Arabic-
-// Indic digits in the output.
+// FormatOptions plus a numberingSystem field. pass { numberingSystem: 'arab' }
+// to format() to get Arabic-Indic digits out
 export interface NumberingFormatOptions extends FormatOptions {
   numberingSystem?: string;
 }
 
-// Parse-side counterpart. Named parseNumberingSystem (not numberingSystem)
-// so a caller mixing format() and parse() options in the same config
-// object can set both independently — the two directions aren't always
-// symmetric (e.g. converting *to* native digits on output without
-// expecting native digits back on input, or vice versa).
+// same idea but for the parse side. called parseNumberingSystem instead of
+// just numberingSystem so someone mixing format() and parse() options in
+// one config object can set both independently — the two directions
+// aren't always symmetric (you might want native digits out without
+// wanting to accept them back in, or vice versa)
 export interface NumberingParseOptions extends FormatOptions {
   parseNumberingSystem?: string;
 }
 
-// Helper for the format path: takes the formatted ASCII output of
-// format() and converts digits if a numberingSystem was requested.
-// Kept here so format.ts doesn't need to know about numbering systems.
+// format-path helper: takes format()'s ASCII output and converts digits
+// if numberingSystem was asked for. lives here so format.ts doesn't need
+// to know anything about numbering systems
 export function applyNumbering(s: string, options: NumberingFormatOptions): string {
   const system = options.numberingSystem ?? 'latn';
   if (system === 'latn') return s;
   return convertDigits(s, system);
 }
 
-// Helper for the parse path: converts input digits to ASCII before
-// matching, when parseNumberingSystem is set. Distinct from the format
-// path's option name (numberingSystem vs parseNumberingSystem) so a
-// caller can be explicit about which direction they want transliterated.
+// parse-path helper: converts input digits to ASCII before matching, if
+// parseNumberingSystem got set. kept as a separate option name from the
+// format side so callers can be explicit about which direction they
+// actually want transliterated
 export function applyParseNumbering(s: string, options: { parseNumberingSystem?: string }): string {
-  // Both call sites of applyParseNumbering (parse.ts) already guard with
-  // `if (options.parseNumberingSystem)` before calling it, so
-  // options.parseNumberingSystem is always truthy here — the ?? 'latn'
-  // fallback, and the subsequent 'latn' early return, are dead by
-  // construction, not just untested. Kept as a defensive default rather
-  // than assuming every future caller replicates the guard.
+  // both call sites for this (both in parse.ts) already guard with
+  // `if (options.parseNumberingSystem)` before calling, so this is
+  // always truthy in practice — the ?? 'latn' and the early return
+  // below are dead by construction. leaving them in as a safety net
+  // rather than betting every future caller replicates the same guard
   /* c8 ignore next 2 */
   const system = options.parseNumberingSystem ?? 'latn';
   if (system === 'latn') return s;
   return convertDigitsToAscii(s, system);
 }
 
-// Suppress unused-import warning. DEFAULT_LOCALE is imported for the
-// type augmentation pattern above; if the project ever exports a
-// typed-locale interface, it'll be the source of truth for the default.
+// this is just to stop TS complaining about an unused import — DEFAULT_LOCALE
+// is imported for the type augmentation pattern above. if this project
+// ever ships a typed-locale interface, that'll be the real source of truth
 void DEFAULT_LOCALE;

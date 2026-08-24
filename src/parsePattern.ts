@@ -6,58 +6,59 @@ function escapeRegExp(literal: string): string {
   return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// Guards against catastrophic-backtracking (ReDoS) patterns.
+// this guards against catastrophic backtracking (ReDoS) in the generated regex.
 //
-// Every confirmed ReDoS in this library shares one shape: two or more
-// variable-width digit-consuming regex fragments placed so the engine
-// can't tell where one ends and the next begins — either glued with no
-// separator ("MdMdMd…", "HmsHms…") or separated only by a literal that
-// itself starts with a digit ("M1M1M1…", "yyyy1yyyy1…"). Each fragment
-// then has multiple ways to divide the digit run, and a failing match
-// makes the engine explore every combination — exponential in the number
-// of fragments. Measured against the pre-fix code: "Md"×13 (26-char
-// format, 40-char input) ≈ 2.7 s; "yyyy1"×8 (48-char format) ≈ 26 s;
-// both grow roughly ×3–14 per additional fragment.
+// every ReDoS we've actually found in this lib has the same shape: two+
+// variable-width digit-consuming regex fragments sitting next to each other
+// with nothing to tell the engine where one ends and the next starts —
+// either glued straight together ("MdMdMd...", "HmsHms...") or separated
+// only by a literal that itself starts with a digit ("M1M1M1...",
+// "yyyy1yyyy1..."). each fragment then has multiple ways to split up the
+// digit run, and on a failing match the engine tries every combination —
+// exponential in the number of fragments. measured this against the old
+// code: "Md"×13 (26-char format, 40-char input) took about 2.7s; "yyyy1"×8
+// (48-char format) took about 26s. both roughly ×3-14 worse per extra
+// fragment, so it gets bad fast.
 //
-// Three structural defenses, applied at pattern-build time:
+// three fixes, all at pattern-build time:
 //
-//  1. A run of 2+ glued unpadded-numeric tokens is emitted as ONE
-//     bounded digit group `(?<rN>\d{R,2R})` instead of R separate
-//     variable-width fragments. The per-token split is resolved after
-//     the match by enumerateValidSplits() (pattern.ts) — the exact
-//     machinery parse() already used to detect ambiguous glued runs —
-//     so the documented behavior (unique split resolves; 2+ valid
-//     splits throws in strict mode / heuristic-picks in lenient; 0
-//     splits is a mismatch) is preserved. A lone `\d{R,2R}` group
-//     backtracks at most R+1 times, which is linear.
+//  1. a run of 2+ glued unpadded-numeric tokens now becomes ONE bounded
+//     digit group `(?<rN>\d{R,2R})` instead of R separate variable-width
+//     fragments. the per-token split still gets resolved after the match,
+//     via enumerateValidSplits() in pattern.ts — same machinery parse()
+//     already used for detecting ambiguous glued runs, so behavior's
+//     unchanged (unique split resolves, 2+ valid splits throws in strict
+//     mode / gets heuristic-picked in lenient, 0 splits is a mismatch).
+//     a lone \d{R,2R} group only backtracks R+1 times max — linear, not
+//     exponential.
 //
-//  2. yyyy uses the exact `-?\d{4}` fragment not only when the next
-//     *token* is digit-leading (existing rule) but also when the next
-//     *literal* starts with a digit. An open-ended `-?\d{4,}` year
-//     glued to a digit literal is the cheapest exponential engine
-//     there is (unbounded width choices per year), and the exact form
-//     matches everything the open-ended form matched in that position
-//     except years with 5+ digits glued directly to an unquoted digit
-//     literal — a pathological corner deliberately traded away.
+//  2. yyyy now uses the exact -?\d{4} fragment not just when the next
+//     TOKEN is digit-leading (that rule already existed) but also when
+//     the next LITERAL starts with a digit. an open-ended -?\d{4,} year
+//     glued right up against a digit literal is basically the cheapest
+//     possible exponential blowup (unbounded width choices per year), and
+//     the exact form still matches everything the open form did in that
+//     spot except 5+ digit years glued directly to an unquoted digit
+//     literal — a genuinely pathological edge case we're fine trading away.
 //
-//  3. An ambiguity budget for what's left: every adjacency between a
-//     variable-width digit consumer (a lone unpadded token, or a glued
-//     run group) and a digit-consuming successor (a digit-leading token
-//     or a literal starting with a digit) costs log2 of the consumer's
-//     width choices. A pattern whose total exceeds MAX_AMBIGUITY_BITS
-//     (12 — a hard ceiling of 4096 backtrack paths) is rejected at
-//     build time with a FormatSyntaxError. Realistic format strings
-//     score 0–3; the "M1M1M1…" attack scores one bit per glued pair.
+//  3. for whatever's left: every adjacency between a variable-width digit
+//     consumer (lone unpadded token, or a glued-run group) and a
+//     digit-consuming successor costs log2 of the consumer's width
+//     choices, added to a running "ambiguity budget". go over
+//     MAX_AMBIGUITY_BITS (12 — hard ceiling of 4096 backtrack paths) and
+//     we just reject the format string at build time with a
+//     FormatSyntaxError. normal format strings score 0-3. the
+//     "M1M1M1..." attack pattern scores one bit per glued pair.
 const MAX_AMBIGUITY_BITS = 12;
 
 function widthChoicesBits(choices: number): number {
   return Math.ceil(Math.log2(Math.max(choices, 1)));
 }
 
-// Does this piece's regex fragment START by consuming a bare digit?
-// (Tokens whose match can begin with 0-9, and literals whose first
-// character is a digit.) Used to find the boundaries where a preceding
-// variable-width digit consumer could trade digits with a successor.
+// does this piece's regex fragment start by eating a bare digit? (tokens
+// that can match starting with 0-9, and literals whose first char is a
+// digit.) used to spot the boundaries where a variable-width digit
+// consumer before it could end up trading digits with whatever follows
 function isDigitConsumingStart(piece: Piece | undefined): boolean {
   if (piece === undefined) return false;
   if (piece.kind === 'literal') return /^[0-9]/.test(piece.value);
@@ -67,14 +68,14 @@ function isDigitConsumingStart(piece: Piece | undefined): boolean {
 export interface CapturingPattern {
   regex: RegExp;
   groups: Array<{ name: string; token: string }>; // token pieces, in order
-  // Runs of 2+ adjacent unpadded-numeric tokens with no literal separator
-  // between them (e.g. "Md", "Hms"). Each run is captured by ONE regex
-  // group named `groupName` spanning the run's whole digit run
-  // (R..2·R digits); per-token values come from enumerateValidSplits()
-  // at match time. `groupNames` lists the per-token group names — they
-  // appear in `groups` for structure/positions but have no counterpart
-  // in the regex itself, so consumers must read their values from the
-  // split enumeration, not from match.groups.
+  // runs of 2+ adjacent unpadded-numeric tokens glued together with no
+  // literal separator (e.g. "Md", "Hms"). each run gets captured by ONE
+  // regex group named `groupName` spanning the whole digit run (R..2R
+  // digits) — per-token values get pulled out later by
+  // enumerateValidSplits() at match time. `groupNames` is the per-token
+  // group names, which show up in `groups` for structure/position but
+  // don't actually exist in the regex itself, so anyone consuming this
+  // needs to read values from the split enumeration, not match.groups
   ambiguousRuns: Array<{ groupName: string; groupNames: string[]; tokens: string[] }>;
 }
 
@@ -91,43 +92,44 @@ export function buildCapturingPattern(pieces: Piece[], locale: string): Capturin
   let i = 0;
   let ambiguityBits = 0;
 
-  // Tracks the current run of adjacent unpadded-numeric token pieces (no
-  // literal or non-unpadded token has broken it yet). Names are recorded
-  // in declaration order so a run of 2+ can emit one group while its
-  // member tokens still get individual entries in `groups`.
+  // tracks the current run of adjacent unpadded-numeric pieces (nothing's
+  // broken it yet — no literal, no non-unpadded token). names get recorded
+  // in order so a run of 2+ can collapse into one group while each token
+  // still gets its own entry in `groups`
   let currentRun: { names: string[]; tokens: string[] } = { names: [], tokens: [] };
 
   const flushRun = (nextPiece: Piece | undefined) => {
     if (currentRun.tokens.length === 1) {
-      // A lone unpadded token: emit its normal (two-way) fragment. Two
-      // width choices are harmless on their own; if the next element
-      // can consume a digit, charge one ambiguity bit for the boundary.
+      // a lone unpadded token just gets its normal two-way fragment.
+      // two width choices on their own aren't a problem; only charge an
+      // ambiguity bit if the next thing can also eat a digit
       const name = currentRun.names[0]!;
       const token = currentRun.tokens[0]!;
       source += `(?<${name}>${tokenFragment(token, locale)})`;
       if (isDigitConsumingStart(nextPiece)) ambiguityBits += 1;
     } else if (currentRun.tokens.length >= 2) {
-      // Emit the accumulated run as ONE bounded digit group. R unpadded
-      // tokens accept between R and 2R digits in total; anything outside
-      // that span can't match regardless of how the digits split, so the
-      // single group's acceptance region is exactly the union of the old
-      // per-token fragments' regions. Backtracking into this group is
-      // bounded at R+1 width choices — linear, not exponential.
+      // emit the whole accumulated run as ONE bounded digit group. R
+      // unpadded tokens together accept somewhere between R and 2R digits
+      // total, and anything outside that range can't match no matter how
+      // you split it — so this single group covers exactly the same
+      // territory the old per-token fragments did, just without the
+      // combinatorial backtracking. worst case here is R+1 width choices,
+      // which is linear
       const runName = `r${i++}`;
       const tokenCount = currentRun.tokens.length;
       source += `(?<${runName}>\\d{${tokenCount},${tokenCount * 2}})`;
-      // Note: no `groups` entry for the run group itself — `groups` lists
-      // per-token pieces only (its members were already pushed when
-      // visited), so consumers like parseToParts see exactly one entry
-      // per token, same as before this run-group change. The regex group
-      // is reached through ambiguousRuns[].groupName.
+      // note: no `groups` entry for the run group itself — `groups` only
+      // lists per-token pieces (already pushed when we visited them), so
+      // consumers like parseToParts still see exactly one entry per token,
+      // same as before this run-group thing existed. the regex group
+      // itself is only reachable through ambiguousRuns[].groupName
       ambiguousRuns.push({
         groupName: runName,
         groupNames: currentRun.names,
         tokens: currentRun.tokens,
       });
-      // A run group adjacent to a digit-consuming successor keeps its
-      // (R+1) width choices at that boundary — charge the budget.
+      // a run group next to a digit-consuming successor still keeps its
+      // (R+1) width choices at that boundary, so charge the budget for it
       if (isDigitConsumingStart(nextPiece)) {
         ambiguityBits += widthChoicesBits(tokenCount + 1);
       }
@@ -143,8 +145,9 @@ export function buildCapturingPattern(pieces: Piece[], locale: string): Capturin
     }
 
     if (UNPADDED_NUMERIC_TOKENS.has(piece.value)) {
-      // Part of a (potential) glued run — defer fragment emission to
-      // flushRun so a run of 2+ collapses into one bounded group.
+      // part of a (possible) glued run — hold off emitting the fragment
+      // and let flushRun deal with it, so 2+ in a row collapse into one
+      // bounded group instead of staying separate
       const name = `g${i++}`;
       groups.push({ name, token: piece.value });
       currentRun.names.push(name);
@@ -158,12 +161,13 @@ export function buildCapturingPattern(pieces: Piece[], locale: string): Capturin
     const nextPiece = pieces[idx + 1];
     const nextToken = nextPiece?.kind === 'token' ? nextPiece.value : undefined;
 
-    // "y" has no bounded fallback the way yyyy does (see tokenFragment in
-    // pattern.ts) — it's unpadded by definition, so there's no narrower
-    // fixed-width shape to fall back to. A run of "any number of digits"
-    // immediately next to another digit consumer has no finite ambiguity
-    // score to charge against MAX_AMBIGUITY_BITS below, so this is
-    // refused outright at build time instead of estimated.
+    // "y" doesn't have a bounded fallback the way yyyy does (check
+    // tokenFragment in pattern.ts) — it's unpadded by definition, so
+    // there's no narrower fixed-width shape underneath it to fall back
+    // to. "any number of digits" sitting right next to another digit
+    // consumer has no finite ambiguity score we could charge against
+    // MAX_AMBIGUITY_BITS, so we just refuse it outright at build time
+    // instead of trying to estimate something
     if (UNBOUNDED_WIDTH_TOKENS.has(piece.value) && isDigitConsumingStart(nextPiece)) {
       throw new FormatSyntaxError({
         reason:
@@ -173,12 +177,11 @@ export function buildCapturingPattern(pieces: Piece[], locale: string): Capturin
       });
     }
 
-    // yyyy picks its fragment based on what follows: the exact 4-digit
-    // form whenever a digit-consuming element comes next (digit-leading
-    // token — the pre-existing rule — OR a literal starting with a
-    // digit, added by the ReDoS fix; see the guard block above). The
-    // open-ended form is only safe when nothing digit-consuming can
-    // follow it.
+    // yyyy's fragment depends on what comes next: exact 4-digit form
+    // whenever something digit-consuming follows (digit-leading token —
+    // the original rule — OR a literal starting with a digit, added as
+    // part of the ReDoS fix above). the open-ended form is only safe
+    // when nothing digit-consuming can come right after it
     if (piece.value === 'yyyy' && nextToken === undefined && isDigitConsumingStart(nextPiece)) {
       source += `(?<${name}>${tokenFragment(piece.value, locale, 'M')})`;
     } else {
@@ -197,11 +200,11 @@ export function buildCapturingPattern(pieces: Piece[], locale: string): Capturin
     });
   }
 
-  // 'd' flag enables match.indices.groups — used by parseToParts to
-  // report each token's actual position in the input. Without it,
-  // computing per-group positions would require a separate walk of the
-  // piece list against the input, duplicating logic the regex already
-  // has. Backward-compatible: 'd' only adds an `indices` property to
-  // the match result, no behavioral change to the match itself.
+  // the 'd' flag turns on match.indices.groups, which parseToParts uses
+  // to report where each token actually landed in the input. without it
+  // we'd need a whole separate walk of the piece list against the input
+  // to compute positions — duplicating logic the regex engine's already
+  // doing for us. safe to add: 'd' only adds an `indices` property to
+  // the result, doesn't change matching behavior at all
   return { regex: new RegExp(`^(?:${source})$`, 'ud'), groups, ambiguousRuns };
 }
