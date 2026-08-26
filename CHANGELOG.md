@@ -4,6 +4,43 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.31 — 2026-08-26 (`3de711c`)
+### Changed
+- `temporal-polyfill` moved from `optionalDependencies` to
+  `devDependencies`. It was never imported by anything under `src/` —
+  the two hits there were a JSDoc example and a string in an error
+  message, not real code — so the library itself has no runtime
+  coupling to it. The CLI (`scripts/cli.mjs`) is the one place that
+  genuinely needs it, as a fallback for `globalThis.Temporal` on Node
+  below 26; `temporal-fmt` now ships with zero dependencies of any
+  kind, and the CLI installs the polyfill lazily instead. Socket.dev's
+  supply-chain score for `temporal-fmt` was inheriting an alert from a
+  benign URL string in `temporal-polyfill`'s own README (a CDN
+  `<script src>` example, flagged by a scanner that can't tell
+  documentation from code that runs) — dropping the dependency removes
+  that inheritance, at the cost of Node <26 users now needing to
+  install a polyfill themselves before running the CLI for the first
+  time, rather than it happening for them silently.
+- `scripts/cli.mjs` no longer auto-imports `temporal-polyfill/full`
+  when `globalThis.Temporal` is missing. It now tries the import,
+  and if that fails (nothing installed), prints an explicit
+  `npm install temporal-polyfill` instruction and exits, instead of
+  the import throwing an opaque module-not-found error.
+- Publish builds are unminified. `prepublishOnly` now runs the plain
+  `build` script instead of `build:publish`, and the release
+  workflow's minified rebuild + verify-minified gate are commented out
+  rather than removed. Socket.dev flags minified npm packages as a
+  Quality issue regardless of accompanying source maps, and the ~20KB
+  saved wasn't worth that hit. `build:publish` (`TSUP_MINIFY=true`)
+  is untouched and still runnable directly — re-enabling minified
+  publishes is a two-line revert: point `prepublishOnly` back at
+  `build:publish`, uncomment the two workflow steps.
+
+### Docs
+- README's CLI section now notes that Node <26 users need to
+  `npm install temporal-polyfill` themselves; the CLI no longer pulls
+  it in automatically.
+
 ## 0.9.3 — 2026-08-24 (`050e5e7`)
 ### Fixed
 - `formatOffset()` assumed every offset string was exactly 6 characters
