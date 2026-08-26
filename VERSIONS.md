@@ -24,17 +24,46 @@ fixes. Upgrade to `0.9.x` or `0.8.x` instead.
 
 Standing rule, applies every time — doesn't matter what the version
 numbers are. You can't move the LTS label from one line to the next
-(e.g. `0.7.x` → `0.8.x`) unless the current LTS line already cleared
-both of these first:
+(e.g. `0.7.x` → `0.8.x`) unless the current LTS line has shipped at
+least one security fix release of its own, tagged under that line.
+Example: `0.7.x` becomes LTS at `0.7.97` — it needs a `0.7.98` (or
+later) release that's specifically a security fix. A fix that only
+went out on main doesn't count.
 
-- **It's been LTS for at least 1 week.**
-- **It's shipped at least one security fix release of its own**, tagged
-  under that line. Example: `0.7.x` becomes LTS at `0.7.97` — it needs
-  a `0.7.98` (or later) release that's specifically a security fix. A
-  fix that only went out on main doesn't count.
+If `0.7.x` hasn't shipped that release yet, `0.8.x` can't take over as
+LTS and `0.7.x` can't go EOL. Once that box is checked, the handoff
+happens.
 
-If `0.7.x` hasn't hit both of those yet, `0.8.x` can't take over as LTS
-and `0.7.x` can't go EOL. Both boxes checked, then the handoff happens.
+## How a version becomes LTS
+
+Happens automatically the moment a new lineup ships. Whatever line was
+the latest active release right before the new one lands becomes LTS —
+it doesn't go EOL. So when `0.9.x` shipped, `0.8.x` didn't get dropped,
+it rolled into the LTS slot and picked up the rotation policy above.
+
+Same pattern repeats every time a new active line comes out — with one
+planned exception, see below.
+
+## Three-track support starting at 0.10.x
+
+`0.10.x` is a one-time expansion, not a normal handoff. When it ships,
+support goes from two tracks to three: `0.10.x` becomes active, `0.9.x`
+becomes LTS, and `0.8.x` stays LTS instead of going EOL. Nothing drops
+support at this release — it's the only point where the LTS count
+grows instead of rotating.
+
+From `0.11.x` onward, it's back to a steady rolling window, just sized
+at three instead of two: each new active release EOLs the *older* of
+the two current LTS lines, keeps the newer one as LTS, and demotes the
+outgoing active line into the newly-freed LTS slot. Example: at
+`0.11.x`, `0.8-lts` goes EOL, `0.9-lts` stays LTS, `0.10.x` becomes LTS
+alongside it, and `0.11.x` becomes active. The total stays capped at
+three supported lines (one active, two LTS) going forward — it never
+grows past that again.
+
+Same security-fix-release requirement from the rotation policy applies
+to every line in the three-track window; there's no separate rule for
+the second LTS slot.
 
 ## Breaking / behavior changes by version
 
@@ -91,3 +120,9 @@ on, or that could change existing behavior:
   (`err.name` reports the subclass name instead, e.g.
   `'FormatSyntaxError'`). If that matters to you, stay on `0.8.x`, which
   is now LTS and keeps the old plain-`Error` behavior.
+
+## Historical reference
+
+This LTS handoff pattern isn't new — it started with the `0.6.x`
+lineup, which was the first line ever designated LTS when `0.7.x`
+became active.
