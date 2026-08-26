@@ -1,9 +1,9 @@
 # Security Policy
 
-For which versions get fixes (including which ones are fixes-only, only
-when backportable, or fully end-of-life) and behavior changes across
-versions that affect whether upgrading actually resolves something you're
-hitting, see [VERSIONS.md](VERSIONS.md).
+For which lines currently get fixes, whether that's fixes-only or full
+support, and what's fully end-of-life, see [VERSIONS.md](VERSIONS.md) —
+that's the file that actually needs updating as versions move, not this
+one.
 
 ## Reporting a vulnerability
 
@@ -13,10 +13,9 @@ That gets it to us without publishing the details (or the exploit) before
 there's a fix.
 
 Include what you'd include in a normal bug report: the token string and
-input that trigger it, what you expected, what actually happened. If it's
-specific to a runtime or `Temporal` polyfill version, mention that too —
-that's what tells us whether it needs to be fixed on `0.8.x` or
-backported to `0.7.x`.
+input that trigger it, what you expected, what actually happened. If
+it's specific to a runtime or `Temporal` polyfill version, say so — that's
+what tells us which supported line it needs fixing (or backporting) on.
 
 We'll acknowledge reports within a few days and let you know if it's
 confirmed as a real issue. Once there's a fix, we'll credit you in the
