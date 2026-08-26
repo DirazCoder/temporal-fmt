@@ -44,20 +44,20 @@ it rolled into the LTS slot and picked up the rotation policy above.
 Same pattern repeats every time a new active line comes out — with one
 planned exception, see below.
 
-## Three-track support starting at 1.0.x
+## Three-track support starting at 0.10.x
 
-`1.0.x` is a one-time expansion, not a normal handoff. When it ships,
-support goes from two tracks to three: `1.0.x` becomes active, `0.9.x`
+`0.10.x` is a one-time expansion, not a normal handoff. When it ships,
+support goes from two tracks to three: `0.10.x` becomes active, `0.9.x`
 becomes LTS, and `0.8.x` stays LTS instead of going EOL. Nothing drops
 support at this release — it's the only point where the LTS count
 grows instead of rotating.
 
-From `1.1.x` onward, it's back to a steady rolling window, just sized
+From `0.11.x` onward, it's back to a steady rolling window, just sized
 at three instead of two: each new active release EOLs the *older* of
 the two current LTS lines, keeps the newer one as LTS, and demotes the
 outgoing active line into the newly-freed LTS slot. Example: at
-`1.1.x`, `0.8-lts` goes EOL, `0.9-lts` stays LTS, `1.0.x` becomes LTS
-alongside it, and `1.1.x` becomes active. The total stays capped at
+`0.11.x`, `0.8-lts` goes EOL, `0.9-lts` stays LTS, `0.10.x` becomes LTS
+alongside it, and `0.11.x` becomes active. The total stays capped at
 three supported lines (one active, two LTS) going forward — it never
 grows past that again.
 
