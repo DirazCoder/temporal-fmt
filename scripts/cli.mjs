@@ -21,11 +21,23 @@ import {
   translateDayjsFormatString, translateDateFnsFormatString,
 } from '../dist/index.js';
 
-// Native Temporal (Node 26+) needs no extra install; older Node falls
-// back to the polyfill, imported lazily so a Node 26+ user running this
-// CLI never pays for loading it.
-const Temporal = globalThis.Temporal ?? (await import('temporal-polyfill/full')).Temporal;
-setTemporal(Temporal);
+// Native Temporal (Node 26+) needs no extra install. Below that, this
+// package no longer bundles a polyfill as a dependency (see README ->
+// Providing Temporal) — the user installs one themselves so temporal-fmt
+// itself stays dependency-free.
+let Temporal = globalThis.Temporal;
+if (!Temporal) {
+  try {
+    ({ Temporal } = await import('temporal-polyfill/full'));
+  } catch {
+    console.error(
+      'temporal-fmt: no global Temporal found (needs Node 26+, or a polyfill).\n' +
+      'Run: npm install temporal-polyfill'
+    );
+    process.exit(1);
+  }
+  setTemporal(Temporal);
+}
 
 const USAGE = `temporal-fmt CLI
 

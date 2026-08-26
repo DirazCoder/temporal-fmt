@@ -836,6 +836,8 @@ A handful of functions exist specifically to feed editor tooling — autocomplet
 
 The CLI ships in this package (`scripts/cli.mjs`) and reads/writes stdin/stdout. Run it via `npm run cli` inside a checkout of this repo, or `node scripts/cli.mjs` directly. Called with a subcommand it runs once and exits, same as any Unix tool — fine for scripts and CI:
 
+On Node 26+ the CLI uses native `Temporal` and needs nothing extra. Below that, it looks for a globally-installed [`temporal-polyfill`](https://github.com/fullcalendar/temporal-polyfill) and exits with an install hint if it can't find one — `temporal-fmt` itself ships with zero dependencies, so this one's on you: `npm install temporal-polyfill`.
+
 ```sh
 temporal-fmt format "2026-08-04T15:45:30" "yyyy-MM-dd HH:mm:ss"
 temporal-fmt parse "yyyy-MM-dd" "2026-08-04"
