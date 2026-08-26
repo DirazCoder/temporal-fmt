@@ -36,6 +36,18 @@ both of these first:
 If `0.7.x` hasn't hit both of those yet, `0.8.x` can't take over as LTS
 and `0.7.x` can't go EOL. Both boxes checked, then the handoff happens.
 
+## How a version becomes LTS
+
+Happens automatically the moment a new lineup ships. Whatever line was
+the latest active release right before the new one lands becomes LTS —
+it doesn't go EOL. So when `0.9.x` shipped, `0.8.x` didn't get dropped,
+it rolled into the LTS slot and picked up the rotation policy above.
+
+Same pattern repeats every time a new active line comes out: the
+previous active line becomes the new LTS, and whatever was LTS before
+that is now eligible for EOL once it clears both conditions in the
+rotation policy.
+
 ## Breaking / behavior changes by version
 
 Changes that affect whether upgrading resolves something you're relying
@@ -91,3 +103,9 @@ on, or that could change existing behavior:
   (`err.name` reports the subclass name instead, e.g.
   `'FormatSyntaxError'`). If that matters to you, stay on `0.8.x`, which
   is now LTS and keeps the old plain-`Error` behavior.
+
+## Historical reference
+
+This LTS handoff pattern isn't new — it started with the `0.6.x`
+lineup, which was the first line ever designated LTS when `0.7.x`
+became active.
