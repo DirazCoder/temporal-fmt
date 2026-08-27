@@ -1,9 +1,12 @@
 # temporal-fmt 🥶🔥
 
 ![coverage](https://img.shields.io/badge/coverage-100%25%20(c8)-brightgreen?style=flat-square)
+[![format subpath size](https://img.shields.io/bundlephobia/minzip/temporal-fmt?path=format&label=format%20subpath)](https://bundlephobia.com/package/temporal-fmt)
+[![parse subpath size](https://img.shields.io/bundlephobia/minzip/temporal-fmt?path=parse&label=parse%20subpath)](https://bundlephobia.com/package/temporal-fmt)
 
-Format `Temporal.PlainDate` / `PlainTime` / `PlainDateTime` / `ZonedDateTime` objects
-using date-fns-style token strings.
+Format and parse `Temporal` values (`PlainDate`, `PlainTime`, `PlainDateTime`,
+`ZonedDateTime`) using date-fns-style tokens, with real validation — bad input
+throws instead of silently returning garbage. Locale-aware, no deps.
 
 Node 26 shipped native `Temporal` and then pointedly left out a custom-string
 formatter. TC39's take: use `Intl.DateTimeFormat` and leave string-token syntax
@@ -12,7 +15,8 @@ muscle memory from date-fns, moment, or dayjs, that's a rough adjustment. This
 library exists so you don't have to make it.
 
 Zero dependencies. Native on Node 26+, or bring your own via a polyfill or
-`setTemporal()`.
+`setTemporal()`. Import from a subpath (`temporal-fmt/format`, `temporal-fmt/parse`,
+etc.) to pull in only what you use — see [Subpath imports](#subpath-imports).
 
 Locale-aware tokens need Node 20+ regardless of which path you use — native
 on 26+, or falling back to the Temporal implementation's own
@@ -26,10 +30,27 @@ npm install temporal-fmt
 
 [View on npm](https://www.npmjs.com/package/temporal-fmt)
 
-This library is genuinely large — locales, recurrence, business calendars, timezone disambiguation, an analyzer, config layers, custom token extensibility, a CLI. A substantial amount of configuration and customization is packed in here. But none of that is required reading. The reason this library exists in the first place is formatting and parsing dates with token strings, and that part stays simple: `format(temporal, formatStr)` and `parse(formatStr, input)`, the same shape as date-fns or Day.js. Read [Providing `Temporal`](#providing-temporal) and [Formatting](#formatting)/[Parsing](#parsing), and you're covered for the common case — everything past that is there for when you actually need it, not before.
+## Get started
+
+```js
+import { format } from 'temporal-fmt/format';
+import { parse } from 'temporal-fmt/parse';
+
+const date = Temporal.PlainDate.from('2026-08-04');
+format(date, 'yyyy-MM-dd');                       // "2026-08-04"
+
+parse('yyyy-MM-dd HH:mm', '2026-08-04 15:45');    // Temporal.PlainDateTime
+```
+
+That's the whole library for most use cases — `format(temporal, formatStr)` in, `parse(formatStr, input)` out, same shape as date-fns or Day.js. Import from the subpaths (`temporal-fmt/format`, `temporal-fmt/parse`) shown above, not the bare `temporal-fmt` package — a bundler only ships what you actually call that way. Measured with esbuild: ~27KB for `format` alone via the subpath, versus ~68KB for the same function pulled from the bare import.
+
+Below Node 26, `Temporal` isn't global yet, so you'll need a polyfill first — see [Providing `Temporal`](#providing-temporal). On Node 26+ the snippet above just works.
+
+The package looks large on npm — locales, recurrence, business calendars, timezone disambiguation, an analyzer, config layers, a CLI — but none of that is required reading or required bundle weight. It's there behind its own subpaths for when you need it; see [Subpath imports](#subpath-imports) for the full list and [Formatting](#formatting)/[Parsing](#parsing) for the details on the two functions above.
 
 ## Contents
 
+- [Get started](#get-started)
 - [Providing `Temporal`](#providing-temporal)
 - [Formatting](#formatting)
 - [Parsing](#parsing)
@@ -71,7 +92,8 @@ Use a polyfill like [`temporal-polyfill`](https://github.com/fullcalendar/tempor
 
 ```js
 import 'temporal-polyfill/global'
-import { format, parse } from 'temporal-fmt';
+import { format } from 'temporal-fmt/format';
+import { parse } from 'temporal-fmt/parse';
 
 parse(...);
 ```
@@ -82,7 +104,9 @@ Set a Temporal implementation explicitly, once, before your app's first `format(
 
 ```js
 import { Temporal } from 'temporal-polyfill/full';
-import { setTemporal, format, parse } from 'temporal-fmt';
+import { setTemporal } from 'temporal-fmt';
+import { format } from 'temporal-fmt/format';
+import { parse } from 'temporal-fmt/parse';
 
 setTemporal(Temporal); // once, before using format or parse
 ```
@@ -94,7 +118,7 @@ Anything that constructs a `Temporal` value from scratch needs this — `parse()
 ## Formatting
 
 ```js
-import { format } from 'temporal-fmt';
+import { format } from 'temporal-fmt/format';
 
 const date = Temporal.PlainDate.from('2026-08-04');
 format(date, 'yyyy-MM-dd');           // "2026-08-04"
@@ -120,7 +144,7 @@ Try a token your input type doesn't support — `HH` on a `PlainDate`, say — a
 `parse()` builds a real `Temporal.PlainDate` / `PlainTime` / `PlainDateTime` / `ZonedDateTime` out of a string, picking whichever type fits the tokens present:
 
 ```js
-import { parse } from 'temporal-fmt';
+import { parse } from 'temporal-fmt/parse';
 
 parse('yyyy-MM-dd HH:mm', '2026-08-04 15:45');    // Temporal.PlainDateTime
 parse('yyyy-MM', '2026-08-04T15:45:30');          // throws — shape doesn't match
@@ -889,6 +913,8 @@ import { registerLocale } from 'temporal-fmt/locale';
 ```
 
 The rest of the API (arithmetic, comparison, rounding, intervals-adjacent helpers not listed above, business calendars, holidays, serialization, config, type guards, typed errors, the analyzer, and IDE tooling data) is only available from the main `temporal-fmt` entry point — there's no dedicated subpath for those yet.
+
+`sideEffects: false` is set in `package.json`, so a bundler with tree-shaking enabled genuinely drops what you don't import. Measured with esbuild: `import { format } from 'temporal-fmt/format'` bundles to ~27KB, versus ~68KB for the same single function pulled from the bare `temporal-fmt` entry — the main entry point re-exports everything, so anything imported from it drags the whole graph along regardless of what you actually call. If bundle size matters for your use case, import from the subpath, not the package root.
 
 ## Migrating from Day.js or date-fns
 
