@@ -4,8 +4,131 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.32 — 2026-08-27 (`68963e1`)
+### Docs
+- README quickstart was steering people into the expensive import
+  path. Every code sample under "Providing `Temporal`", "Formatting",
+  and "Parsing" imported `format`/`parse` from the bare `temporal-fmt`
+  entry point — which works, but the main entry re-exports everything
+  in the package, so a bundler pulls the whole graph in regardless of
+  which function you actually call. Those samples now import from
+  `temporal-fmt/format` and `temporal-fmt/parse` instead. Measured
+  with esbuild: ~27KB for `format` alone via the subpath, versus
+  ~68KB for the same single function through the bare import — the
+  subpath imports aren't new, they just weren't what the docs led
+  with.
+- Added a "Get started" section right after Install: a four-line
+  working example (one `format()` call, one `parse()` call, both via
+  subpaths) before any discussion of package size or scope. Previously
+  the fastest path to running code was scattered across three
+  sections (Install → Providing `Temporal` → Formatting); now it's
+  one.
+- Added the measured 27KB/68KB numbers directly to the Subpath
+  imports section, so the tree-shaking claim isn't just asserted —
+  `sideEffects: false` is set in `package.json`, and this documents
+  what it actually gets you.
+- Added two bundlephobia badges (`format` and `parse` subpaths) next
+  to the existing coverage badge, so subpath size is visible without
+  digging into the docs.
+- Rewrote the top-of-file description to match what the library
+  actually does now (`format` + `parse`, real validation, locale
+  support) instead of the original one-liner, which only mentioned
+  formatting and predated the parse API entirely.
+
+### Changed
+- `package.json`'s `description` field was still the pre-parse
+  wording (`"Format Temporal.PlainDate/PlainDateTime/PlainTime/
+  ZonedDateTime objects using date-fns-style token strings."`) —
+  stale since parsing shipped. Updated to match the README's
+  description.
+
+## 0.9.31 — 2026-08-26 (`3de711c`)
+### Changed
+- `temporal-polyfill` moved from `optionalDependencies` to
+  `devDependencies`. It was never imported by anything under `src/` —
+  the two hits there were a JSDoc example and a string in an error
+  message, not real code — so the library itself has no runtime
+  coupling to it. The CLI (`scripts/cli.mjs`) is the one place that
+  genuinely needs it, as a fallback for `globalThis.Temporal` on Node
+  below 26; `temporal-fmt` now ships with zero dependencies of any
+  kind, and the CLI installs the polyfill lazily instead. Socket.dev's
+  supply-chain score for `temporal-fmt` was inheriting an alert from a
+  benign URL string in `temporal-polyfill`'s own README (a CDN
+  `<script src>` example, flagged by a scanner that can't tell
+  documentation from code that runs) — dropping the dependency removes
+  that inheritance, at the cost of Node <26 users now needing to
+  install a polyfill themselves before running the CLI for the first
+  time, rather than it happening for them silently.
+- `scripts/cli.mjs` no longer auto-imports `temporal-polyfill/full`
+  when `globalThis.Temporal` is missing. It now tries the import,
+  and if that fails (nothing installed), prints an explicit
+  `npm install temporal-polyfill` instruction and exits, instead of
+  the import throwing an opaque module-not-found error.
+- Publish builds are unminified. `prepublishOnly` now runs the plain
+  `build` script instead of `build:publish`, and the release
+  workflow's minified rebuild + verify-minified gate are commented out
+  rather than removed. Socket.dev flags minified npm packages as a
+  Quality issue regardless of accompanying source maps, and the ~20KB
+  saved wasn't worth that hit. `build:publish` (`TSUP_MINIFY=true`)
+  is untouched and still runnable directly — re-enabling minified
+  publishes is a two-line revert: point `prepublishOnly` back at
+  `build:publish`, uncomment the two workflow steps.
+
+### Docs
+- README's CLI section now notes that Node <26 users need to
+  `npm install temporal-polyfill` themselves; the CLI no longer pulls
+  it in automatically.
+
+## 0.9.3 — 2026-08-24 (`050e5e7`)
+### Fixed
+- `formatOffset()` assumed every offset string was exactly 6 characters
+  (sign, `HH`, `:`, `MM`) and never checked for a seconds component.
+  Verified against a real `Temporal.ZonedDateTime` for a pre-1900
+  `America/New_York` date: the actual offset is `-04:56:02`, 9
+  characters, because pre-1883 New York ran on local mean time. The old
+  code read that string's middle two digits as minutes regardless, so
+  `X` silently produced `-0402` — plausible-looking, wrong — instead of
+  refusing. `X`/`XX`/`XXX`/`x`/`xx` now throw when the offset carries
+  seconds (none of them have anywhere to put it); `xxx` passes the full
+  value through unchanged, since it's the one variant wide enough to
+  represent it.
+- `isValidTimeZone()` only checked membership in
+  `Intl.supportedValuesOf('timeZone')`, which lists canonical IANA zone
+  ids but not every link/alias name — `Asia/Kolkata`, a legitimate,
+  commonly-used alias for `Asia/Calcutta`, was rejected by `zzz` even
+  though `Temporal.ZonedDateTime.from()` itself resolves it without
+  complaint. Confirmed against `temporal-polyfill` directly before
+  changing anything. `isValidTimeZone()` now falls back to a real
+  `ZonedDateTime.from()` probe when the fast-path `Intl` lookup misses,
+  rather than trusting the `Intl` list alone.
+
+### Changed
+- Parsing a pattern with an offset token (`X`/`XX`/`XXX`/`x`/`xx`/`xxx`)
+  and no `zzz` used to build a `ZonedDateTime` from the offset alone —
+  deliberate, not an oversight, but an offset identifies a moment's
+  distance from UTC, not a time zone, and building a `ZonedDateTime`
+  from one alone papered over that distinction. This now throws; add
+  `zzz` to the pattern, or parse into `PlainDateTime`/`PlainDate`/
+  `PlainTime` if a zone genuinely isn't needed.
+- `H` combined with `a` used to cross-check instead of blanket-reject:
+  `13:05 PM` was accepted because 13:00 is consistent with PM, and only
+  a genuine contradiction like `01:05 PM` threw. `H` and `a` are now
+  refused together outright, unconditionally, matching `H`'s existing
+  behavior against `h`.
+
+### Added
+- `y` — an unpadded, variable-width year token. Existing `yyyy` (fixed
+  4 digits) and `yy` (2-digit, truncated) don't cover a bare year at
+  its natural width; `y` formats and parses one at any width, sign
+  preserved for years before ISO year 0. It has no bounded fallback the
+  way `yyyy` does when a digit-consuming token follows — unpadded width
+  is the entire point of `y`, so there's no narrower shape that still
+  means the same thing. `buildCapturingPattern()` refuses at build time
+  to place `y` directly next to another digit-reading token or a
+  digit-leading literal, rather than estimating an ambiguity cost for
+  an unbounded fragment.
+
 ## 0.9.2 — 2026-08-23 (`2a2bd05`)
-### Security
 - **ReDoS: three related classes of catastrophic backtracking in
   `parse()`'s compiled regex are closed**, all found by a full security
   audit that exploited each one against the real build before fixing it.
