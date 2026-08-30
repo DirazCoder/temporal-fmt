@@ -4,6 +4,72 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.4 — 2026-08-30 (`ac66e77`)
+### Added
+- A `mods/` folder, loaded by the CLI on startup — drop a `.mjs` file
+  in it and it's registered against the library automatically, no
+  publishing or build step required. Modeled on the Minecraft mods-
+  folder convention: the host looks for files and runs them, rather
+  than depending on a package. A mod default-exports `{ name,
+  register(ctx, config) }`, where `ctx` is the same registration API
+  (`registerLocale`, `registerLocaleVocab`, `registerRelativeGrammar`,
+  `createFormatter`, `createHolidayCalendar`) already documented under
+  Locales, Business calendars, and Extending with custom tokens.
+- `.tfmod` packaging for mods bigger than one file: a gzipped tar
+  containing `mod.json` (name/version/main/requires/priority/
+  temporalFmtVersion/config) plus `main.mjs` and an optional `data/`
+  directory. The manifest is readable without executing any code,
+  which is what makes dependency resolution happen before `main.mjs`
+  is ever imported. Extraction shells out to the system `tar` binary
+  rather than adding a parsing dependency.
+- `requires`/`priority` fields for controlling load order across
+  mods, resolved as a real dependency graph (Kahn's algorithm) rather
+  than just sorting by filename. Missing dependencies and circular
+  dependencies each fail only the mods involved; everything else still
+  loads.
+- Conflict reporting: if two mods register the same locale tag,
+  relative-time grammar, or custom token name, the load report says
+  which mod won (last-loaded wins, same as calling `registerLocale`
+  twice already did — this just makes it visible).
+- `ctx.overrideFormat` / `ctx.overrideParse`, plus the same
+  `overrideXxx()` shape for 79 more functions that have no internal
+  call sites in this library — the full list is in the README under
+  "Which functions are overridable." Unlike the additive registration
+  functions, only one mod may hold a given override point; a second
+  attempt fails immediately and names the mod that already owns it.
+- `temporalFmtVersion` in `mod.json` (exact version or `^` caret
+  range, same semantics as npm) — checked before `main.mjs` is
+  imported, so a mod built against a newer override surface fails
+  cleanly instead of throwing from inside `register()`.
+- Per-mod user settings: a `config` array in `mod.json` (string/
+  number/boolean/enum, with optional min/max/choices) resolved
+  against an optional `config/<mod-name>.json` file kept as a sibling
+  of `mods/`, not inside it, so re-downloading a `.tfmod` never
+  touches a user's settings. Unknown keys and out-of-range values are
+  reported and fall back to the schema default rather than failing
+  the whole mod.
+- `loadMods()` and `formatModLoadReport()` in `scripts/loadMods.mjs`
+  (CLI-only, not published — needs `fs`/`path`) for anyone embedding
+  `temporal-fmt` outside the CLI who wants the same loader; the
+  published, Node-agnostic pieces it depends on (`buildModContext()`,
+  `isMod()`) are exported from the library itself.
+
+### Changed
+- `src/index.ts`'s exports for `format`, `parse`, and 79 other
+  previously-direct re-exports now route through a small override
+  registry (`src/runtime.ts`) instead of re-exporting straight from
+  their source modules. This is what makes a mod's override reach
+  every internal caller — `formatRange()`'s own use of `format()`,
+  for instance — not just whoever imports `format` from the package
+  root.
+- `mergeWithConfig()`'s return type no longer asserts the merged
+  object back into the generic `T` it was called with; it now returns
+  its own actual shape (`T` plus the five config fields, each
+  optional). The old `as T & {...}` cast wasn't a guarantee a spread
+  could honestly make for an arbitrary caller-supplied `T`, and
+  `tsc` caught it once this generic got exercised through a real call
+  site (the override wrapper in `modApi.ts`).
+
 ## 0.9.32 — 2026-08-27 (`68963e1`)
 ### Docs
 - README quickstart was steering people into the expensive import

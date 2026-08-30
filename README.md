@@ -1,8 +1,6 @@
 # temporal-fmt 🥶🔥
 
 ![coverage](https://img.shields.io/badge/coverage-100%25%20(c8)-brightgreen?style=flat-square)
-[![format subpath size](https://img.shields.io/bundlephobia/minzip/temporal-fmt?path=format&label=format%20subpath)](https://bundlephobia.com/package/temporal-fmt)
-[![parse subpath size](https://img.shields.io/bundlephobia/minzip/temporal-fmt?path=parse&label=parse%20subpath)](https://bundlephobia.com/package/temporal-fmt)
 
 Format and parse `Temporal` values (`PlainDate`, `PlainTime`, `PlainDateTime`,
 `ZonedDateTime`) using date-fns-style tokens, with real validation — bad input
