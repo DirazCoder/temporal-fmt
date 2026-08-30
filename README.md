@@ -1172,7 +1172,9 @@ None of these bring down the CLI. A `mods/` folder that doesn't exist is the com
 
 ### Using mods outside the CLI
 
-`loadMods()` only exists in `scripts/loadMods.mjs`, not in the published library — it needs `fs`/`path`, and this package stays dependency-free and Node-agnostic on its actual import surface (`import { format } from 'temporal-fmt'` shouldn't drag in filesystem code for someone using this in a browser). If you're embedding `temporal-fmt` in your own app rather than using the CLI, copy that loader (or write your own — it's about 60 lines) and call it at your own startup with `buildModContext()` and `isMod()` from the library, which *are* published.
+`loadMods()` only exists in `scripts/loadMods.mjs`, not in the published library — it needs `fs`/`path`, and this package stays dependency-free and Node-agnostic on its actual import surface (`import { format } from 'temporal-fmt'` shouldn't drag in filesystem code for someone using this in a browser). If you're embedding `temporal-fmt` in your own app rather than using the CLI, copy that loader (or write your own — it's about 400+ lines) and call it at your own startup with `buildModContext()` and `isMod()` from the library, which *are* published.
+
+Mod support (loose `.mjs` mods, `.tfmod` archives, and everything under [Mods](#mods)) requires `temporal-fmt` 0.9.4 or later — that's the version it landed in.
 
 ## Subpath imports
 
