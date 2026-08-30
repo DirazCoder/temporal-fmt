@@ -895,11 +895,15 @@ temporal-fmt> exit
 
 Type a subcommand with all its arguments inline (`validate yyyy-MM-dd`) or just the subcommand name — the REPL prompts for whatever's missing, one field at a time. Errors print and the session keeps going; `exit`, `quit`, or Ctrl+D ends it. This is the same subcommand logic as one-shot mode, just wrapped in a loop that asks instead of exiting on a missing argument — one-shot stays there for scripting, and doesn't touch the REPL machinery.
 
-## Mods
+## Mods (advanced, optional)
+
+Most people don't need this. It's a feature I added just in case you want to fix or tweak something in the library without forking the whole thing — not something you're expected to reach for day to day. If you never touch `mods/`, nothing about normal usage changes for you.
+
+The mod-related scripts (`loadMods.mjs`, `modConfig.mjs`, `semverRange.mjs`) live in this repo's `scripts/` folder, but they're not part of what actually ships in the npm package — the published package only includes `cli.mjs` from that folder. So if you installed this from npm, those files simply aren't on disk in your `node_modules`; they're repo-only. See [Using mods outside the CLI](#using-mods-outside-the-cli) if you want to copy the loader out of this repo and use it yourself.
 
 `registerLocale`, `createHolidayCalendar`, and `createFormatter` are already how you extend this library without forking it — [Locales](#locales), [Business calendars and holidays](#business-calendars-and-holidays), and [Extending with custom tokens](#extending-with-custom-tokens) all cover them. Mods are just a delivery mechanism on top of those same functions: drop a file in a `mods/` folder, the CLI picks it up on startup and runs it. No publishing to npm, no build step in this repo, no manifest to register anywhere. If you've used a Minecraft mods folder, it's the same idea — a file the host looks for and loads, not a package the host depends on.
 
-This exists so bugfixes and locale corrections don't have to wait on a PR merging and a release going out. If en-GB's holiday list is wrong for your team, or a locale you need isn't covered yet, write a mod and drop it in. Whether it ever gets upstreamed into this repo is a separate question from whether it works today.
+This exists so bugfixes and locale corrections don't have to wait on a PR merging and a release going out. If en-GB's holiday list is wrong for your team, a locale you need isn't covered yet, or you want to shave overhead off a hot path, write a mod and drop it in. It's not the right tool for genuinely new capability — if you're building something the override surface can't express, that's a sign to open an issue or PR the feature into the library itself, not to keep stretching a mod to cover it. Whether a given fix ever gets upstreamed into this repo is a separate question from whether it works today as a mod.
 
 ### Writing a mod
 
