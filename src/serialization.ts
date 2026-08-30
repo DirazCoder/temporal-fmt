@@ -12,6 +12,7 @@
 
 import { parse } from './parse.js';
 import { format } from './format.js';
+import { getFormatImpl, getParseImpl } from './runtime.js';
 import { getTemporal, type TemporalNamespace } from './temporalProvider.js';
 import { FormatSyntaxError, InvalidDateError } from './errors.js';
 
@@ -391,11 +392,12 @@ export function toUnixNanoseconds(value: unknown): bigint {
 // consistent.
 export function parseSQL(input: string): unknown {
   const trimmed = input.trim();
+  const parseImpl = getParseImpl();
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return parse('yyyy-MM-dd', trimmed);
+    return parseImpl('yyyy-MM-dd', trimmed);
   }
   if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(trimmed)) {
-    return parse('yyyy-MM-dd HH:mm:ss', trimmed);
+    return parseImpl('yyyy-MM-dd HH:mm:ss', trimmed);
   }
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(trimmed)) {
     return parseISO(trimmed);
@@ -406,8 +408,9 @@ export function parseSQL(input: string): unknown {
 export function formatSQL(value: unknown): string {
   // Detect what kind of Temporal value this is and pick the format.
   const v = value as { year?: number; hour?: number };
+  const formatImpl = getFormatImpl();
   if (typeof v?.hour === 'number') {
-    return format(value as Parameters<typeof format>[0], 'yyyy-MM-dd HH:mm:ss');
+    return formatImpl(value as Parameters<typeof format>[0], 'yyyy-MM-dd HH:mm:ss');
   }
-  return format(value as Parameters<typeof format>[0], 'yyyy-MM-dd');
+  return formatImpl(value as Parameters<typeof format>[0], 'yyyy-MM-dd');
 }

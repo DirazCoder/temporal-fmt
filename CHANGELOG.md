@@ -4,6 +4,44 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.32 — 2026-08-27 (`68963e1`)
+### Docs
+- README quickstart was steering people into the expensive import
+  path. Every code sample under "Providing `Temporal`", "Formatting",
+  and "Parsing" imported `format`/`parse` from the bare `temporal-fmt`
+  entry point — which works, but the main entry re-exports everything
+  in the package, so a bundler pulls the whole graph in regardless of
+  which function you actually call. Those samples now import from
+  `temporal-fmt/format` and `temporal-fmt/parse` instead. Measured
+  with esbuild: ~27KB for `format` alone via the subpath, versus
+  ~68KB for the same single function through the bare import — the
+  subpath imports aren't new, they just weren't what the docs led
+  with.
+- Added a "Get started" section right after Install: a four-line
+  working example (one `format()` call, one `parse()` call, both via
+  subpaths) before any discussion of package size or scope. Previously
+  the fastest path to running code was scattered across three
+  sections (Install → Providing `Temporal` → Formatting); now it's
+  one.
+- Added the measured 27KB/68KB numbers directly to the Subpath
+  imports section, so the tree-shaking claim isn't just asserted —
+  `sideEffects: false` is set in `package.json`, and this documents
+  what it actually gets you.
+- Added two bundlephobia badges (`format` and `parse` subpaths) next
+  to the existing coverage badge, so subpath size is visible without
+  digging into the docs.
+- Rewrote the top-of-file description to match what the library
+  actually does now (`format` + `parse`, real validation, locale
+  support) instead of the original one-liner, which only mentioned
+  formatting and predated the parse API entirely.
+
+### Changed
+- `package.json`'s `description` field was still the pre-parse
+  wording (`"Format Temporal.PlainDate/PlainDateTime/PlainTime/
+  ZonedDateTime objects using date-fns-style token strings."`) —
+  stale since parsing shipped. Updated to match the README's
+  description.
+
 ## 0.9.31 — 2026-08-26 (`3de711c`)
 ### Changed
 - `temporal-polyfill` moved from `optionalDependencies` to

@@ -20,6 +20,7 @@ import {
   format, parse, explainFormat, isValidFormat, setTemporal,
   translateDayjsFormatString, translateDateFnsFormatString,
 } from '../dist/index.js';
+import { loadMods, formatModLoadReport } from './loadMods.mjs';
 
 // Native Temporal (Node 26+) needs no extra install. Below that, this
 // package no longer bundles a polyfill as a dependency (see README ->
@@ -37,6 +38,15 @@ if (!Temporal) {
     process.exit(1);
   }
   setTemporal(Temporal);
+}
+
+// Loads anything in ./mods relative to cwd, not relative to this script —
+// mods belong to the project using the CLI, not to the package install.
+// Goes to stderr so it never lands in piped stdout output (see the EPIPE
+// handler below); a load report isn't part of any command's actual output.
+const modReport = await loadMods();
+if (modReport.loaded.length > 0 || modReport.failed.length > 0) {
+  process.stderr.write('temporal-fmt mods:\n' + formatModLoadReport(modReport) + '\n');
 }
 
 const USAGE = `temporal-fmt CLI

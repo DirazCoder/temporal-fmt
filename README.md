@@ -72,6 +72,7 @@ The package looks large on npm — locales, recurrence, business calendars, time
 - [Extending with custom tokens](#extending-with-custom-tokens)
 - [IDE tooling data](#ide-tooling-data)
 - [CLI](#cli)
+- [Mods](#mods)
 - [Subpath imports](#subpath-imports)
 - [Migrating from Day.js or date-fns](#migrating-from-dayjs-or-date-fns)
 - [Known limitations](#known-limitations)
@@ -895,6 +896,285 @@ temporal-fmt> exit
 ```
 
 Type a subcommand with all its arguments inline (`validate yyyy-MM-dd`) or just the subcommand name — the REPL prompts for whatever's missing, one field at a time. Errors print and the session keeps going; `exit`, `quit`, or Ctrl+D ends it. This is the same subcommand logic as one-shot mode, just wrapped in a loop that asks instead of exiting on a missing argument — one-shot stays there for scripting, and doesn't touch the REPL machinery.
+
+## Mods
+
+`registerLocale`, `createHolidayCalendar`, and `createFormatter` are already how you extend this library without forking it — [Locales](#locales), [Business calendars and holidays](#business-calendars-and-holidays), and [Extending with custom tokens](#extending-with-custom-tokens) all cover them. Mods are just a delivery mechanism on top of those same functions: drop a file in a `mods/` folder, the CLI picks it up on startup and runs it. No publishing to npm, no build step in this repo, no manifest to register anywhere. If you've used a Minecraft mods folder, it's the same idea — a file the host looks for and loads, not a package the host depends on.
+
+This exists so bugfixes and locale corrections don't have to wait on a PR merging and a release going out. If en-GB's holiday list is wrong for your team, or a locale you need isn't covered yet, write a mod and drop it in. Whether it ever gets upstreamed into this repo is a separate question from whether it works today.
+
+### Writing a mod
+
+A mod is a `.mjs` file that default-exports an object with a `name` and a `register(ctx, config)` function. `ctx` is the same registration API `index.ts` exports for everyone else — `registerLocale`, `registerLocaleVocab`, `registerRelativeGrammar`, `createFormatter`, `createHolidayCalendar` — nothing beyond that. A mod that needs more than those five functions expose is asking for something this library doesn't support yet, not something to route around by reaching into internals that could shift under it without warning. `config` is `{}` for a loose `.mjs` mod — there's no manifest to declare settings in, so there's nothing to resolve; see [Mod settings and `config/`](#mod-settings-and-config) for mods that need user-adjustable settings, which means packaging as `.tfmod`.
+
+```js
+// mods/en-gb-bank-holidays.mjs
+export default {
+  name: 'en-gb-bank-holidays',
+  version: '1.0.0',
+  register(ctx) {
+    ctx.createHolidayCalendar([
+      { month: 1, day: 1, name: "New Year's Day" },
+      { month: 12, day: 25, name: 'Christmas Day' },
+      { month: 12, day: 26, name: 'Boxing Day' },
+    ]);
+  },
+};
+```
+
+Put that in `mods/` at your project root (the folder the CLI is run from, not inside this package's own checkout) and run any CLI command — the loader reports what it found on stderr:
+
+```
+$ temporal-fmt validate "yyyy-MM-dd"
+temporal-fmt mods:
+  loaded en-gb-bank-holidays@1.0.0 (en-gb-bank-holidays.mjs)
+valid
+```
+
+`version` is optional and only shows up in that report — it's for your own tracking, not something the loader checks. That's a different field from `temporalFmtVersion`, which *is* checked against the installed `temporal-fmt` version, but only exists on `.tfmod` manifests (see [Pinning a mod to a `temporal-fmt` version](#pinning-a-mod-to-a-temporal-fmt-version)) — a loose `.mjs` mod has no manifest to declare it in.
+
+### Packaging a mod as `.tfmod`
+
+A loose `.mjs` file covers the common case, but it's one file — no bundled data, and the loader has to `import()` it just to find out its `name` before deciding load order. For anything bigger than that, package the mod as a `.tfmod` archive instead: a gzipped tar (same format as `.tgz`, renamed for identity) containing a manifest the loader can read without running any code, plus the mod's actual implementation:
+
+```
+en-gb-bank-holidays.tfmod
+├── mod.json      — name, version, main, requires, priority, temporalFmtVersion, config
+├── main.mjs      — the mod's entry point (same shape as a loose .mjs mod's default export, minus `name`/`version`/`requires`/`priority` — mod.json owns those)
+└── data/         — optional: JSON files, locale tables, anything main.mjs wants to read at register() time
+```
+
+```json
+// mod.json
+{
+  "name": "en-gb-bank-holidays",
+  "version": "1.0.0",
+  "main": "main.mjs",
+  "requires": ["some-other-mod"],
+  "priority": 0,
+  "temporalFmtVersion": "^0.9.0"
+}
+```
+
+```js
+// main.mjs
+export default {
+  register(ctx) {
+    ctx.createHolidayCalendar([
+      { month: 1, day: 1, name: "New Year's Day" },
+      { month: 12, day: 25, name: 'Christmas Day' },
+    ]);
+  },
+};
+```
+
+Build the archive with plain `tar` — no special tooling:
+
+```sh
+tar -czf en-gb-bank-holidays.tfmod mod.json main.mjs data/
+```
+
+Drop that in `mods/` alongside any loose `.mjs` mods you have; the loader treats both formats as one pool for load-order and conflict purposes. The report shows `mod.json`'s `name`, not anything from `main.mjs` itself:
+
+```
+$ temporal-fmt validate "yyyy-MM-dd"
+temporal-fmt mods:
+  loaded en-gb-bank-holidays@1.0.0 (en-gb-bank-holidays.tfmod)
+valid
+```
+
+Why bother with an archive format at all instead of just supporting multi-file `.mjs` mods directly: `mod.json` is metadata the loader can read with zero code execution, which is what makes cross-mod dependency resolution work honestly — with a loose `.mjs` mod, the loader has no choice but to `import()` the file to learn its `name`/`requires`, before it even knows whether that mod should run. A `.tfmod`'s manifest is checked, and the whole dependency graph is resolved, before `main.mjs` is ever imported. At the current few-mods-loaded-once-at-CLI-startup scale that distinction mostly doesn't matter — but it's the honest reason the format exists rather than "loose files but with a folder," and it's what a "list what's installed without running any of it" feature would build on if that ever comes up.
+
+Failure modes are per-archive, same as loose mods — one bad `.tfmod` doesn't block anything else in `mods/`:
+
+- `mod.json` missing or malformed (no `name`, no `main`, or `requires`/`priority`/`temporalFmtVersion`/`config` the wrong type) — reported with what was expected, `main.mjs` is never imported.
+- `mod.json` names a `main` file that isn't actually in the archive — reported with the missing filename.
+- The archive isn't a valid gzip/tar (corrupted, wrong format, a `.tfmod` extension slapped on some other file) — reported with the extraction error.
+- `main.mjs`'s default export doesn't have a `register` function — reported, same as a loose mod's malformed export.
+- `temporalFmtVersion` doesn't match the installed `temporal-fmt` version — reported with the range and the actual version, `main.mjs` is never imported. See [Pinning a mod to a `temporal-fmt` version](#pinning-a-mod-to-a-temporal-fmt-version).
+
+Extraction happens to a temporary directory that's cleaned up after the load pass — nothing from a `.tfmod` sticks around on disk after the CLI command finishes. Extraction shells out to the system `tar` binary rather than adding a tar/gzip-parsing dependency, consistent with this package staying dependency-free (see [Providing `Temporal`](#providing-temporal) for the same call made about the polyfill) — if `tar` isn't on the system `PATH`, the archive fails to load with that reason rather than crashing the CLI.
+
+### Pinning a mod to a `temporal-fmt` version
+
+`mod.json` can declare `temporalFmtVersion`, either an exact version (`"0.9.32"`) or a caret range (`"^0.9.0"`, meaning ">=0.9.0, <0.10.0" — same meaning npm gives `^` in `package.json`). If the installed `temporal-fmt` doesn't satisfy it, the mod fails to load with the range and the actual version, before `main.mjs` is ever imported:
+
+```
+failed holidays.tfmod: "en-gb-bank-holidays" needs temporal-fmt ^2.0.0 (>=2.0.0 <3.0.0), host is 0.9.32
+```
+
+This exists because nothing else catches the alternative: a mod built against one version's override surface (which functions are zero-fanout and therefore overridable — see [Overriding functions](#overriding-functions)) has no way to know if a future release moved a function it depends on, and would otherwise fail with whatever confusing error `register()` happens to throw, or — worse — silently do nothing if the call it expected to matter just no longer has any effect. A declared range turns that into one clear, pre-`register()` failure instead.
+
+Omitting `temporalFmtVersion` is allowed — the mod loads against whatever version is installed, same as before this field existed. Loose `.mjs` mods have no manifest to put this in at all, so they can't declare a version requirement; that's one real reason to prefer `.tfmod` for anything you plan to distribute rather than just run yourself.
+
+There's no dependency-resolution logic here, unlike `requires`/`priority` — this is a single boolean check (does the host version satisfy the range), not something that affects load order.
+
+### Mod settings and `config/`
+
+A mod can declare user-adjustable settings in `mod.json`'s `config` array, and `register()` receives the resolved values as its second argument:
+
+```json
+// mod.json
+{
+  "name": "en-gb-bank-holidays",
+  "main": "main.mjs",
+  "config": [
+    { "key": "includeScottish", "type": "boolean", "default": false },
+    { "key": "observedRule", "type": "enum", "default": "nearest-weekday", "choices": ["nearest-weekday", "strict-date"] },
+    { "key": "yearsAhead", "type": "number", "default": 5, "min": 1, "max": 20 }
+  ]
+}
+```
+
+```js
+// main.mjs
+export default {
+  register(ctx, config) {
+    const years = config.yearsAhead; // 5, unless overridden below
+    ctx.createHolidayCalendar(buildHolidays({ scottish: config.includeScottish, years }));
+  },
+};
+```
+
+Four setting types are supported: `string`, `number` (with optional `min`/`max`), `boolean`, and `enum` (a string constrained to `choices`). Every entry needs a `key` and a `default` — the default is what `register()` gets if the user hasn't overridden that setting, which also means a mod with no `config/<name>.json` file on disk at all still runs normally, just entirely on defaults.
+
+To override a setting, drop a JSON file at `config/<mod-name>.json` — **next to `mods/`, not inside it** (so re-downloading or updating the `.tfmod` never touches a user's settings, the same reason Forge keeps `config/` and `mods/` as siblings rather than bundling settings into the jar):
+
+```
+your-project/
+├── mods/
+│   └── en-gb-bank-holidays.tfmod
+└── config/
+    └── en-gb-bank-holidays.json     — { "includeScottish": true, "yearsAhead": 10 }
+```
+
+Only keys the schema actually declares can be set — anything else is a mistake worth surfacing, not a silent no-op:
+
+```
+temporal-fmt mods:
+  loaded en-gb-bank-holidays@1.0.0 (en-gb-bank-holidays.tfmod)
+  failed config/en-gb-bank-holidays.json: en-gb-bank-holidays: config key "yearsAhead" must be <= 20, got 50 (using default)
+  failed config/en-gb-bank-holidays.json: en-gb-bank-holidays: unknown config key "includeWelsh" (not declared in this mod's schema)
+```
+
+An invalid value for a declared key falls back to that key's default rather than failing the whole mod — one typo'd number in a config file shouldn't take down a working mod, but it's reported so the mistake doesn't go unnoticed either. This is deliberately not JSON Schema: no nesting, no `$ref`, no conditional rules — just the handful of primitive shapes an actual setting realistically is, kept dependency-free the same way `temporalFmtVersion` checking and `.tfmod` extraction are.
+
+Loose `.mjs` mods have no manifest to declare a schema in, so `register()`'s second argument is always `{}` for them — same as a `.tfmod` mod that didn't declare a `config` field at all.
+
+### Load order, dependencies, and conflicts
+
+By default mods load in filename order — alphabetical, deterministic, but not something you'd want to rely on once two mods actually need to run in a specific order relative to each other. Two fields on the mod object control that directly:
+
+- `requires: string[]` — other mods' `name` fields that must load (and finish `register()`) before this one. The loader resolves this as a dependency graph, not just "sort requires first" — if A requires B and B requires nothing, B always loads first regardless of filename.
+- `priority: number` — tiebreak for mods with no dependency relationship to each other. Higher loads later. Defaults to `0`.
+
+```js
+export default {
+  name: 'extended-en-gb-holidays',
+  requires: ['en-gb-bank-holidays'],
+  priority: 10,
+  register(ctx) {
+    // runs after en-gb-bank-holidays, and after anything else at a lower priority
+  },
+};
+```
+
+Two failure modes come out of this, both reported per-mod without blocking the rest:
+
+- **Missing dependency** — `requires` names a mod that isn't in `mods/`. That mod fails to load; whatever it would've registered doesn't happen, and other mods that don't depend on it load normally.
+- **Circular dependency** — A requires B requires A (or a longer cycle). Every mod in the cycle fails, each reported with what it's still waiting on.
+
+Registration itself is still last-write-wins, same as calling `registerLocale` twice for the same tag outside of mods — that's existing, intentional behavior (see [Locales](#locales)), not something mods change. What mods add is *visibility* into it: if two mods register the same locale tag, the same relative-time-grammar language, or the same custom token name, the load report calls it out as a conflict and says which one won:
+
+```
+temporal-fmt mods:
+  loaded holiday-pack-a (conflict-1.mjs)
+  loaded holiday-pack-b (conflict-2.mjs)
+  conflict on locale "cv-CV": holiday-pack-a, holiday-pack-b — "holiday-pack-b" wins (loaded last)
+```
+
+This is informational, not a failure — both mods still loaded, the last one to register just took the key, and now you know it happened instead of silently getting whichever mod's filename sorted last. If that's not what you want, `priority` is the knob: raise the one that should win, or add a `requires` so the loser explicitly runs first and the winner's intent is unambiguous in the mod itself, not just in a startup log line.
+
+Mod names have to be unique across `mods/` — two files claiming the same `name` is ambiguous the moment either one shows up in another mod's `requires`, so the second one to load fails with which file already claimed that name.
+
+### Overriding functions
+
+The five registration functions above are additive — they add a locale, a holiday set, a token, alongside whatever's already there. `ctx.overrideFormat` and `ctx.overrideParse` work differently: they let a mod replace the actual `format()`/`parse()` implementation everywhere in the library, which is what makes a real bugfix or performance mod possible rather than just new data being registered alongside an unfixed bug.
+
+```js
+export default {
+  name: 'fast-format',
+  register(ctx) {
+    ctx.overrideFormat((original, value, formatStr, options) => {
+      // Handle the one hot-path format string yourself; fall back to the
+      // real implementation for everything else.
+      if (formatStr === 'yyyy-MM-dd') {
+        return `${value.year}-${String(value.month).padStart(2, '0')}-${String(value.day).padStart(2, '0')}`;
+      }
+      return original(value, formatStr, options);
+    });
+  },
+};
+```
+
+`impl` always receives the real built-in as its first argument (`original`), regardless of what else is loaded — call it to keep existing behavior for cases you're not trying to change, or ignore it to replace the behavior outright. The override applies consistently everywhere in the library, not just to whoever imports the function from the package root — `formatRange()`'s internal use of `format()`, for instance, sees it too. Remove the mod and restart, and it's back to the unmodified built-in; nothing about this touches the source file on disk.
+
+**Only one mod may hold each override point.** A second override call for the same function — from any mod, even one that `requires` the first — fails immediately with which mod already owns it:
+
+```
+temporal-fmt mods:
+  loaded override-1 (a-override1.mjs)
+  failed b-override2.mjs: temporal-fmt: "format" is already overridden by mod "override-1" — mod "override-2" can't also override it. [...]
+```
+
+This is a hard failure, not last-write-wins like the registration functions — two mods silently fighting over the same function's behavior is a correctness bug in whatever depends on this library, not a cosmetic surprise. There's no mechanism for two separate mod files to layer through the same override point in sequence; if two mods both need to change a function's behavior, one has to incorporate the other's fix directly rather than composing through the override twice.
+
+**Which functions are overridable.** `format`, `formatToParts`, and `parse` always were. Beyond those, any function in this library that nothing *else* in the library calls internally is also overridable — if a function has zero internal call sites, there's no risk of some other module holding a stale direct reference that a mod's fix would silently fail to reach, so it gets the same `overrideXxx()` treatment. As of this version, that's:
+
+`compileFormat`, `compileParser`, `parseRelative`, `explainFormat`, `tokenizeFormat`, `listTokens`, `tokenInfo`, `isValidFormat`, `validateFormat`, `fieldForToken`, `monthsInYear`, `isLeapYear`, `isLeapMonth`, `weekOfYear`, `weekYear`, `getMonth`, `getWeekday`, `isEqual`, `isBefore`, `isAfter`, `clamp`, `isBetween`, `isToday`, `isTomorrow`, `isYesterday`, `isSameDay`, `isSameWeek`, `isSameMonth`, `isSameQuarter`, `isSameYear`, `isWeekday`, `floor`, `ceil`, `truncate`, `parseRFC3339`, `formatRFC3339`, `parseRFC2822`, `parseHTTPDate`, `fromUnixMicroseconds`, `fromUnixNanoseconds`, `toUnixSeconds`, `toUnixMilliseconds`, `toUnixMicroseconds`, `toUnixNanoseconds`, `parseSQL`, `formatSQL`, `formatDurationToParts`, `parseDuration`, `parseISODuration`, `formatISODuration`, `balanceDuration`, `compareDuration`, `subtractDuration`, `getLocale`, `hasLocale`, `createConfig`, `mergeWithConfig`, `listRegisteredGrammars`, `interval`, `overlaps`, `intersection`, `union`, `mergeIntervals`, `formatRangeToParts`, `between`, `parseRRule`, `formatRRule`, `createBusinessCalendar`, `subtractBusinessDays`, `nextHoliday`, `previousHoliday`, `resolveZoned`, `getNextTransition`, `getPreviousTransition`, `possibleInstantsFor`, `getAutocompleteData`, `getHoverDocs`, `getInlineDiagnostics`, `previewFormat`, `getDocUrl`, `translateDateFnsFormatString`.
+
+Each follows the `ctx.overrideXxx((original, ...args) => ...)` shape shown above for `overrideFormat`. Functions *not* in this list — `round`, `subtract`, `difference`, `formatDistance`, and others that other parts of this library call directly — aren't overridable this way: something else in the codebase holds its own direct reference to them, so a mod's override would silently miss those internal callers, which is worse than not offering the override at all. A function moves onto this list only when an audit confirms nothing internal still calls it directly. If you need to change one of those, that's a real feature request for making it internally indirect first, not something `overrideFormat`-style code can paper over.
+
+### If you're writing the mod in TypeScript
+
+Compile it and rename the output before it goes in `mods/` — the loader only accepts `.mjs`. It won't run a TS file for you, and it won't skip one quietly either: a `.ts` file sitting in `mods/` shows up in the load report as a failure with the exact compile command to run, because a mod that silently never loads is worse than one that fails loudly.
+
+```sh
+tsc en-gb-bank-holidays.ts --module esnext --target esnext --outDir mods
+mv mods/en-gb-bank-holidays.js mods/en-gb-bank-holidays.mjs
+```
+
+If you're importing `ModContext` or `Mod` for the types while you write it, both are exported from `temporal-fmt` itself:
+
+```ts
+import type { Mod, ModContext } from 'temporal-fmt';
+
+const mod: Mod = {
+  name: 'en-gb-bank-holidays',
+  register(ctx: ModContext) {
+    ctx.createHolidayCalendar([{ month: 1, day: 1, name: "New Year's Day" }]);
+  },
+};
+
+export default mod;
+```
+
+### What happens when a mod is broken
+
+Each mod loads independently — one throwing doesn't stop the rest from loading, and it doesn't stop the CLI command you actually ran. Every failure mode ends up as one line in the report:
+
+- Wrong file extension (`.ts`, `.js`, anything but `.mjs`) — reported with the compile-and-rename instructions above.
+- Default export isn't shaped right (missing `name`, missing `register`, `register` isn't a function, or `requires`/`priority` are the wrong type) — reported with what was expected.
+- The file fails to import (a syntax error, a bad import path inside the mod) — reported with the underlying error message.
+- Two mods claim the same `name` — reported against whichever file loaded second.
+- A `requires` entry names a mod that isn't present, or is part of a dependency cycle — see [Load order, dependencies, and conflicts](#load-order-dependencies-and-conflicts).
+- `register()` throws — reported with the thrown message, same as any other registration call in this library (see [Typed errors](#typed-errors) for what `registerLocale`/`createHolidayCalendar` themselves throw on bad input).
+
+None of these bring down the CLI. A `mods/` folder that doesn't exist is the common case, not a failure — most runs won't have one, and the loader stays silent about it rather than printing "no mods found" noise on every command.
+
+### Using mods outside the CLI
+
+`loadMods()` only exists in `scripts/loadMods.mjs`, not in the published library — it needs `fs`/`path`, and this package stays dependency-free and Node-agnostic on its actual import surface (`import { format } from 'temporal-fmt'` shouldn't drag in filesystem code for someone using this in a browser). If you're embedding `temporal-fmt` in your own app rather than using the CLI, copy that loader (or write your own — it's about 60 lines) and call it at your own startup with `buildModContext()` and `isMod()` from the library, which *are* published.
 
 ## Subpath imports
 

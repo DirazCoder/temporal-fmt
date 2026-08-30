@@ -10,7 +10,8 @@
 // to order endpoints.
 
 import { compare } from './comparison.js';
-import { format, formatToParts, type FormattedPart } from './format.js';
+import { formatToParts, type FormattedPart } from './format.js';
+import { getFormatImpl } from './runtime.js';
 import { asDateFieldView, type DateFieldView } from './calendarUtils.js';
 import { normalizeLocaleTag } from './localeVocab.js';
 import type { FormatOptions } from './tokens.js';
@@ -280,6 +281,7 @@ export function formatRange(
   // instead of "2026-08-04 – 2026-08-06".) Intl's range collapsing is
   // kept as a fallback for inputs the token path can't render.
   try {
+    const format = getFormatImpl();
     const startStr = format(iv.start as Parameters<typeof format>[0], formatStr, options);
     const endStr = format(iv.end as Parameters<typeof format>[0], formatStr, options);
     return `${startStr} – ${endStr}`;

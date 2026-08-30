@@ -73,17 +73,35 @@ export function createConfig(overrides: Partial<TemporalFmtConfig> = {}): Readon
 
 // merges a config into per-call options — whatever's already set in
 // per-call wins. format()/parse()/etc use this to fold config in
+interface ConfigOverrides {
+  locale?: string;
+  calendar?: string;
+  timezone?: string;
+  numberingSystem?: string;
+  lenient?: boolean;
+}
+
 export function mergeWithConfig<T extends Record<string, unknown>>(
   config: Readonly<TemporalFmtConfig> | undefined,
   perCall: T,
-): T & { locale?: string; calendar?: string; timezone?: string; numberingSystem?: string; lenient?: boolean } {
+): Record<string, unknown> & ConfigOverrides {
   if (!config) return perCall;
-  const result = { ...perCall } as T & { locale?: string; calendar?: string; timezone?: string; numberingSystem?: string; lenient?: boolean };
-  // only filling in what per-call didn't already set
-  if (result.locale === undefined) result.locale = config.locale;
-  if (result.calendar === undefined && config.calendar !== undefined) result.calendar = config.calendar;
-  if (result.timezone === undefined && config.timezone !== undefined) result.timezone = config.timezone;
-  if (result.numberingSystem === undefined) result.numberingSystem = config.numberingSystem;
-  if (result.lenient === undefined && config.parseLenient) result.lenient = true;
-  return result;
+  // Returns a fresh object typed by its own actual shape (perCall's
+  // fields plus these five, each optionally overridden) instead of
+  // asserting the result back into the generic T. A `{ ...perCall } as T
+  // & {...}` cast here previously claimed a freshly spread object was
+  // still exactly T, which isn't something a spread can guarantee for an
+  // arbitrary caller-supplied T — tsc rightly rejected that once this
+  // generic got exercised through a real call site (mergeWithConfig's
+  // override wrapper in modApi.ts). Nothing in this codebase currently
+  // calls mergeWithConfig and relies on getting T back rather than this
+  // wider shape, so there's no correctness cost to being honest about
+  // what's actually returned.
+  const extras: ConfigOverrides = {};
+  if (perCall.locale === undefined) extras.locale = config.locale;
+  if (perCall.calendar === undefined && config.calendar !== undefined) extras.calendar = config.calendar;
+  if (perCall.timezone === undefined && config.timezone !== undefined) extras.timezone = config.timezone;
+  if (perCall.numberingSystem === undefined) extras.numberingSystem = config.numberingSystem;
+  if (perCall.lenient === undefined && config.parseLenient) extras.lenient = true;
+  return { ...perCall, ...extras };
 }
