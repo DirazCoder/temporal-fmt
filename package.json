@@ -1,6 +1,6 @@
 {
   "name": "temporal-fmt",
-  "version": "0.9.32",
+  "version": "0.9.4",
   "description": "Format and parse Temporal (PlainDate, PlainTime, PlainDateTime, ZonedDateTime) using date-fns-style tokens. Validates strictly — bad input throws, not garbage. Locale-aware, no deps.",
   "type": "module",
   "main": "./dist/index.cjs",
