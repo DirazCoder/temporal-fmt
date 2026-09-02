@@ -1,5 +1,37 @@
 # Version Support
 
+## Staying up to date
+
+To track the latest active release:
+
+```
+npm install temporal-fmt@latest
+```
+
+To pin to a specific LTS line instead — so you get that line's fixes
+without ever pulling in a new active release:
+
+```
+npm install temporal-fmt@0.8-lts
+```
+
+Same pattern applies to any LTS line as it comes up (`0.9-lts`,
+`0.10-lts`, and so on) — see the rotation policy below for how a line
+gets that tag.
+
+Pin the same tag in `package.json` if you want every install to
+resolve consistently instead of re-checking npm each time:
+
+```json
+"dependencies": {
+  "temporal-fmt": "0.8-lts"
+}
+```
+
+That keeps you on whatever `0.8-lts` currently points to — you'll pick
+up new `0.8.x` patch and security releases automatically, but nothing
+from `0.9.x` or later.
+
 ## Supported versions
 
 | Version | Supported          |
@@ -12,13 +44,13 @@
 `0.9.x` is the current active release line. New features, bug fixes,
 security fixes, and parser hardening land here first.
 
-`0.8.x` is now the LTS line, kept specifically for consumers who don't
+`0.8-lts` is now the LTS line, kept specifically for consumers who don't
 want (or can't yet take) the typed-error throw behavior introduced in
 `0.9.0` — see the breaking-change entry below. It still receives security fixes only; it just doesn't get new features or the typed
 throws.
 
 If you're running this in production and don't need whatever landed in
-`0.9.x`, stay on `0.8.x`. Same security coverage, fewer moving parts:
+`0.9.x`, stay on `0.8-lts`. Same security coverage, fewer moving parts:
 you're not absorbing new features (and the new bugs that can come with
 them), the typed-error change can't silently break an `err.name` or
 `err.constructor` check you didn't know you had, and the LTS rotation
@@ -27,28 +59,28 @@ instead of finding out after the fact. Track `0.9.x` if you actually
 need something it adds, not by default.
 
 `0.7.x` and everything before it is end of life and no longer receives
-fixes. Upgrade to `0.9.x` or `0.8.x` instead.
+fixes. Upgrade to `0.9.x` or `0.8-lts` instead.
 
 ## LTS rotation policy
 
 Standing rule, applies every time — doesn't matter what the version
-numbers are. You can't move the LTS label from one line to the next
-(e.g. `0.7.x` → `0.8.x`) unless the current LTS line has shipped at
-least one security fix release of its own, tagged under that line.
-Example: `0.7.x` becomes LTS at `0.7.97` — it needs a `0.7.98` (or
-later) release that's specifically a security fix. A fix that only
-went out on main doesn't count.
+numbers are. A line can't take the LTS label (e.g. `0.7.x` becoming
+`0.7-lts`) unless it has shipped at least one security fix release of
+its own, tagged under that line, first. Example: `0.7.x` becomes
+`0.7-lts` at `0.7.97` — it needs a `0.7.98` (or later) release that's
+specifically a security fix. A fix that only went out on main doesn't
+count.
 
-If `0.7.x` hasn't shipped that release yet, `0.8.x` can't take over as
-LTS and `0.7.x` can't go EOL. Once that box is checked, the handoff
-happens.
+If `0.7.x` hasn't shipped that release yet, it can't become `0.7-lts`
+and the outgoing LTS line can't go EOL. Once that box is checked, the
+handoff happens.
 
 ## How a version becomes LTS
 
 Happens automatically the moment a new lineup ships. Whatever line was
 the latest active release right before the new one lands becomes LTS —
 it doesn't go EOL. So when `0.9.x` shipped, `0.8.x` didn't get dropped,
-it rolled into the LTS slot and picked up the rotation policy above.
+it became `0.8-lts` and picked up the rotation policy above.
 
 Same pattern repeats every time a new active line comes out — with one
 planned exception, see below.
@@ -57,18 +89,18 @@ planned exception, see below.
 
 `0.10.x` is a one-time expansion, not a normal handoff. When it ships,
 support goes from two tracks to three: `0.10.x` becomes active, `0.9.x`
-becomes LTS, and `0.8.x` stays LTS instead of going EOL. Nothing drops
-support at this release — it's the only point where the LTS count
-grows instead of rotating.
+becomes `0.9-lts`, and `0.8-lts` stays LTS instead of going EOL.
+Nothing drops support at this release — it's the only point where the
+LTS count grows instead of rotating.
 
 From `0.11.x` onward, it's back to a steady rolling window, just sized
 at three instead of two: each new active release EOLs the *older* of
 the two current LTS lines, keeps the newer one as LTS, and demotes the
 outgoing active line into the newly-freed LTS slot. Example: at
-`0.11.x`, `0.8-lts` goes EOL, `0.9-lts` stays LTS, `0.10.x` becomes LTS
-alongside it, and `0.11.x` becomes active. The total stays capped at
-three supported lines (one active, two LTS) going forward — it never
-grows past that again.
+`0.11.x`, `0.8-lts` goes EOL, `0.9-lts` stays LTS, `0.10.x` becomes
+`0.10-lts` alongside it, and `0.11.x` becomes active. The total stays
+capped at three supported lines (one active, two LTS) going forward —
+it never grows past that again.
 
 Same security-fix-release requirement from the rotation policy applies
 to every line in the three-track window; there's no separate rule for
@@ -127,8 +159,8 @@ on, or that could change existing behavior:
   What breaks: code that checks `err.constructor === Error` or
   `err.name === 'Error'` specifically will see a different result now
   (`err.name` reports the subclass name instead, e.g.
-  `'FormatSyntaxError'`). If that matters to you, stay on `0.8.x`, which
-  is now LTS and keeps the old plain-`Error` behavior.
+  `'FormatSyntaxError'`). If that matters to you, stay on `0.8-lts`,
+  which keeps the old plain-`Error` behavior.
 
 ## Historical reference
 
