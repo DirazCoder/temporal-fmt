@@ -17,6 +17,15 @@ want (or can't yet take) the typed-error throw behavior introduced in
 `0.9.0` — see the breaking-change entry below. It still receives security fixes only; it just doesn't get new features or the typed
 throws.
 
+If you're running this in production and don't need whatever landed in
+`0.9.x`, stay on `0.8.x`. Same security coverage, fewer moving parts:
+you're not absorbing new features (and the new bugs that can come with
+them), the typed-error change can't silently break an `err.name` or
+`err.constructor` check you didn't know you had, and the LTS rotation
+policy above means you get a guaranteed window before it goes EOL
+instead of finding out after the fact. Track `0.9.x` if you actually
+need something it adds, not by default.
+
 `0.7.x` and everything before it is end of life and no longer receives
 fixes. Upgrade to `0.9.x` or `0.8.x` instead.
 
