@@ -46,8 +46,10 @@ security fixes, and parser hardening land here first.
 
 `0.8-lts` is now the LTS line, kept specifically for consumers who don't
 want (or can't yet take) the typed-error throw behavior introduced in
-`0.9.0` — see the breaking-change entry below. It still receives security fixes only; it just doesn't get new features or the typed
-throws.
+`0.9.0` — see the breaking-change entry below. It receives security
+fixes only; it just doesn't get new features or the typed throws. That
+stays true until `0.10.x` ships — see the tiered-LTS section below for
+what changes at that point.
 
 If you're running this in production and don't need whatever landed in
 `0.9.x`, stay on `0.8-lts`. Same security coverage, fewer moving parts:
@@ -84,6 +86,32 @@ it became `0.8-lts` and picked up the rotation policy above.
 
 Same pattern repeats every time a new active line comes out — with one
 planned exception, see below.
+
+## Fix level by LTS slot
+
+Right now, with a single LTS line, `0.8-lts` gets security fixes only —
+same as any LTS line always has. The newest-LTS-gets-bug-fixes rule
+below doesn't exist yet at this point; it only takes effect once a
+second LTS line shows up.
+
+That happens at `0.10.x`. From that point on, the two LTS slots aren't
+equivalent:
+
+- **Newest LTS** — bug fixes and security fixes.
+- **Older LTS** — security fixes only.
+
+Example from the three-track window described below: at `0.10.x`,
+`0.9-lts` is the newest LTS, so it gets bug fixes and security fixes.
+`0.8-lts` is the older of the two, so it stays on security fixes only,
+same as it was before `0.10.x` — the difference is `0.9-lts` now gets
+more than `0.8-lts` did at the same stage.
+
+This shifts every time the rotation happens after that. When `0.11.x`
+ships and `0.8-lts` goes EOL, `0.9-lts` — previously the one getting
+bug fixes — becomes the older slot and drops to security-only, while
+`0.10-lts` takes over as the newest LTS and picks up bug fixes. A
+line's fix level is determined by its slot at any given time, not by
+anything fixed to that line itself.
 
 ## Three-track support starting at 0.10.x
 
