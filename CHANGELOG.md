@@ -4,6 +4,24 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.41 — 2026-09-07 (`b518814`)
+### Changed
+- License switched from MIT to Apache-2.0. `package.json`'s `license`
+  field, `package-lock.json`'s cached copy of it, the root `LICENSE`
+  file, and the README's license section are all updated to match —
+  there's no longer a file anywhere in the repo still claiming MIT.
+- Every file under `src/` now carries an Apache-2.0 header comment
+  (copyright line, grant, and the "AS IS" disclaimer). Same
+  one-header-per-file convention as before, just under the new
+  license.
+
+## 0.8.984 — 2026-09-07 (`ae7e215`)
+### Changed
+- Same relicensing as 0.9.41, backported to the 0.8.x line: MIT to
+  Apache-2.0 across `package.json`, `package-lock.json`, the root
+  `LICENSE` file, and the README, plus Apache-2.0 headers added to
+  every file under `src/`.
+
 ## 0.9.4 — 2026-08-30 (`ac66e77`)
 ### Added
 - A `mods/` folder, loaded by the CLI on startup — drop a `.mjs` file
