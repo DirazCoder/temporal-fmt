@@ -155,12 +155,16 @@ test('add: subtracting more months than the current month value forces the negat
 });
 
 test('add: month subtraction that drives the year*12+month total itself negative', () => {
-  // Only years near 0 make `year*12 + month - 1 + amount` go negative,
-  // which is what actually exercises `result.month < 1` — the -14 case
-  // above never makes `total` itself negative, just its floor/%.
+  // Only years near 0 make `year*12 + month - 1 + amount` go negative.
+  // 0000-01-15 minus one month is -0000-12-15 (year -1, month 12) —
+  // Temporal agrees: Temporal.PlainDate.from('0000-01-15').subtract(
+  // {months: 1}).toString() === '-0000-12-15'. The old expected value
+  // (year -2) enshrined a double year-borrow: floorDiv already accounts
+  // for the negative total, and the old negative-modulo fixup took
+  // another year off on top.
   const date = Temporal.PlainDate.from('0000-01-15');
   const result = add(date, -1, 'months');
-  assert.equal(result.year, -2);
+  assert.equal(result.year, -1);
   assert.equal(result.month, 12);
   assert.equal(result.day, 15);
 });

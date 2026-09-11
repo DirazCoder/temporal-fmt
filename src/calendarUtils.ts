@@ -29,7 +29,7 @@
 // itself is. Documented limitation, not a design choice — see
 // VERIFICATION.md for the rationale.
 
-import { isGregorianLeapYear, dayOfYear, isoWeekYearAndWeek } from './isoWeek.js';
+import { isGregorianLeapYear, dayOfYear, isoWeekYearAndWeek, dayOfWeekFromCivil } from './isoWeek.js';
 
 // A subset of TemporalLike that has the date fields these helpers need,
 // plus optional time fields. PlainTime isn't a DateFieldView (no
@@ -201,8 +201,11 @@ function recomputeDayOfWeek(view: DateFieldView): void {
    * reaches here, year/month/day are guaranteed present too. */
   if (typeof view.year !== 'number' || typeof view.month !== 'number' || typeof view.day !== 'number') return;
   /* c8 ignore stop @preserve */
-  const jsDow = new Date(Date.UTC(view.year, view.month - 1, view.day)).getUTCDay(); // 0=Sun..6=Sat
-  view.dayOfWeek = jsDow === 0 ? 7 : jsDow; // 1=Mon..7=Sun
+  // dayOfWeekFromCivil: O(1) proleptic-Gregorian weekday. The old
+  // Date.UTC(year, month-1, day) form remapped years 0-99 to 1900-1999
+  // (ECMAScript spec), so startOf/endOf of a first-century date carried
+  // a weekday from the wrong century.
+  view.dayOfWeek = dayOfWeekFromCivil(view.year, view.month, view.day);
 }
 
 export function startOf(value: unknown, unit: StartOfUnit): DateFieldView {

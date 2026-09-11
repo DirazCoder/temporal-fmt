@@ -59,8 +59,23 @@ export function registerRelativeGrammar(grammar: RelativeGrammar): void {
   if (typeof grammar.language !== 'string' || grammar.language.length === 0) {
     throw new Error('temporal-fmt: registerRelativeGrammar requires a non-empty language string.');
   }
+  if (grammar.language.length > 35) {
+    throw new RangeError(`temporal-fmt: registerRelativeGrammar language tags must be at most 35 characters (got ${grammar.language.length}).`);
+  }
   if (!Array.isArray(grammar.matchers) || grammar.matchers.length === 0) {
     throw new Error('temporal-fmt: registerRelativeGrammar requires at least one matcher.');
+  }
+  // Every matcher runs on untrusted parseRelative input — a non-function
+  // entry used to register fine and then blow up every subsequent
+  // parseRelative() call for that locale with a raw V8 TypeError
+  // ("matcher is not a function"). Cap the count for the same reason the
+  // grammar count is capped: every registered matcher is scanned per
+  // parseRelative call.
+  if (grammar.matchers.length > 1000) {
+    throw new RangeError(`temporal-fmt: registerRelativeGrammar accepts at most 1000 matchers (got ${grammar.matchers.length}).`);
+  }
+  if (!grammar.matchers.every((m) => typeof m === 'function')) {
+    throw new Error('temporal-fmt: registerRelativeGrammar matchers must all be functions.');
   }
   // if this language's already registered, just swap it out
   const existingIdx = registeredGrammars.findIndex((g) => g.language === grammar.language);
@@ -84,7 +99,17 @@ export function tryRegisteredGrammar(
   for (const grammar of registeredGrammars) {
     if (grammar.language !== language) continue;
     for (const matcher of grammar.matchers) {
-      const match = matcher(input);
+      // One throwing matcher shouldn't take parseRelative() down with a
+      // raw error — treat it as "no match" and let the next matcher (or
+      // the built-in grammars) try. Registered matchers are third-party
+      // code; isolating their failures is the registration boundary's
+      // job.
+      let match: RelativeGrammarMatch | null;
+      try {
+        match = matcher(input);
+      } catch {
+        continue;
+      }
       if (match === null) continue;
       const temporal = getTemporal();
       if (match.resolve) {

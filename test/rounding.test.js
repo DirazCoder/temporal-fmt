@@ -64,11 +64,13 @@ test('round: dates before the internal epoch (negative ms, Howard Hinnant day-co
   assert.equal(r1.year, 1969);
   assert.equal(r1.month, 6);
   assert.equal(r1.day, 15);
-  // Not 11:00: applyMode rounds Math.abs(ms) as one combined magnitude
-  // from the epoch (not the clock time-of-day), then reapplies the
-  // sign — so a pre-epoch date's "nearest hour" doesn't necessarily
-  // match what post-epoch half-hour rounding would suggest.
-  assert.equal(r1.hour, 10);
+  // 11:00, same as the identical post-epoch clock time rounds: applyMode
+  // now operates on the signed ms, so a half-hour tie rounds up (toward
+  // +∞, Math.round semantics) on both sides of the epoch. The old
+  // abs-then-sign form rounded pre-epoch ties DOWN — 10:30 pre-epoch
+  // gave 10:00 while post-epoch gave 11:00 — which this test used to
+  // enshrine with an apologetic comment.
+  assert.equal(r1.hour, 11);
 
   const jan = Temporal.PlainDateTime.from('2026-01-15T10:30:00');
   const r2 = round(jan, { unit: 'hour' });
@@ -80,6 +82,38 @@ test('round: dates before the internal epoch (negative ms, Howard Hinnant day-co
   assert.equal(r3.year, -50);
   assert.equal(r3.month, 6);
   assert.equal(r3.day, 15);
+});
+
+test('round: floor/ceil/trunc are epoch-consistent for pre-1970 dates (negative ms)', () => {
+  // floor always moves to the earlier unit boundary, ceil to the later
+  // one, regardless of which side of 1970-01-01 the value sits on. The
+  // old absolute-value form swapped the two for every pre-epoch date:
+  // floor(1969-12-31T12:00) returned 1970-01-01 and ceil returned
+  // 1969-12-31.
+  const pre = Temporal.PlainDateTime.from('1969-12-31T12:00:00');
+  assert.equal(floor(pre, 'day').day, 31);
+  assert.equal(floor(pre, 'day').month, 12);
+  assert.equal(ceil(pre, 'day').day, 1);
+  assert.equal(ceil(pre, 'day').month, 1);
+  assert.equal(ceil(pre, 'day').year, 1970);
+  assert.equal(truncate(pre, 'day').year, 1970); // trunc toward zero: the epoch boundary
+  // Post-epoch mirror: identical results on the other side.
+  const post = Temporal.PlainDateTime.from('1970-01-01T12:00:00');
+  assert.equal(floor(post, 'day').day, 1);
+  assert.equal(ceil(post, 'day').day, 2);
+  // floor never moves a value that's already on the boundary.
+  const boundary = Temporal.PlainDateTime.from('1969-12-31T00:00:00');
+  assert.equal(floor(boundary, 'day').day, 31);
+});
+
+test('roundDuration: floor moves negative durations toward -infinity (Temporal semantics)', () => {
+  // -90s floored to minutes is -2 minutes (one step EARLIER), not -1.
+  // The old sign-preserving abs math produced -1.
+  const r = roundDuration({ seconds: -90 }, { unit: 'minutes', mode: 'floor' });
+  assert.equal(r.minutes, -2);
+  // And ceil moves toward +infinity: -90s ceiled to minutes is -1.
+  const c = roundDuration({ seconds: -90 }, { unit: 'minutes', mode: 'ceil' });
+  assert.equal(c.minutes, -1);
 });
 
 test('roundDuration: throws on calendar-bound target unit', () => {

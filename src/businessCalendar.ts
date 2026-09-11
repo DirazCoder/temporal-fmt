@@ -20,6 +20,7 @@
 // can just worry about the weekday-vs-weekend part
 
 import { add } from './arithmetic.js';
+import { dayOfWeekFromCivil } from './isoWeek.js';
 import type { HolidayCalendar } from './holidays.js';
 
 export interface BusinessCalendarOptions {
@@ -70,9 +71,12 @@ export function isBusinessDay(cal: BusinessCalendar, value: unknown): boolean {
   // year/month/day whenever we've got those, don't trust the cached value
   let dow = v.dayOfWeek;
   if (typeof v.year === 'number' && typeof v.month === 'number' && typeof v.day === 'number') {
-    const d = new Date(Date.UTC(v.year, v.month - 1, v.day));
-    const jsDow = d.getUTCDay(); // 0=Sun..6=Sat
-    dow = jsDow === 0 ? 7 : jsDow; // 1=Mon..7=Sun
+    // dayOfWeekFromCivil: O(1) proleptic-Gregorian weekday. The old
+    // Date.UTC remapping of years 0-99 to 1900-1999 made a genuine
+    // Sunday PlainDate('0050-01-02') count as a business day here —
+    // and this recomputation OVERWRITES the value's own correct
+    // dayOfWeek, so real Temporal input was affected too.
+    dow = dayOfWeekFromCivil(v.year, v.month, v.day);
   }
   if (typeof dow !== 'number') {
     throw new Error('temporal-fmt: isBusinessDay() needs a value with dayOfWeek (or year/month/day to compute it).');

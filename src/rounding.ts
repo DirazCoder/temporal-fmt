@@ -19,6 +19,7 @@
 
 import { asDateFieldView, type DateFieldView } from './calendarUtils.js';
 import { InvalidDurationError } from './errors.js';
+import { daysFromCivil } from './isoWeek.js';
 
 type RoundingUnit = 'day' | 'hour' | 'minute' | 'second' | 'millisecond';
 type RoundingMode = 'nearest' | 'floor' | 'ceil' | 'trunc';
@@ -42,13 +43,17 @@ const MS_PER_UNIT: Record<RoundingUnit, number> = {
 };
 
 function applyMode(ms: number, mode: RoundingMode, increment: number): number {
-  // All four modes operate on absolute value then re-apply the sign,
-  // so negative values round symmetrically (floor of -1.5 → -2, not -1).
-  // Matches Math.round semantics for 'nearest' and Temporal's rounding
-  // for the other three.
-  const sign = ms < 0 ? -1 : 1;
-  const abs = Math.abs(ms);
-  const stepped = abs / increment;
+  // Operates on the SIGNED value. The absolute-value-then-reapply-sign
+  // version this replaced inverted floor/ceil for every negative input
+  // (Unix-epoch ms < 0 = any date before 1970-01-01): floor(-0.5 days)
+  // came out as 0 (= 1970-01-01) instead of -1 (= 1969-12-31), i.e.
+  // floor and ceil were literally swapped for pre-epoch dates, and
+  // 'nearest' broke ties away-from-epoch (10:30 pre-epoch → 10:00 while
+  // the identical post-epoch clock time → 11:00). Signed Math.* calls
+  // are epoch-consistent by construction: floor always moves toward
+  // −∞ (the earlier boundary), ceil toward +∞, trunc toward zero,
+  // nearest ties up (Math.round semantics, both sides of the epoch).
+  const stepped = ms / increment;
   let rounded: number;
   switch (mode) {
     case 'nearest': rounded = Math.round(stepped); break;
@@ -56,21 +61,16 @@ function applyMode(ms: number, mode: RoundingMode, increment: number): number {
     case 'ceil': rounded = Math.ceil(stepped); break;
     case 'trunc': rounded = Math.trunc(stepped); break;
   }
-  return sign * rounded * increment;
+  return rounded * increment;
 }
 
 function toMs(v: DateTimeFieldView): number {
   // Returns ms-since-(Howard Hinnant epoch). Used internally — the
   // absolute value is meaningful only relative to the same epoch used
-  // by fromMs.
-  const y = v.year!, m = v.month!, d = v.day!;
-  const y2 = m <= 2 ? y - 1 : y;
-  const era = Math.floor((y2 >= 0 ? y2 : y2 - 399) / 400);
-  const yoe = y2 - era * 400;
-  const m2 = m > 2 ? m - 3 : m + 9;
-  const doy = Math.floor((153 * m2 + 2) / 5) + d - 1;
-  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
-  const days = era * 146097 + doe - 719468;
+  // by fromMs. daysFromCivil is O(1) and correct for negative years;
+  // the forward era previously inlined here (Math.floor of the -399-
+  // offset numerator) shifted pre-year-0 dates by one day.
+  const days = daysFromCivil(v.year!, v.month!, v.day!);
   return days * MS_PER_UNIT.day
     + (v.hour ?? 0) * MS_PER_UNIT.hour
     + (v.minute ?? 0) * MS_PER_UNIT.minute
@@ -98,9 +98,12 @@ function fromMs(ms: number, base: DateTimeFieldView): DateTimeFieldView {
   const second = Math.floor((withinDay % MS_PER_UNIT.minute) / MS_PER_UNIT.second);
   const millisecond = withinDay % MS_PER_UNIT.second;
   // Convert totalDays back to year/month/day via Howard Hinnant's
-  // civil_from_days. Same algorithm as arithmetic.ts's shiftDays.
+  // civil_from_days. The era term MUST use truncating division — the
+  // -146096 offset exists precisely so trunc lands the era correctly;
+  // Math.floor double-shifts every z < 0 by one day. (Same fix as
+  // arithmetic.ts's shiftDays.)
   const z = totalDays + 719468;
-  const era = Math.floor((z >= 0 ? z : z - 146096) / 146097);
+  const era = Math.trunc((z >= 0 ? z : z - 146096) / 146097);
   const doe = z - era * 146097;
   const yoe = Math.floor((doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365);
   const y2 = yoe + era * 400;
@@ -113,16 +116,14 @@ function fromMs(ms: number, base: DateTimeFieldView): DateTimeFieldView {
 }
 
 function shiftDays(v: DateTimeFieldView, days: number): DateTimeFieldView {
-  const y = v.year!, m = v.month!, d = v.day!;
-  const y2 = m <= 2 ? y - 1 : y;
-  const era = Math.floor((y2 >= 0 ? y2 : y2 - 399) / 400);
-  const yoe = y2 - era * 400;
-  const m2 = m > 2 ? m - 3 : m + 9;
-  const doy = Math.floor((153 * m2 + 2) / 5) + d - 1;
-  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
-  const totalDays = era * 146097 + doe - 719468 + days;
+  // daysFromCivil (isoWeek.ts): O(1) and correct for negative years —
+  // the forward era previously inlined here (Math.floor of Hinnant's
+  // -399-offset numerator) double-corrected, and the inverse era's
+  // Math.floor (see fromMs) canceled it only for round-trips, leaving
+  // one-way consumers off by a day for pre-year-0 dates.
+  const totalDays = daysFromCivil(v.year!, v.month!, v.day!) + days;
   const z = totalDays + 719468;
-  const era2 = Math.floor((z >= 0 ? z : z - 146096) / 146097);
+  const era2 = Math.trunc((z >= 0 ? z : z - 146096) / 146097);
   const doe2 = z - era2 * 146097;
   const yoe2 = Math.floor((doe2 - Math.floor(doe2 / 1460) + Math.floor(doe2 / 36524) - Math.floor(doe2 / 146096)) / 365);
   const y2out = yoe2 + era2 * 400;
@@ -234,10 +235,21 @@ export function roundDuration(duration: DurationFields, options: {
   roundingIncrement?: number;
 }): DurationFields {
   const mode = options.mode ?? 'nearest';
-  const increment = BigInt(options.roundingIncrement ?? 1);
-  if (increment <= 0n) {
-    throw new Error(`temporal-fmt: roundDuration() requires a positive roundingIncrement (got ${options.roundingIncrement}).`);
+  // Default first, then validate: roundDuration({hours:1}, {unit:'hours'})
+  // (no increment) must keep meaning "increment 1", not trip the guard.
+  // A fractional value (2.5) used to reach BigInt() and throw a raw V8
+  // RangeError ("The number 2.5 cannot be converted to a BigInt") —
+  // inconsistent with round(), which accepts fractional increments via
+  // float math, and with the typed-error surface this library promises.
+  const incrementValue = options.roundingIncrement ?? 1;
+  if (typeof incrementValue !== 'number' || !Number.isInteger(incrementValue) || incrementValue < 1) {
+    throw new InvalidDurationError({
+      reason:
+        `temporal-fmt: roundDuration() requires a positive roundingIncrement (got ${String(incrementValue)})` +
+        (Number.isInteger(incrementValue) ? '' : ' — fractional increments aren\'t supported here (use round() for those)'),
+    });
   }
+  const increment = BigInt(incrementValue);
   if (isCalendarBound(options.unit)) {
     throw new Error(
       `temporal-fmt: roundDuration() to "${options.unit}" requires a Temporal.Duration with a relativeTo — ` +
@@ -252,7 +264,14 @@ export function roundDuration(duration: DurationFields, options: {
     totalNs += fieldToNs(v, DURATION_UNIT_TO_NS[u], u);
   }
 
-  // Apply rounding on the absolute value, preserving sign (same as round()).
+  // Apply rounding on the SIGNED total (see applyMode for why the
+  // abs-then-sign form was wrong for negatives: floor/ceil inverted,
+  // ties asymmetric). BigInt division truncates toward zero, so floor
+  // and ceil need explicit adjustment for negative remainders, and
+  // 'nearest' follows Math.round's ties-toward-+∞ exactly (r of exactly
+  // −½ steps stays at the truncation quotient, which is the higher
+  // boundary — matching round() above instead of the old away-from-zero
+  // tie break that disagreed with it for negative values).
   const stepNs = increment * DURATION_UNIT_TO_NS[options.unit];
   const sign = totalNs < 0n ? -1n : 1n;
   const abs = totalNs < 0n ? -totalNs : totalNs;
@@ -267,8 +286,11 @@ export function roundDuration(duration: DurationFields, options: {
       // who reads the output.
       rounded = remainder * 2n >= stepNs ? stepped + 1n : stepped;
       break;
-    case 'floor': rounded = stepped; break;
-    case 'ceil': rounded = remainder > 0n ? stepped + 1n : stepped; break;
+    // floor/ceil are computed from the truncating quotient adjusted by
+    // the SIGN of totalNs: floor moves toward −∞ (one step earlier for a
+    // negative value with a remainder), ceil toward +∞.
+    case 'floor': rounded = sign < 0n && remainder > 0n ? stepped + 1n : stepped; break;
+    case 'ceil': rounded = sign > 0n && remainder > 0n ? stepped + 1n : stepped; break;
     case 'trunc': rounded = stepped; break;
   }
   const newTotalNs = sign * rounded * stepNs;

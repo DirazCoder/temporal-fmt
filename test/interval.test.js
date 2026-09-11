@@ -114,14 +114,18 @@ test('subtract: is an alias for difference', () => {
   assert.equal(subtract, difference);
 });
 
-test('intersection: an open interval combined with a closed one — open wins at both ends it touches', () => {
-  // a is fully 'open', which satisfies both the start-side and end-side
-  // "is this bound open" checks regardless of b's bounds, so the result
-  // is fully open even though b alone is closed.
+test('intersection: an open interval with a closed one is open only at the endpoint the open interval actually owns', () => {
+  // a = (Jan 1, Jun 30), b = [Apr 1, Dec 31]. The intersection is
+  // [Apr 1, Jun 30): the START (Apr 1) comes from b (closed there) and
+  // lies in a's interior, so it's included; the END (Jun 30) is a's own
+  // open endpoint, so it's excluded. The old test asserted 'open',
+  // which came from the swapped half-open label handling — open-at-start
+  // was being charged to whichever interval said 'open' anywhere, not
+  // to the interval owning the endpoint.
   const a = interval(d('2026-01-01'), d('2026-06-30'), 'open');
   const b = interval(d('2026-04-01'), d('2026-12-31'), 'closed');
   const inter = intersection(a, b);
-  assert.equal(inter.bounds, 'open');
+  assert.equal(inter.bounds, 'half-open-end');
 });
 
 test('intersection: half-open-end on one side and closed on the other is open at the start only', () => {
@@ -145,12 +149,14 @@ test('intersection: both closed produces a closed result', () => {
   assert.equal(inter.bounds, 'closed');
 });
 
-test('union: requires both sides open at an endpoint to report open there', () => {
+test('union: less-restrictive means closed at an endpoint unless the owning interval includes it', () => {
   const a = interval(d('2026-01-01'), d('2026-06-30'), 'open');
   const b = interval(d('2026-04-01'), d('2026-12-31'), 'closed');
   const u = union(a, b);
-  // Only one side is open at the start, so union (less-restrictive) is closed there.
-  assert.equal(u.bounds, 'closed');
+  // Union = (Jan 1, Dec 31]: the START is a's own (open → excluded);
+  // the END is b's own (closed → included). b never reaches the start
+  // point, so its closed-ness can't reopen a's start.
+  assert.equal(u.bounds, 'half-open-start');
 });
 
 test('union: both sides open at both ends produces a fully open result', () => {
@@ -178,7 +184,7 @@ test('splitInterval: throws for n <= 0', () => {
   assert.throws(() => splitInterval(iv, -3), /requires n > 0/);
 });
 
-test('splitInterval: sub-intervals after the first are half-open-start, and dates are correct', () => {
+test('splitInterval: slices partition the interval — every point in exactly one slice, dates correct', () => {
   // Regression test for a real bug: fromMs() used to add the absolute
   // epoch-day offset on top of base's own epoch-ms a second time,
   // landing slice dates tens of thousands of days away from the actual
@@ -187,14 +193,27 @@ test('splitInterval: sub-intervals after the first are half-open-start, and date
   // would be caught here.
   const iv = interval(d('2026-01-01'), d('2026-01-05'));
   const result = splitInterval(iv, 4);
-  assert.equal(result[0].bounds, iv.bounds);
-  assert.equal(result[1].bounds, 'half-open-start');
-  assert.equal(result[3].bounds, 'half-open-start');
+  // A true partition of a closed interval: [s0, s1) [s1, s2) [s2, s3)
+  // [s3, s4] — first slice keeps the caller's start inclusivity and
+  // drops its end, middle slices likewise, last slice keeps the
+  // caller's end inclusivity. (The old test expected 'half-open-start'
+  // on the middle slices, which only "worked" because contains() had
+  // the two half-open labels swapped.)
+  assert.equal(result[0].bounds, 'half-open-end');
+  assert.equal(result[1].bounds, 'half-open-end');
+  assert.equal(result[3].bounds, 'closed');
   const dates = result.map((r) => `${r.start.year}-${String(r.start.month).padStart(2, '0')}-${String(r.start.day).padStart(2, '0')}`);
   assert.deepEqual(dates, ['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04']);
   assert.equal(result[3].end.year, 2026);
   assert.equal(result[3].end.month, 1);
   assert.equal(result[3].end.day, 5);
+  // Membership partition: each of the 5 days is contained in exactly
+  // one slice (Jan 2/3/4 sit on interior slice boundaries).
+  for (let day = 1; day <= 5; day++) {
+    const p = d(`2026-01-0${day}`);
+    const hits = result.filter((slice) => contains(slice, p)).length;
+    assert.equal(hits, 1, `day Jan ${day} should be in exactly one slice, got ${hits}`);
+  }
 });
 
 test('splitInterval: a month > February exercises toMs\'s non-Jan/Feb branch (m2 = m - 3, y2 = y)', () => {
@@ -281,11 +300,15 @@ test('intersection: when a is narrower than b, a\'s own endpoints win the ternar
   assert.equal(inter.end.toString(), '2026-06-30');
 });
 
-test('intersection: half-open-start on one side and closed on the other is open at the end only', () => {
+test('intersection: half-open-start on one side and closed on the other includes the end it owns', () => {
+  // a = (Jan 1, Jun 30] (half-open-start: start excluded, end INCLUDED);
+  // b = [Apr 1, Dec 31]. Intersection = [Apr 1, Jun 30] — start from b
+  // (included), end from a (included per half-open-start). The old
+  // expected value 'half-open-start' came from the swapped-label bug.
   const a = interval(d('2026-01-01'), d('2026-06-30'), 'half-open-start');
   const b = interval(d('2026-04-01'), d('2026-12-31'), 'closed');
   const inter = intersection(a, b);
-  assert.equal(inter.bounds, 'half-open-start');
+  assert.equal(inter.bounds, 'closed');
 });
 
 test('union: when a starts after and ends after b, b\'s start and a\'s end win the ternaries', () => {

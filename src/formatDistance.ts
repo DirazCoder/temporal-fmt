@@ -15,9 +15,9 @@
  */
 
 import { DEFAULT_LOCALE, type FormatOptions } from './tokens.js';
-import { dayOfYear, isGregorianLeapYear } from './isoWeek.js';
+import { isGregorianLeapYear, daysFromCivil } from './isoWeek.js';
 import { normalizeLocaleTag } from './localeVocab.js';
-import { InvalidLocaleError } from './errors.js';
+import { InvalidLocaleError, InvalidDateError } from './errors.js';
 
 // Reads date fields off a Temporal value in the same minimal-shape style
 // as the rest of the library (TemporalLike) — no Temporal factory needed.
@@ -53,6 +53,39 @@ function readFields(value: unknown, label: string): DateFieldView {
       `Pass a full Temporal.PlainDate / PlainDateTime / ZonedDateTime.`
     );
   }
+  // Range validation on the date triple. This function accepts plain
+  // field bags (documented duck-typing), so the fields are untrusted
+  // caller data, and every downstream consumer assumed a real calendar
+  // date: a year of 1e9 used to drive a O(|year|) day-accumulation loop
+  // (hundreds of ms per call — a cheap CPU-denial primitive when an app
+  // feeds user-controlled parsed values in), and month 0 / Feb 31 fell
+  // through to either V8-internal Intl errors or silently-wrong
+  // distances. Real Temporal values always pass these checks, so this
+  // only ever fires on hostile/hand-rolled bags.
+  if (hasYear) {
+    const y = obj.year as number;
+    const m = obj.month as number;
+    const d = obj.day as number;
+    if (!Number.isFinite(y) || !Number.isInteger(y) || y < MIN_YEAR || y > MAX_YEAR) {
+      throw new InvalidDateError({
+        input: label,
+        reason: `year ${y} is outside the ${MIN_YEAR}..${MAX_YEAR} range Temporal can represent`,
+      });
+    }
+    if (!Number.isInteger(m) || m < 1 || m > 12) {
+      throw new InvalidDateError({
+        input: label,
+        reason: `month ${m} is not in 1..12`,
+      });
+    }
+    const maxDay = m === 2 && isGregorianLeapYear(y) ? 29 : [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]!;
+    if (!Number.isInteger(d) || d < 1 || d > maxDay) {
+      throw new InvalidDateError({
+        input: label,
+        reason: `day ${d} is not valid for year ${y}, month ${m} (max ${maxDay})`,
+      });
+    }
+  }
   return {
     year: hasYear ? (obj.year as number) : undefined,
     month: hasMonth ? (obj.month as number) : undefined,
@@ -64,6 +97,12 @@ function readFields(value: unknown, label: string): DateFieldView {
   };
 }
 
+// Temporal's representable ISO year range (PlainDate accepts -271821
+// through 275760). Values beyond this can't come from a real Temporal
+// object, so they're rejected as malformed input rather than walked.
+const MIN_YEAR = -271_821;
+const MAX_YEAR = 275_760;
+
 // Reference epoch for ms-since computation. Jan 1, 2000 UTC is the same
 // anchor isoWeek.ts uses for day-of-week arithmetic; reusing it keeps the
 // reasoning localized to one well-known reference date.
@@ -74,18 +113,14 @@ const MS_PER_HOUR = 60 * MS_PER_MINUTE;
 const MS_PER_DAY = 24 * MS_PER_HOUR;
 
 function daysSinceReference(year: number, month: number, day: number): number {
-  let days = 0;
-  if (year >= REFERENCE_YEAR) {
-    for (let y = REFERENCE_YEAR; y < year; y++) {
-      days += isGregorianLeapYear(y) ? 366 : 365;
-    }
-  } else {
-    for (let y = year; y < REFERENCE_YEAR; y++) {
-      days -= isGregorianLeapYear(y) ? 366 : 365;
-    }
-  }
-  days += dayOfYear(year, month, day) - 1;
-  return days;
+  // O(1): days_from_civil for the target minus days_from_civil for the
+  // reference. The old version accumulated 365/366 per year in a loop —
+  // identical results for every real date, but O(|year − 2000|), which
+  // made hostile field-bag years (1e9+) an accidental CPU-denial
+  // primitive. (Range validation in readFields already rejects years
+  // Temporal can't represent; this closed form makes even the
+  // in-range walk instant.)
+  return daysFromCivil(year, month, day) - daysFromCivil(REFERENCE_YEAR, 1, 1);
 }
 
 function toEpochMs(fields: DateFieldView): number {

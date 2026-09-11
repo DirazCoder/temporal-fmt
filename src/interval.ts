@@ -30,6 +30,7 @@ import { formatToParts, type FormattedPart } from './format.js';
 import { getFormatImpl } from './runtime.js';
 import { asDateFieldView, type DateFieldView } from './calendarUtils.js';
 import { normalizeLocaleTag } from './localeVocab.js';
+import { daysFromCivil } from './isoWeek.js';
 import type { FormatOptions } from './tokens.js';
 
 export type IntervalBounds = 'open' | 'closed' | 'half-open-start' | 'half-open-end';
@@ -56,15 +57,26 @@ export function interval(start: unknown, end: unknown, bounds: IntervalBounds = 
 // - 'open': (start, end) — neither endpoint included
 // - 'half-open-start': (start, end] — start excluded, end included
 // - 'half-open-end': [start, end) — start included, end excluded
+//
+// The two half-open conditions below used to have their labels swapped —
+// 'half-open-end' excluded the start and included the end (the exact
+// behavior 'half-open-start' documents, and vice versa) — which made
+// contains() disagree with difference() (whose labels were correct all
+// along) and silently broke splitInterval's partition (see below).
+// startOpen/beginOpen naming below says which *endpoint* is excluded, so
+// the mapping to the label can't drift again.
+function startIncluded(bounds: IntervalBounds): boolean {
+  return bounds === 'closed' || bounds === 'half-open-end';
+}
+function endIncluded(bounds: IntervalBounds): boolean {
+  return bounds === 'closed' || bounds === 'half-open-start';
+}
+
 export function contains(iv: Interval, value: unknown): boolean {
   const startCmp = compare(value, iv.start);
   const endCmp = compare(value, iv.end);
-  const afterStart = iv.bounds === 'open' || iv.bounds === 'half-open-end'
-    ? startCmp > 0
-    : startCmp >= 0;
-  const beforeEnd = iv.bounds === 'open' || iv.bounds === 'half-open-start'
-    ? endCmp < 0
-    : endCmp <= 0;
+  const afterStart = startIncluded(iv.bounds) ? startCmp >= 0 : startCmp > 0;
+  const beforeEnd = endIncluded(iv.bounds) ? endCmp <= 0 : endCmp < 0;
   return afterStart && beforeEnd;
 }
 
@@ -76,13 +88,24 @@ export function overlaps(a: Interval, b: Interval): boolean {
 }
 
 export function intersects(a: Interval, b: Interval): boolean {
-  // a is entirely before b: a.end < b.start
-  if (compare(a.end, b.start) < 0) return false;
-  // a is entirely after b: a.start > b.end
-  if (compare(a.start, b.end) > 0) return false;
-  // Touching endpoints with both-closed bounds counts as overlap;
-  // open bounds would not. To keep it simple, touching counts.
-  return true;
+  // Two intervals intersect iff they share at least one point. The old
+  // version returned true whenever the spans touched, regardless of
+  // bounds — so (Jan 1, Jan 5) and (Jan 5, Jan 10), which share no point
+  // (Jan 5 belongs to neither), reported as overlapping, and
+  // intersection() returned a degenerate non-empty-looking result for
+  // the empty intersection. Computing the candidate shared span and
+  // consulting contains() at the single shared point handles every
+  // bounds combination uniformly.
+  const loCmp = compare(a.start, b.start);
+  const lo = loCmp >= 0 ? a.start : b.start; // later start
+  const hiCmp = compare(a.end, b.end);
+  const hi = hiCmp <= 0 ? a.end : b.end; // earlier end
+  const inner = compare(lo, hi);
+  if (inner < 0) return true; // strictly inside — a real span is shared
+  if (inner > 0) return false; // spans don't reach each other
+  // lo === hi: the only possible shared point is that single value —
+  // it has to be contained in BOTH intervals.
+  return contains(a, lo) && contains(b, lo);
 }
 
 export function isBefore(a: Interval, b: Interval): boolean {
@@ -94,42 +117,60 @@ export function isAfter(a: Interval, b: Interval): boolean {
 }
 
 // Returns the intersection of two intervals, or null if they don't
-// overlap. The result's bounds are the more restrictive of the two
-// inputs (closed ∩ open = open, etc.).
+// overlap. The result's bounds at each endpoint come from whichever
+// interval OWNS that endpoint (the later start, the earlier end) — when
+// both intervals supply the same endpoint, intersection inclusivity is
+// the AND of the two (a point is in a∩b only if it's in both).
 export function intersection(a: Interval, b: Interval): Interval | null {
   if (!intersects(a, b)) return null;
-  const start = compare(a.start, b.start) >= 0 ? a.start : b.start;
-  const end = compare(a.end, b.end) <= 0 ? a.end : b.end;
-  // Compute resulting bounds: take the more restrictive at each endpoint.
-  // If a.start === b.start, the more restrictive of (a.bounds, b.bounds)
-  // at that endpoint wins.
-  const startBoundsOpen = (a.bounds === 'open' || a.bounds === 'half-open-end')
-    || (b.bounds === 'open' || b.bounds === 'half-open-end');
-  const endBoundsOpen = (a.bounds === 'open' || a.bounds === 'half-open-start')
-    || (b.bounds === 'open' || b.bounds === 'half-open-start');
-  const bounds: IntervalBounds = startBoundsOpen && endBoundsOpen ? 'open'
-    : startBoundsOpen ? 'half-open-end'
-    : endBoundsOpen ? 'half-open-start'
-    : 'closed';
+  const aStartLater = compare(a.start, b.start) > 0;
+  const start = aStartLater ? a.start : b.start;
+  const aEndEarlier = compare(a.end, b.end) < 0;
+  const end = aEndEarlier ? a.end : b.end;
+  // Start-side inclusivity: owned by the later-start interval, or the
+  // conjunction when the starts are equal.
+  const startInc = aStartLater
+    ? startIncluded(a.bounds)
+    : compare(b.start, a.start) > 0
+      ? startIncluded(b.bounds)
+      : startIncluded(a.bounds) && startIncluded(b.bounds);
+  // End-side inclusivity: owned by the earlier-end interval, or the
+  // conjunction when the ends are equal.
+  const endInc = aEndEarlier
+    ? endIncluded(a.bounds)
+    : compare(a.end, b.end) > 0
+      ? endIncluded(b.bounds)
+      : endIncluded(a.bounds) && endIncluded(b.bounds);
+  const bounds: IntervalBounds = startInc
+    ? (endInc ? 'closed' : 'half-open-end')
+    : (endInc ? 'half-open-start' : 'open');
   return { start, end, bounds };
 }
 
 // Returns the union of two intervals (the smallest interval containing
 // both), or null if they don't overlap (caller should use mergeIntervals
-// for that case).
+// for that case). Union inclusivity at each endpoint comes from the
+// interval that extends further, or the disjunction when both reach the
+// same endpoint.
 export function union(a: Interval, b: Interval): Interval | null {
   if (!intersects(a, b)) return null;
-  const start = compare(a.start, b.start) <= 0 ? a.start : b.start;
-  const end = compare(a.end, b.end) >= 0 ? a.end : b.end;
-  // Union's bounds are the less restrictive at each endpoint.
-  const startBoundsOpen = (a.bounds === 'open' || a.bounds === 'half-open-end')
-    && (b.bounds === 'open' || b.bounds === 'half-open-end');
-  const endBoundsOpen = (a.bounds === 'open' || a.bounds === 'half-open-start')
-    && (b.bounds === 'open' || b.bounds === 'half-open-start');
-  const bounds: IntervalBounds = startBoundsOpen && endBoundsOpen ? 'open'
-    : startBoundsOpen ? 'half-open-end'
-    : endBoundsOpen ? 'half-open-start'
-    : 'closed';
+  const aStartEarlier = compare(a.start, b.start) < 0;
+  const start = aStartEarlier ? a.start : b.start;
+  const aEndLater = compare(a.end, b.end) > 0;
+  const end = aEndLater ? a.end : b.end;
+  const startInc = aStartEarlier
+    ? startIncluded(a.bounds)
+    : compare(b.start, a.start) < 0
+      ? startIncluded(b.bounds)
+      : startIncluded(a.bounds) || startIncluded(b.bounds);
+  const endInc = aEndLater
+    ? endIncluded(a.bounds)
+    : compare(a.end, b.end) < 0
+      ? endIncluded(b.bounds)
+      : endIncluded(a.bounds) || endIncluded(b.bounds);
+  const bounds: IntervalBounds = startInc
+    ? (endInc ? 'closed' : 'half-open-end')
+    : (endInc ? 'half-open-start' : 'open');
   return { start, end, bounds };
 }
 
@@ -146,18 +187,31 @@ export function union(a: Interval, b: Interval): Interval | null {
 export function difference(a: Interval, b: Interval): Interval[] {
   if (!intersects(a, b)) return [a];
   const result: Interval[] = [];
-  // Does `a` include its own start / end?
-  const aStartIncluded = a.bounds === 'closed' || a.bounds === 'half-open-end';
-  const aEndIncluded = a.bounds === 'closed' || a.bounds === 'half-open-start';
-  // Part of `a` before `b` starts: [a.start, b.start) — start inclusivity
-  // inherited from a, cut end always exclusive.
+  // Part of `a` before `b` starts. Its end is b.start; that point stays
+  // in the remainder iff a still contains it AND b doesn't — a cut edge
+  // is only removed when the removed interval actually includes it (a
+  // cut against an open-bounded b used to drop the edge point even
+  // though b never owned it).
   if (compare(a.start, b.start) < 0) {
-    result.push({ start: a.start, end: b.start, bounds: aStartIncluded ? 'half-open-end' : 'open' });
+    const endInc = contains(a, b.start) && !contains(b, b.start);
+    result.push({
+      start: a.start,
+      end: b.start,
+      bounds: startIncluded(a.bounds)
+        ? (endInc ? 'closed' : 'half-open-end')
+        : (endInc ? 'half-open-start' : 'open'),
+    });
   }
-  // Part of `a` after `b` ends: (b.end, a.end] — cut start always
-  // exclusive, end inclusivity inherited from a.
+  // Part of `a` after `b` ends — mirror image of the above.
   if (compare(a.end, b.end) > 0) {
-    result.push({ start: b.end, end: a.end, bounds: aEndIncluded ? 'half-open-start' : 'open' });
+    const startInc = contains(a, b.end) && !contains(b, b.end);
+    result.push({
+      start: b.end,
+      end: a.end,
+      bounds: startInc
+        ? (endIncluded(a.bounds) ? 'closed' : 'half-open-end')
+        : (endIncluded(a.bounds) ? 'half-open-start' : 'open'),
+    });
   }
   return result;
 }
@@ -175,17 +229,38 @@ export const subtract = difference;
 export function mergeIntervals(intervals: Interval[]): Interval[] {
   if (intervals.length === 0) return [];
   const sorted = [...intervals].sort((a, b) => compare(a.start, b.start));
+  // Shallow-copy EVERY interval placed into the result, not just the
+  // first — the inputs are documented as immutable and the merged
+  // object is mutated below (last.end is reassigned), so aliasing any
+  // input would write through to the caller's objects. Non-merged
+  // intervals used to be pushed by reference.
   const result: Interval[] = [{ ...sorted[0]! }];
   for (let i = 1; i < sorted.length; i++) {
     const current = sorted[i]!;
     const last = result[result.length - 1]!;
-    if (intersects(last, current) || compare(last.end, current.start) === 0) {
-      // Merge into last.
-      if (compare(current.end, last.end) > 0) {
+    // Touching endpoints merge only when at least one interval actually
+    // contains the shared point — [1,5) + [5,10] union to [1,10], but
+    // (1,5) + (5,10) leave a hole at exactly 5 and must stay separate.
+    // (Plain overlaps always merge, per intersects().)
+    const touching = compare(last.end, current.start) === 0;
+    const touchMerges = touching && (endIncluded(last.bounds) || startIncluded(current.bounds));
+    if (intersects(last, current) || touchMerges) {
+      // Extend to the farther end, carrying that interval's end
+      // inclusivity over (and when the ends are equal, the union of the
+      // two end inclusivities).
+      const endCmp = compare(current.end, last.end);
+      if (endCmp > 0) {
         last.end = current.end;
+        last.bounds = startIncluded(last.bounds)
+          ? (endIncluded(current.bounds) ? 'closed' : 'half-open-end')
+          : (endIncluded(current.bounds) ? 'half-open-start' : 'open');
+      } else if (endCmp === 0) {
+        last.bounds = startIncluded(last.bounds)
+          ? (endIncluded(last.bounds) || endIncluded(current.bounds) ? 'closed' : 'half-open-end')
+          : (endIncluded(last.bounds) || endIncluded(current.bounds) ? 'half-open-start' : 'open');
       }
     } else {
-      result.push(current);
+      result.push({ ...current });
     }
   }
   return result;
@@ -218,28 +293,48 @@ export function splitInterval(iv: Interval, n: number): Interval[] {
   }
   const step = (endMs - startMs) / n;
   const result: Interval[] = [];
+  // A partition: slice 0 keeps the caller's start inclusivity, slices
+  // 1..n-1 start exactly where the previous slice ended (exclusively),
+  // so their starts are INCLUDED, and every slice except the last
+  // excludes its end; the last slice keeps the caller's end inclusivity.
+  // Together: [s0, s1) [s1, s2) ... [s_{n-1}, s_n] for a closed input —
+  // every point in exactly one slice. (The old version labeled the
+  // middle slices 'half-open-start' — which under the pre-fix, swapped
+  // contains() semantics accidentally behaved like [s, e) — and left
+  // the ORIGINAL end point out of the last slice entirely.)
+  const ivStartInc = startIncluded(iv.bounds);
+  const ivEndInc = endIncluded(iv.bounds);
   for (let i = 0; i < n; i++) {
     const sliceStart = startMs + i * step;
     const sliceEnd = i === n - 1 ? endMs : sliceStart + step;
+    const startInc = i === 0 ? ivStartInc : true;
+    const endInc = i === n - 1 ? ivEndInc : false;
     result.push({
       start: fromMs(sliceStart, startFields),
       end: fromMs(sliceEnd, endFields),
-      bounds: i === 0 ? iv.bounds : 'half-open-start',
+      // The 'half-open-start' arm on the last line below is structurally
+      // unreachable: startInc is false only for slice 0 (later slices
+      // start included), and slice 0's endInc is always false (only the
+      // last slice carries the input's end inclusivity) — a slice with an
+      // exclusive start AND inclusive end would require n === 1, which
+      // returns [iv] unchanged above. The other arms are live and covered.
+      /* c8 ignore next 3 @preserve */
+      bounds: startInc
+        ? (endInc ? 'closed' : 'half-open-end')
+        : (endInc ? 'half-open-start' : 'open'),
     });
   }
   return result;
 }
 
 function toMs(v: DateFieldView & { hour?: number; minute?: number; second?: number; millisecond?: number }): number {
-  // Reuse the same day-count math arithmetic.ts uses, inlined.
-  const y = v.year!, m = v.month!, d = v.day!;
-  const y2 = m <= 2 ? y - 1 : y;
-  const era = Math.floor((y2 >= 0 ? y2 : y2 - 399) / 400);
-  const yoe = y2 - era * 400;
-  const m2 = m > 2 ? m - 3 : m + 9;
-  const doy = Math.floor((153 * m2 + 2) / 5) + d - 1;
-  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
-  const days = era * 146097 + doe - 719468;
+  // daysFromCivil (isoWeek.ts) is the O(1) Hinnant day count, correct
+  // for negative years. The formula previously inlined here carried a
+  // Math.floor applied to Hinnant's -399-offset numerator — a double
+  // correction that shifted every pre-year-0 date by one day (the
+  // offset form is only equivalent under truncating division, which JS
+  // doesn't have).
+  const days = daysFromCivil(v.year!, v.month!, v.day!);
   return days * 86_400_000
     + (v.hour ?? 0) * 3_600_000
     + (v.minute ?? 0) * 60_000

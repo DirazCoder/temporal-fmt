@@ -50,16 +50,25 @@ describe('isBefore / isAfter', () => {
 });
 
 describe('intersection / union', () => {
-  it('intersection is open at an endpoint if either side is open there', () => {
+  it('intersection is open at an endpoint only if the interval OWNING that endpoint is open there', () => {
+    // a = (Jan 1, Jun 30), b = [Apr 1, Dec 31]. Intersection = [Apr 1,
+    // Jun 30): the START (Apr 1) is b's own closed start lying in a's
+    // interior — included; the END (Jun 30) is a's own open end —
+    // excluded. The old expectation 'open' came from the swapped
+    // half-open label handling (open-at-start charged to any interval
+    // declaring 'open' anywhere).
     const a = interval(d('2026-01-01'), d('2026-06-30'), 'open');
     const b = interval(d('2026-04-01'), d('2026-12-31'), 'closed');
-    expect(intersection(a, b)?.bounds).toBe('open');
+    expect(intersection(a, b)?.bounds).toBe('half-open-end');
   });
 
-  it('union requires both sides open at an endpoint to be open there', () => {
+  it('union is open at an endpoint the OWNING interval leaves open, regardless of the other side', () => {
+    // Union = (Jan 1, Dec 31]: the START is a's own open start (b never
+    // reaches it, so b's closed-ness can't reopen it); the END is b's
+    // own closed end — included.
     const a = interval(d('2026-01-01'), d('2026-06-30'), 'open');
     const b = interval(d('2026-04-01'), d('2026-12-31'), 'closed');
-    expect(union(a, b)?.bounds).toBe('closed');
+    expect(union(a, b)?.bounds).toBe('half-open-start');
   });
 
   it('union of non-overlapping intervals is null', () => {

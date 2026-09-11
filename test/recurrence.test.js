@@ -238,14 +238,21 @@ test('parseRRule: BYDAY parses simple weekday codes', () => {
   assert.deepEqual(r.byWeekday, [1, 3, 5]);
 });
 
-test('parseRRule: BYDAY tolerates an ordinal prefix like the RFC 5545 "2MO" form', () => {
+test('parseRRule: BYDAY captures the RFC 5545 "2MO" ordinal form', () => {
+  // The ordinal used to be silently dropped — BYDAY=2MO parsed as plain
+  // "every Monday". It now lands in byWeekdayOrdinal and drives
+  // nth-weekday-of-month matching (see the recurrence BYDAY=2MO test).
   const r = parseRRule('FREQ=MONTHLY;BYDAY=2MO');
-  assert.deepEqual(r.byWeekday, [1]);
+  assert.deepEqual(r.byWeekday, []);
+  assert.deepEqual(r.byWeekdayOrdinal, [{ ordinal: 2, weekday: 1 }]);
+  // formatRRule round-trips the ordinal back out.
+  assert.equal(formatRRule(r), 'FREQ=MONTHLY;BYDAY=2MO');
 });
 
-test('parseRRule: an unrecognized BYDAY code maps to 0', () => {
-  const r = parseRRule('FREQ=WEEKLY;BYDAY=ZZ');
-  assert.deepEqual(r.byWeekday, [0]);
+test('parseRRule: an unrecognized BYDAY code throws instead of mapping to 0', () => {
+  // A typo'd BYDAY entry used to quietly become weekday 0, which can
+  // never match anything — the rule silently produced no occurrences.
+  assert.throws(() => parseRRule('FREQ=WEEKLY;BYDAY=ZZ'), /invalid weekday "ZZ"/);
 });
 
 test('parseRRule: BYMONTHDAY parses a comma-separated list of days', () => {
@@ -258,9 +265,17 @@ test('parseRRule: BYMONTH parses a comma-separated list of months', () => {
   assert.deepEqual(r.byMonth, [3, 6, 9]);
 });
 
-test('parseRRule: UNTIL is kept as the raw string for the caller to convert', () => {
+test('parseRRule: UNTIL is parsed into a comparable date value', () => {
+  // UNTIL used to be stored as the raw string, so the first next() on a
+  // parsed rule threw "expected a date-carrying Temporal value" — a
+  // parsed RRULE with UNTIL was unusable without hand-converting.
   const r = parseRRule('FREQ=DAILY;UNTIL=20260301');
-  assert.equal(r.until, '20260301');
+  assert.deepEqual(r.until, { year: 2026, month: 3, day: 1, hour: undefined, minute: undefined, second: undefined });
+  // Date-time form parses too.
+  const r2 = parseRRule('FREQ=DAILY;UNTIL=20260301T153000Z');
+  assert.deepEqual(r2.until, { year: 2026, month: 3, day: 1, hour: 15, minute: 30, second: 0 });
+  // And malformed UNTIL fails loudly.
+  assert.throws(() => parseRRule('FREQ=DAILY;UNTIL=march'), /UNTIL must be a date/);
 });
 
 test('formatRRule: omits INTERVAL when it is the default of 1', () => {
@@ -310,28 +325,32 @@ test('formatRRule: combines every optional field in one rule', () => {
   );
 });
 
-test('matches: a start value missing dayOfWeek falls back to 0 in the byWeekday check', () => {
-  // Caller-supplied start values that skip the derived dayOfWeek field
-  // (rather than a real Temporal value) fall back to 0 via `v.dayOfWeek
-  // ?? 0`. Rule includes 0 (not a real ISO weekday) so the very first
-  // matches() check succeeds on the fallback, without ever advancing —
-  // advancing would call add(), which requires day/month/year and would
-  // throw for an under-specified start.
-  const iter = recurrence({ year: 2026, month: 1, day: 1 }, { frequency: 'daily', interval: 1, byWeekday: [0], count: 1 });
-  const r = iter.next();
-  assert.equal(r.done, false);
+test('matches: a programmatic rule with weekday 0 (not a real ISO weekday) throws', () => {
+  // A start value missing dayOfWeek falls back to 0 in matches(), so a
+  // rule listing byWeekday [0] used to "work" only through that
+  // fallback — garbage by construction. parseRRule always rejected
+  // weekday 0; programmatic rules now do too.
+  assert.throws(
+    () => recurrence({ year: 2026, month: 1, day: 1 }, { frequency: 'daily', interval: 1, byWeekday: [0], count: 1 }),
+    /byWeekday entries must be ISO weekdays/,
+  );
 });
 
-test('matches: a start value missing day falls back to 0 in the byMonthDay check', () => {
-  const iter = recurrence({ year: 2026, month: 1 }, { frequency: 'daily', interval: 1, byMonthDay: [0], count: 1 });
-  const r = iter.next();
-  assert.equal(r.done, false);
+test('matches: a programmatic rule with an invalid byMonthDay value throws', () => {
+  // byMonthDay [0] is nonsense (0 isn't a day of any month) — parseRRule
+  // always rejected it, and a programmatic rule carrying it used to
+  // fall through a `?? 0` fallback that silently matched nothing.
+  assert.throws(
+    () => recurrence({ year: 2026, month: 1, day: 1 }, { frequency: 'daily', interval: 1, byMonthDay: [0], count: 1 }),
+    /byMonthDay entries must be nonzero integers/,
+  );
 });
 
-test('matches: a start value missing month falls back to 0 in the byMonth check', () => {
-  const iter = recurrence({ year: 2026 }, { frequency: 'monthly', interval: 1, byMonth: [0], count: 1 });
-  const r = iter.next();
-  assert.equal(r.done, false);
+test('matches: a programmatic rule with an invalid byMonth value throws', () => {
+  assert.throws(
+    () => recurrence({ year: 2026, month: 1, day: 1 }, { frequency: 'monthly', interval: 1, byMonth: [0], count: 1 }),
+    /byMonth entries must be months 1 through 12/,
+  );
 });
 
 test('recurrence: count limit reached on the very first (atStart) match ends iteration immediately', () => {
@@ -367,9 +386,9 @@ test('between: the iterator exhausting itself (r.done) ends the loop before rang
   assert.equal(results.length, 3);
 });
 
-test('parseRRule: a BYDAY entry that fails the weekday regex maps to 0 instead of throwing', () => {
-  const rule = parseRRule('FREQ=WEEKLY;BYDAY=MO,bogus,WE');
-  assert.deepEqual(rule.byWeekday, [1, 0, 3]);
+test('parseRRule: a BYDAY entry that fails the weekday regex throws', () => {
+  // "bogus" used to map to weekday 0 and silently match nothing.
+  assert.throws(() => parseRRule('FREQ=WEEKLY;BYDAY=MO,bogus,WE'), /invalid weekday "BOGUS"/);
 });
 
 test('recurrence + take: returns N occurrences', () => {

@@ -4,6 +4,163 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.5 — 2026-09-12 (`PENDING_HASH`)
+
+### Security
+- `.tfmod` mod archives: `mod.json`'s `"main"` and the mod name are now
+  path-validated before any filesystem use. A malicious archive could
+  previously declare `"main": "../../../some/file.mjs"` and have the
+  loader `import()` code from OUTSIDE its extraction directory,
+  breaking the "archive contents == executed code" containment the mod
+  system documents (plus a config-read traversal of the same shape).
+  Absolute paths, `..` segments, and symlink escapes are all rejected
+  before stat/import/read; extraction itself is unaffected (system tar
+  already refuses `..` members on this platform, the checks close the
+  manifest-controlled paths tar can't see).
+- `formatDistance`/`formatDistanceToNow` reject years outside
+  [-271821, 275760] (Temporal's representable range) instead of walking
+  a year-per-iteration day-count loop toward them — a hostile
+  duck-typed field bag (e.g. `{year: 2e8}` from parsed user data) was a
+  cheap CPU-denial primitive (~380ms/call at 2e8, ~linear beyond). The
+  day-count itself is now O(1) via the Hinnant closed form.
+- Out-of-range month/day in `formatDistance` field bags now throw the
+  typed `InvalidDateError` (month 0 hit a V8-internal Intl error; Feb 31
+  silently compared as "now").
+
+### Fixed
+- `interval`: `contains()` had the two half-open bound labels swapped —
+  `'half-open-end'` excluded its start and included its end (the exact
+  behavior `'half-open-start'` documents, and vice versa). `intersects`
+  / `intersection` / `union` / `difference` now derive endpoint
+  ownership correctly (the old versions could call two point-disjoint
+  open intervals "overlapping" and return non-null empty
+  intersections), `splitInterval` now produces a true partition (the
+  original end point was dropped and interior boundaries were
+  double-covered), and `mergeIntervals` no longer aliases caller input
+  objects.
+- `round`/`floor`/`ceil`/`truncate`: floor and ceil were literally
+  swapped for every pre-1970 date (negative epoch-ms) —
+  `floor(1969-12-31T12:00, 'day')` returned Jan 1 1970 — and
+  `'nearest'` broke ties asymmetrically across the epoch.
+  `roundDuration` floor/ceil on negative durations matched Temporal
+  semantics now, and fractional `roundingIncrement` throws the typed
+  `InvalidDurationError` instead of a raw V8 BigInt RangeError.
+- Proleptic-Gregorian day counts: the `Math.floor((y2 >= 0 ? y2 :
+  y2-399) / 400)` era form (Hinnant's truncating-division idiom ported
+  to JS's flooring division) double-corrected for negative years,
+  shifting every pre-year-0 date by one day in `difference`,
+  `splitInterval`, and `compare`-family consumers; replaced with the
+  correct closed form and verified against Temporal over 34,320
+  round-trip cases.
+- `add()`-family weekday recomputation used `Date.UTC(year, month-1,
+  day)`, which remaps years 0-99 to 1900-1999 per the ECMAScript spec —
+  first-century dates (including genuine `Temporal.PlainDate` input)
+  got the wrong `dayOfWeek`, so `isBusinessDay` counted Sundays as
+  business days. All four sites now use an O(1) proleptic formula.
+- Month arithmetic across year 0 double-borrowed the year:
+  `add(PlainDate('0001-01-15'), -13, 'months')` returned year -2 /
+  month 12 instead of Temporal's -0001-12-15.
+- Recurrence: `FREQ=WEEKLY;BYDAY=…` never matched when the start
+  wasn't itself on a BYDAY weekday (whole-week stepping preserves the
+  weekday); RRULE `UNTIL` was stored as the raw string so the first
+  `next()` threw; BYDAY ordinals (`2MO`, `-1FR`) were silently dropped;
+  negative `BYMONTHDAY` never matched; monthly rules drifted
+  day-of-month after the first short-month clamp (Jan 31 → 28 forever;
+  RFC says skip the month); `skip()`'s skip phase and `between()` had
+  unbounded iteration; a rule `interval` of `undefined` poisoned
+  candidates with NaN (documented default 1, now actually applied);
+  programmatic rules validate their BY* lists.
+- `isDST` assumed northern hemisphere and was inverted year-round for
+  Australia/NZ/South America/southern Africa; standard offset is now
+  min(Jan, Jul). `getNextTransition`/`getPreviousTransition` bisect to
+  the actual transition minute (they used to return the day
+  reconstructed at the input's wall-clock time — the right day, up to
+  10 hours late); `getTransitions` validates its `end` argument.
+- Codemod tables: date-fns `S`/`SS` (fractional seconds) and `y`
+  existed in temporal-fmt but were missing from the table, silently
+  translating to quoted literal text / throwing; `ww` locale-vs-ISO
+  week mismatches now refuse with a note instead of silently printing
+  different numbers; a large batch of real-but-unmapped tokens now
+  fail loudly instead of silently literalizing.
+- `analyzeFormat` token positions now track source indices (quoted
+  spans and `''` escapes under-counted, mis-positioning every token
+  after any quote); `previewFormat`'s default sample is a real
+  `PlainDateTime` so locale-aware tokens render; `ww`/`RRRR`/`D`-family
+  validate all fields they read (NaN output before); the token metadata
+  no longer claims `Instant` supports time tokens or `PlainMonthDay`
+  supports day-of-year.
+- `compileFormat().pieces` is now served frozen — a caller mutating the
+  (shared, cached) array poisoned every subsequent `format()` for that
+  string process-wide. `DEFAULT_CONFIG` is frozen (one import site
+  could change every later `createConfig()`'s defaults).
+  `registerRelativeGrammar` validates matchers are functions and
+  isolates throwing matchers; `parseRelative` rejects contradictory
+  "in N units ago" input instead of silently resolving it as future;
+  the CLI rejects prototype-chain subcommand lookups
+  (`temporal-fmt toString …` crashed with a raw TypeError);
+  `formatISODuration` emits valid ISO for negative durations
+  (`-PT30S`, previously the unparseable `PT-30S`) and
+  `parseISODuration` accepts the leading-minus form; the holiday
+  calendar's per-year cache is bounded (1000 entries, FIFO);
+  `format(null, …)` throws the typed error instead of a raw TypeError.
+
+- `interval`: the end-inclusivity ownership checks inside `intersection()`
+  and `union()` compared in the wrong direction, making the
+  "other interval strictly extends further" arm unreachable and computing
+  end bounds from the wrong interval. `union((1,5], [3,10))` reported an
+  inclusive end even though 10 is in neither interval; the mirror bug made
+  `intersect([1,10), [3,5])` exclude 5 even though 5 is in both. Found by
+  the line-by-line coverage audit (an unreachable branch on a live code
+  path is a bug report wearing a disguise).
+- `timezone`: `isDST()`'s string-offset fallback (used when the installed
+  Temporal implementation doesn't expose `offsetNanoseconds`) compared
+  seconds against nanoseconds, so the comparison could never come out
+  equal — every DST-observing zone read as "in DST" year-round on such
+  implementations. Both arms are now normalized to seconds.
+- `recurrence`: the next-match safety cap didn't count iterations that
+  hit a `continue` (empty period, candidate at/before the start), so a
+  rule whose every period is empty — e.g. `FREQ=MONTHLY;BYDAY=-6MO`,
+  which no month can satisfy — spun the loop forever instead of
+  terminating with "no more occurrences". The cap now counts every
+  iteration.
+- `recurrence`: `parseRRule()`'s BYDAY pattern accepted only single-digit
+  ordinals, but RFC 5545 ordinals run -53..53 — valid rules like
+  `BYDAY=53MO` threw "invalid weekday", and out-of-range ordinals never
+  reached the range check that exists for them. Two digits now parse.
+- `recurrence`: `formatRRule()` emitted `INTERVAL=undefined` for
+  programmatic rules that omit `interval` (a documented default), which
+  `parseRRule()` itself rejects — the round-trip is broken. Omitted
+  interval is now omitted from the output.
+- `recurrence`: a plain field-bag start without `dayOfWeek` made every
+  BYDAY-dependent rule silently yield nothing (Temporal starts worked,
+  because their `dayOfWeek` getter seeds the chain). The iterator now
+  derives dayOfWeek for bag starts, so both start shapes behave the
+  same.
+
+### Tests
+- `npm run test:coverage` is back to 100% lines/branches/functions/
+  statements (the audit's new guards had left it at 98.94%): ~60 new
+  tests in `test/cov-audit.test.js` cover the live paths, and the
+  handful of genuinely unreachable defensive arms (documented at each
+  site) carry `/* c8 ignore ... @preserve */` hints so they survive the
+  esbuild bundle, following the repo's existing convention.
+
+## 0.8.985 — 2026-09-12 (`PENDING_HASH`)
+
+### Security
+- `formatDistance`/`formatDistanceToNow` reject years outside
+  [-271821, 275760] (Temporal's representable range) instead of walking
+  a year-per-iteration day-count loop toward them — a hostile
+  duck-typed field bag (e.g. `{year: 2e8}` from app-parsed user data)
+  was a cheap CPU-denial primitive (~380ms/call at year 2e8, roughly
+  linear beyond). Real Temporal values always pass the check.
+- `format(…, 'ww'/'RRRR')` with a duck-typed field bag whose `year` is
+  outside the same range now throws instead of walking the ISO-week
+  Jan-1 weekday computation year-by-year (~360ms/call at year 2e8,
+  same class). Security fix only — the 0.9.x behavioral changes (O(1)
+  closed forms, broader field validation) are deliberately not
+  backported to this LTS line.
+
 ## 0.9.41 — 2026-09-07 (`b518814`)
 ### Changed
 - License switched from MIT to Apache-2.0. `package.json`'s `license`

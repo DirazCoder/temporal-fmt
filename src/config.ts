@@ -52,7 +52,7 @@ export interface TemporalFmtConfig {
   durationShowZeroValues: boolean;
 }
 
-export const DEFAULT_CONFIG: TemporalFmtConfig = {
+export const DEFAULT_CONFIG: Readonly<TemporalFmtConfig> = Object.freeze({
   locale: DEFAULT_LOCALE,
   numberingSystem: 'latn',
   firstDayOfWeek: 1,
@@ -61,7 +61,13 @@ export const DEFAULT_CONFIG: TemporalFmtConfig = {
   overflow: 'reject',
   parseLenient: false,
   durationShowZeroValues: false,
-};
+});
+// Frozen: this is exported shared module state, and the module's own
+// header promises "no global mutable state" — but DEFAULT_CONFIG was
+// assignable, so one import site writing DEFAULT_CONFIG.locale = 'fr-FR'
+// changed what every subsequent createConfig() in the process returned.
+// Spread ({...DEFAULT_CONFIG}) still makes un-frozen copies wherever
+// defaults feed a merge, so freezing costs nothing.
 
 // merges whatever overrides get passed in on top of the defaults, then
 // freezes it so nobody can mutate it after — Temporal's own options
@@ -71,6 +77,9 @@ export function createConfig(overrides: Partial<TemporalFmtConfig> = {}): Readon
   // sanity checks before we freeze it
   if (typeof merged.locale !== 'string' || merged.locale.length === 0) {
     throw new Error(`temporal-fmt: config.locale must be a non-empty string (got ${String(merged.locale)}).`);
+  }
+  if (merged.numberingSystem !== undefined && typeof merged.numberingSystem !== 'string') {
+    throw new Error(`temporal-fmt: config.numberingSystem must be a string (got ${String(merged.numberingSystem)}).`);
   }
   if (merged.firstDayOfWeek !== 1 && merged.firstDayOfWeek !== 7) {
     throw new Error(`temporal-fmt: config.firstDayOfWeek must be 1 (Monday) or 7 (Sunday) (got ${merged.firstDayOfWeek}).`);

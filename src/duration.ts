@@ -73,38 +73,54 @@ export function formatDurationToParts(
 // e.g. "P3Y6M4DT12H30M5S", "PT1H30M", "P1W", "P0D".
 // Parsed into a DurationFields bag.
 export function parseISODuration(input: string): DurationFields {
-  // Loose grammar: P [years Y] [months M] [weeks W] [days D] [T [hours H] [minutes M] [seconds S]]
-  // Weeks is an ISO 8601-2 extension; widely supported.
-  const re = /^P(?:(?:(\d+(?:\.\d+)?)Y)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)W)?(?:(\d+(?:\.\d+)?)D)?)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/;
+  // Loose grammar: [-]P [years Y] [months M] [weeks W] [days D] [T [hours H] [minutes M] [seconds S]]
+  // Weeks is an ISO 8601-2 extension; widely supported. The optional
+  // leading '-' is ISO's negative-duration form (the same sign
+  // formatISODuration now emits — it used to produce "PT-30S", which
+  // this parser rejects, so the pair didn't round-trip).
+  const re = /^(-)?P(?:(?:(\d+(?:\.\d+)?)Y)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)W)?(?:(\d+(?:\.\d+)?)D)?)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/;
   const m = re.exec(input);
   if (!m) {
-    throw new InvalidDurationError({ input, reason: 'does not match ISO 8601 duration grammar (P[n]Y[n]M[n]W[n]DT[n]H[n]M[n]S)' });
+    throw new InvalidDurationError({ input, reason: 'does not match ISO 8601 duration grammar ([-]P[n]Y[n]M[n]W[n]DT[n]H[n]M[n]S)' });
   }
   // All-zero / empty: P0D is valid ISO for zero duration.
-  if (m.slice(1).every((g) => g === undefined)) {
+  if (m.slice(2).every((g) => g === undefined)) {
     throw new InvalidDurationError({ input, reason: 'duration has no fields (use "P0D" for zero duration)' });
   }
   const toNum = (s: string | undefined): number => s === undefined ? 0 : Number(s);
+  // Avoid -0 (deep-equal-unequal to 0 and confusing in JSON): only
+  // actual nonzero values pick up the sign.
+  const negate = (n: number): number => m[1] === '-' && n !== 0 ? -n : n;
   return {
-    years: toNum(m[1]),
-    months: toNum(m[2]),
-    weeks: toNum(m[3]),
-    days: toNum(m[4]),
-    hours: toNum(m[5]),
-    minutes: toNum(m[6]),
-    seconds: toNum(m[7]),
+    years: negate(toNum(m[2])),
+    months: negate(toNum(m[3])),
+    weeks: negate(toNum(m[4])),
+    days: negate(toNum(m[5])),
+    hours: negate(toNum(m[6])),
+    minutes: negate(toNum(m[7])),
+    seconds: negate(toNum(m[8])),
   };
 }
 
 export function formatISODuration(duration: DurationFields): string {
-  const parts: string[] = ['P'];
-  const years = duration.years ?? 0;
-  const months = duration.months ?? 0;
-  const weeks = duration.weeks ?? 0;
-  const days = duration.days ?? 0;
-  const hours = duration.hours ?? 0;
-  const minutes = duration.minutes ?? 0;
-  const seconds = duration.seconds ?? 0;
+  // ISO 8601 expresses a negative duration with a leading '-' on the
+  // whole designator ("−PT30S"), never with negative components — the
+  // old format emitted "PT-30S", which parseISODuration (and every
+  // other ISO 8601 reader) rejects. Emit the sign up front and absolute
+  // components after it, so the output round-trips through this
+  // module's own parser.
+  const negative = (duration.years ?? 0) < 0 || (duration.months ?? 0) < 0 || (duration.weeks ?? 0) < 0
+    || (duration.days ?? 0) < 0 || (duration.hours ?? 0) < 0 || (duration.minutes ?? 0) < 0
+    || (duration.seconds ?? 0) < 0;
+  const sign = negative ? '-' : '';
+  const years = Math.abs(duration.years ?? 0);
+  const months = Math.abs(duration.months ?? 0);
+  const weeks = Math.abs(duration.weeks ?? 0);
+  const days = Math.abs(duration.days ?? 0);
+  const hours = Math.abs(duration.hours ?? 0);
+  const minutes = Math.abs(duration.minutes ?? 0);
+  const seconds = Math.abs(duration.seconds ?? 0);
+  const parts: string[] = [`${sign}P`];
   if (years) parts.push(`${years}Y`);
   if (months) parts.push(`${months}M`);
   if (weeks) parts.push(`${weeks}W`);
@@ -115,8 +131,8 @@ export function formatISODuration(duration: DurationFields): string {
     if (minutes) parts.push(`${minutes}M`);
     if (seconds) parts.push(`${seconds}S`);
   }
-  // parts is just ['P'] when every field is zero -- ISO has no empty
-  // duration, so fall back to P0D.
+  // parts is just ['P'] (or ['-P']) when every field is zero -- ISO has
+  // no empty duration, so fall back to P0D.
   if (parts.length === 1) parts.push('0D');
   return parts.join('');
 }

@@ -2,25 +2,23 @@
 
 ## Staying up to date
 
-To track the latest active release:
-
-```
-npm install temporal-fmt@latest
-```
-
-To pin to a specific LTS line instead — so you get that line's fixes
-without ever pulling in a new active release:
+**Latest LTS (recommended):**
 
 ```
 npm install temporal-fmt@0.8-lts
 ```
 
-Same pattern applies to any LTS line as it comes up (`0.9-lts`,
-`0.10-lts`, and so on) — see the rotation policy below for how a line
-gets that tag.
+This is what we recommend for production: long-term stability over chasing every release. Security fixes keep coming, nothing changes under you, no surprise breakage. If you're not actively blocked on a new feature, this is the one to run.
 
-Pin the same tag in `package.json` if you want every install to
-resolve consistently instead of re-checking npm each time:
+**Latest active version:**
+
+```
+npm install temporal-fmt@latest
+```
+
+Gets new features first, but also new bugs first. Only use this if you actually need something from it.
+
+Pin whichever one you pick in `package.json` so every install matches:
 
 ```json
 "dependencies": {
@@ -28,170 +26,39 @@ resolve consistently instead of re-checking npm each time:
 }
 ```
 
-That keeps you on whatever `0.8-lts` currently points to — you'll pick
-up new `0.8.x` patch and security releases automatically, but nothing
-from `0.9.x` or later.
-
 ## Supported versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.9.x   | :white_check_mark: |
-| 0.8.x   | :white_check_mark: (LTS) |
-| 0.7.x   | :x:                |
-| < 0.7   | :x:                |
+| Version | Status |
+| ------- | ------ |
+| 0.9.x   | ✅ active |
+| 0.8.x   | ✅ LTS |
+| 0.7.x   | ❌ dead |
+| < 0.7   | ❌ dead |
 
-`0.9.x` is the current active release line. New features, bug fixes,
-security fixes, and parser hardening land here first.
+- **0.9.x** — active. New stuff lands here first.
+- **0.8-lts** — LTS. Security fixes only, nothing new. Good if you don't want the `0.9.0` typed-error change (see below) or just want fewer surprises.
+- **0.7.x and older** — dead. No fixes. Upgrade.
 
-`0.8-lts` is now the LTS line, kept specifically for consumers who don't
-want (or can't yet take) the typed-error throw behavior introduced in
-`0.9.0` — see the breaking-change entry below. It receives security
-fixes only; it just doesn't get new features or the typed throws. That
-stays true until `0.10.x` ships — see the tiered-LTS section below for
-what changes at that point.
+## How LTS works
 
-If you're running this in production and don't need whatever landed in
-`0.9.x`, stay on `0.8-lts`. Same security coverage, fewer moving parts:
-you're not absorbing new features (and the new bugs that can come with
-them), the typed-error change can't silently break an `err.name` or
-`err.constructor` check you didn't know you had, and the LTS rotation
-policy above means you get a guaranteed window before it goes EOL
-instead of finding out after the fact. Track `0.9.x` if you actually
-need something it adds, not by default.
+Every time a new version line goes active, the old active line becomes LTS instead of dying. That's how `0.8.x` became `0.8-lts` when `0.9.x` shipped.
 
-`0.7.x` and everything before it is end of life and no longer receives
-fixes. Upgrade to `0.9.x` or `0.8-lts` instead.
+**What LTS actually gets:** normally just security fixes. But once there are two LTS lines at once, the newer one also gets bug fixes — the older one stays security-only. Right now there's only one LTS line so this doesn't apply yet.
 
-## LTS rotation policy
+**`0.10.x` is a one-off:** when it ships, we go from 2 supported lines to 3 for one release only (0.10.x active, 0.9-lts, and 0.8-lts sticks around instead of dying). After that it goes back to normal: 1 active + 2 LTS, oldest one drops each time a new version goes active.
 
-Standing rule, applies every time — doesn't matter what the version
-numbers are. A line can't take the LTS label (e.g. `0.7.x` becoming
-`0.7-lts`) unless it has shipped at least one security fix release of
-its own, tagged under that line, first. Example: `0.7.x` becomes
-`0.7-lts` at `0.7.97` — it needs a `0.7.98` (or later) release that's
-specifically a security fix. A fix that only went out on main doesn't
-count.
+## What changed and might break you
 
-If `0.7.x` hasn't shipped that release yet, it can't become `0.7-lts`
-and the outgoing LTS line can't go EOL. Once that box is checked, the
-handoff happens.
+- **0.3.0** — `format()` throws on strings over 1000 characters. `yy` throws on negative years instead of quietly mangling them.
+- **0.7.2** — `parse()` throws if you mix 24-hour and 12-hour tokens in one format string, instead of just guessing.
+- **0.8.0** — parser now caps how much ambiguity it'll chew through, and rejects giant input before it even tries. If you were feeding it weird or huge input before, it might throw now instead of grinding forever.
+- **0.8.0** — added support for fixed-offset timezone IDs. Bad timezone IDs still fail like before.
+- **0.8.3** — added `do`, `Q`, `QQQ`, `ww`, `RRRR` tokens, plus new functions (`formatDuration`, `formatDistance`, `parseRelative`) and a new opt-in `lenient` mode for `parse()`. Nothing existing changes unless you turn the new stuff on.
+- **0.8.3** — `QQQ` now checks that the quarter you gave it actually matches the month/date in the same string, and throws if they don't agree.
+- **0.8.3** — `registerLocaleVocab()` checks your locale data right when you register it, so bad data throws immediately instead of later when you try to use it.
+- **0.8.6** — nothing breaking. New options are all opt-in.
+- **0.9.0** — errors are now real typed classes (`TemporalFmtError` and subclasses) instead of plain `Error`. Your `try/catch` still works fine, and `instanceof Error` still passes. The only thing that breaks: if you specifically check `err.constructor === Error` or `err.name === 'Error'`, that check now fails, because `err.name` is something like `'FormatSyntaxError'` instead. If that's you, stay on `0.8-lts`.
 
-## How a version becomes LTS
+## History
 
-Happens automatically the moment a new lineup ships. Whatever line was
-the latest active release right before the new one lands becomes LTS —
-it doesn't go EOL. So when `0.9.x` shipped, `0.8.x` didn't get dropped,
-it became `0.8-lts` and picked up the rotation policy above.
-
-Same pattern repeats every time a new active line comes out — with one
-planned exception, see below.
-
-## Fix level by LTS slot
-
-Right now, with a single LTS line, `0.8-lts` gets security fixes only —
-same as any LTS line always has. The newest-LTS-gets-bug-fixes rule
-below doesn't exist yet at this point; it only takes effect once a
-second LTS line shows up.
-
-That happens at `0.10.x`. From that point on, the two LTS slots aren't
-equivalent:
-
-- **Newest LTS** — bug fixes and security fixes.
-- **Older LTS** — security fixes only.
-
-Example from the three-track window described below: at `0.10.x`,
-`0.9-lts` is the newest LTS, so it gets bug fixes and security fixes.
-`0.8-lts` is the older of the two, so it stays on security fixes only,
-same as it was before `0.10.x` — the difference is `0.9-lts` now gets
-more than `0.8-lts` did at the same stage.
-
-This shifts every time the rotation happens after that. When `0.11.x`
-ships and `0.8-lts` goes EOL, `0.9-lts` — previously the one getting
-bug fixes — becomes the older slot and drops to security-only, while
-`0.10-lts` takes over as the newest LTS and picks up bug fixes. A
-line's fix level is determined by its slot at any given time, not by
-anything fixed to that line itself.
-
-## Three-track support starting at 0.10.x
-
-`0.10.x` is a one-time expansion, not a normal handoff. When it ships,
-support goes from two tracks to three: `0.10.x` becomes active, `0.9.x`
-becomes `0.9-lts`, and `0.8-lts` stays LTS instead of going EOL.
-Nothing drops support at this release — it's the only point where the
-LTS count grows instead of rotating.
-
-From `0.11.x` onward, it's back to a steady rolling window, just sized
-at three instead of two: each new active release EOLs the *older* of
-the two current LTS lines, keeps the newer one as LTS, and demotes the
-outgoing active line into the newly-freed LTS slot. Example: at
-`0.11.x`, `0.8-lts` goes EOL, `0.9-lts` stays LTS, `0.10.x` becomes
-`0.10-lts` alongside it, and `0.11.x` becomes active. The total stays
-capped at three supported lines (one active, two LTS) going forward —
-it never grows past that again.
-
-Same security-fix-release requirement from the rotation policy applies
-to every line in the three-track window; there's no separate rule for
-the second LTS slot.
-
-## Breaking / behavior changes by version
-
-Changes that affect whether upgrading resolves something you're relying
-on, or that could change existing behavior:
-
-- **`0.3.0`** — `format()` now throws on format strings over 1000
-  characters, and `yy` now throws on negative years instead of silently
-  truncating them.
-
-- **`0.7.2`** — `parse()` now throws when a format string mixes a
-  24-hour token (`HH`/`H`) with a 12-hour token (`hh`/`h`), instead of
-  silently picking one.
-
-- **`0.8.0`** — parser ambiguity handling is bounded to prevent
-  combinatorial resource exhaustion. Oversized parse input is also rejected
-  before regex processing. These changes can cause previously accepted
-  attacker-controlled or pathological inputs to throw instead.
-
-- **`0.8.0`** — timezone parsing accepts valid fixed-offset Temporal
-  timezone identifiers. Invalid timezone identifiers continue to fail during
-  pattern matching.
-
-- **`0.8.3`** — `do`, `Q`, `QQQ`, `ww`, and `RRRR` add new formatting
-  capabilities. The existing token grammar remains unchanged.
-
-- **`0.8.3`** — `formatDuration()`, `formatDistance()`, and
-  `parseRelative()` add new APIs without changing the existing
-  `format()` and `parse()` call signatures.
-
-- **`0.8.3`** — `parse()` remains strict by default. The new `lenient`
-  option is opt-in, so existing calls without the option retain the
-  previous ambiguity behavior.
-
-- **`0.8.3`** — `QQQ` parsing cross-checks the parsed quarter against
-  month/date information in the same format string and throws when those
-  values disagree.
-
-- **`0.8.3`** — `registerLocaleVocab()` validates vocabulary when it is
-  registered, so malformed locale data may now throw earlier than it would
-  have during a later format or parse operation.
-
-- **`0.8.6`** — none. `formatDuration`, `parseRelative`, and
-  `formatDistance` gained locale/cutoff options that are opt-in; every
-  existing call without the new options is byte-identical to `0.8.5`.
-
-- **`0.9.0`** — `parse()`, `safeParse()`, `tryParse()`, `parseToParts()`,
-  `format()`, and `formatToParts()` throw typed `TemporalFmtError`
-  subclasses directly instead of plain `Error`. Message text is
-  unchanged, and every thrown error still satisfies `instanceof Error`,
-  so `try/catch` blocks and message-regex checks keep working unmodified.
-  What breaks: code that checks `err.constructor === Error` or
-  `err.name === 'Error'` specifically will see a different result now
-  (`err.name` reports the subclass name instead, e.g.
-  `'FormatSyntaxError'`). If that matters to you, stay on `0.8-lts`,
-  which keeps the old plain-`Error` behavior.
-
-## Historical reference
-
-This LTS handoff pattern isn't new — it started with the `0.6.x`
-lineup, which was the first line ever designated LTS when `0.7.x`
-became active.
+LTS as a concept started with `0.6.x` — it was the first line to get the LTS label, when `0.7.x` went active.

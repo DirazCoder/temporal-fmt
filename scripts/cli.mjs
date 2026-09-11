@@ -207,7 +207,13 @@ function runOneShot(argv) {
     return;
   }
 
-  const command = COMMANDS[subcommand];
+  // Object.prototype lookup: COMMANDS is a plain object literal, so a
+  // subcommand like "toString", "constructor", or "__proto__" used to
+  // hit the prototype chain and return a function (truthy), crashing
+  // with a raw TypeError at `command.argNames.length` instead of the
+  // unknown-subcommand message. hasOwnProperty keeps dispatch on the
+  // object's own keys only.
+  const command = Object.prototype.hasOwnProperty.call(COMMANDS, subcommand) ? COMMANDS[subcommand] : undefined;
   if (!command) {
     process.stderr.write(`Unknown subcommand "${subcommand}". Run --help for usage.\n`);
     process.exit(1);
@@ -260,7 +266,7 @@ async function runRepl() {
       // "format 2026-08-04 yyyy-MM-dd" (prompts only for what's missing),
       // so muscle memory from one-shot usage still works inside the REPL.
       const [subcommand, ...rest] = line.split(/\s+/);
-      const command = COMMANDS[subcommand];
+      const command = Object.prototype.hasOwnProperty.call(COMMANDS, subcommand) ? COMMANDS[subcommand] : undefined;
       if (!command) {
         process.stdout.write(`Unknown subcommand "${subcommand}". Type "help" for the list.\n`);
         continue;

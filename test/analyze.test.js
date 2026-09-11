@@ -40,9 +40,14 @@ test('analyzeFormat: date-only format is compatible with PlainDate, PlainDateTim
   assert.deepEqual(analysis.compatibleTypes, ['PlainDate', 'PlainDateTime', 'ZonedDateTime']);
 });
 
-test('analyzeFormat: time-only format is compatible with PlainTime, PlainDateTime, ZonedDateTime, Instant', () => {
+test('analyzeFormat: time-only format is compatible with PlainTime, PlainDateTime, ZonedDateTime (not Instant)', () => {
+  // Instant is deliberately absent: Temporal.Instant exposes no
+  // hour/minute/second wall-clock fields (they're zone-dependent), so
+  // format(instant, 'HH') throws at the field check. The metadata used
+  // to claim Instant was supported, telling analyzer consumers the
+  // opposite of what the runtime does.
   const analysis = analyzeFormat('HH:mm:ss');
-  assert.deepEqual(analysis.compatibleTypes, ['Instant', 'PlainDateTime', 'PlainTime', 'ZonedDateTime']);
+  assert.deepEqual(analysis.compatibleTypes, ['PlainDateTime', 'PlainTime', 'ZonedDateTime']);
 });
 
 test('analyzeFormat: parseable is false for format-only tokens (do, ww, RRRR)', () => {

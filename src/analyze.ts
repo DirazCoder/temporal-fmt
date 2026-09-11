@@ -25,7 +25,7 @@
 
 import { TOKENS, type TemporalLike } from './tokens.js';
 import { TOKEN_METADATA, type TokenMetadata, type TemporalType } from './tokenMetadata.js';
-import { tokenize, type Piece } from './tokenize.js';
+import { tokenize, tokenizeWithSpans, type Piece } from './tokenize.js';
 import { _handlerFor } from './format.js';
 import { UNPADDED_NUMERIC_TOKENS, FORMAT_ONLY_TOKENS } from './pattern.js';
 import { MAX_FORMAT_LENGTH } from './constants.js';
@@ -113,7 +113,7 @@ export function analyzeFormat(formatStr: string): FormatAnalysis {
       `(got ${formatStr.length}).`
     );
   }
-  const pieces = tokenize(formatStr);
+  const pieces = tokenizeWithSpans(formatStr);
   const tokens: AnalyzedToken[] = [];
   const requiredFields = new Set<string>();
   const compatibleTypesSet = new Set<TemporalType>();
@@ -124,10 +124,12 @@ export function analyzeFormat(formatStr: string): FormatAnalysis {
   let roundTripSafe = true;
   const warnings: Array<{ code: string; message: string }> = [];
 
-  // Walk pieces, building up the analysis. Position is computed per
-  // token piece (literals count toward offset but don't appear in the
-  // tokens array).
-  let offset = 0;
+  // Walk pieces, building up the analysis. Each token's `position` is
+  // its exact source index in the ORIGINAL format string (from
+  // tokenizeWithSpans) — decoded literal lengths used to be accumulated
+  // instead, which under-counted every quoted span ('a b' is 5 source
+  // chars, 3 decoded; '' is 2 source chars, 1 decoded), so every token
+  // after any quote escape reported a position that was too small.
   const unpaddedRun: string[] = [];
   const flushRun = () => {
     if (unpaddedRun.length >= 2) {
@@ -141,7 +143,6 @@ export function analyzeFormat(formatStr: string): FormatAnalysis {
 
   for (const piece of pieces) {
     if (piece.kind === 'literal') {
-      offset += piece.value.length;
       flushRun();
       continue;
     }
@@ -156,11 +157,10 @@ export function analyzeFormat(formatStr: string): FormatAnalysis {
         code: 'UNKNOWN_TOKEN_NO_METADATA',
         message: `Token "${piece.value}" is recognized by the tokenizer but has no metadata entry in tokenMetadata.ts — this is a bug in temporal-fmt.`,
       });
-      offset += piece.value.length;
       continue;
     }
     /* c8 ignore stop */
-    tokens.push({ name: piece.value, position: offset, metadata });
+    tokens.push({ name: piece.value, position: piece.start, metadata });
 
     // Required fields: read off the handler map (the source of truth
     // for "what field does this token need"). Falls back to the
@@ -205,8 +205,6 @@ export function analyzeFormat(formatStr: string): FormatAnalysis {
     } else {
       flushRun();
     }
-
-    offset += piece.value.length;
   }
   flushRun();
 

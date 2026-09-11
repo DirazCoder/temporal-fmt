@@ -528,6 +528,17 @@ const ENGLISH_GRAMMAR: RelativeDateGrammar = {
             `use "in ${count} ${unitName}s" or "${count} ${unitName}s ago".`
           );
         }
+        // Contradictory markers: the regex tolerates "in 3 days ago"
+        // (both a leading "in" and a trailing "ago"), which used to
+        // silently resolve as FUTURE. The library's whole posture is
+        // throw-rather-than-guess — a contradiction is worse than a
+        // missing marker, not something to quietly pick a side on.
+        if (hasIn && hasAgo) {
+          throw new Error(
+            `temporal-fmt: parseRelative got contradictory direction markers in "${m[0]}" — ` +
+            `"in N ${unitName}s" is future and "N ${unitName}s ago" is past; use one or the other.`
+          );
+        }
         const sign = hasIn ? 1 : -1;
         return addUnits(ctx.temporal, ctx.reference, sign * Number(count), unitName);
       },

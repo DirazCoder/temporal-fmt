@@ -21,6 +21,7 @@
 // same year/month/day.
 
 import { asDateFieldView, type DateFieldView } from './calendarUtils.js';
+import { dayOfWeekFromCivil, daysFromCivil } from './isoWeek.js';
 
 interface DateTimeFieldView extends DateFieldView {
   hour?: number;
@@ -41,15 +42,12 @@ function toComparableMs(view: DateTimeFieldView): number {
   // near the boundary — e.g. isAfter(2025-01-01T00:00, 2024-12-31T18:12)
   // returned false (truth: ~5.8h after), and isEqual() returned true for
   // instants ~18h apart (2025-01-01T00:00 vs 2024-12-31T05:49:12).
-  // Exact arithmetic has no such error term.
-  const y = view.year!, m = view.month!, d = view.day!;
-  const y2 = m <= 2 ? y - 1 : y;
-  const era = Math.floor((y2 >= 0 ? y2 : y2 - 399) / 400);
-  const yoe = y2 - era * 400;
-  const m2 = m > 2 ? m - 3 : m + 9;
-  const doy = Math.floor((153 * m2 + 2) / 5) + d - 1;
-  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
-  const days = era * 146097 + doe - 719468;
+  // Exact arithmetic has no such error term. The day count itself comes
+  // from isoWeek.ts's daysFromCivil (Howard Hinnant's days_from_civil:
+  // O(1), correct for negative years — the inlined era formula this
+  // replaced double-corrected pre-year-0 dates by a day via Math.floor
+  // of the -399-offset numerator).
+  const days = daysFromCivil(view.year!, view.month!, view.day!);
 
   const MS_PER_HOUR = 3_600_000;
   const MS_PER_MINUTE = 60_000;
@@ -184,17 +182,11 @@ function sameWeek(yearA: number, monthA: number, dayA: number, yearB: number, mo
   // ...actually let's just compute weekday offsets directly. Same-ISO-week
   // iff |d1 - d2| < 7 days AND the earlier date's ISO weekday ≤ the later
   // date's ISO weekday so they fall in the same Mon-Sun span.
-  const DAYS_PER_400_YEARS = 146097;
   const daysSince = (y: number, m: number, d: number): number => {
-    // Zeller's congruence variant — convert Y/M/D to a day count.
-    // Using a simple algorithm here that's correct for proleptic Gregorian.
-    const y2 = m <= 2 ? y - 1 : y;
-    const era = (y2 >= 0 ? y2 : y2 - 399) / 400 | 0;
-    const yoe = y2 - era * 400;
-    const m2 = m > 2 ? m - 3 : m + 9;
-    const doy = Math.floor((Math.floor(153 * m2 + 2) / 5) + d - 1);
-    const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
-    return era * DAYS_PER_400_YEARS + doe - 719468;
+    // daysFromCivil: O(1), correct for negative years. (The inlined
+    // formula this replaced was the one remaining copy of the
+    // Math.floor-of-offset era bug — see daysFromCivil's comment.)
+    return daysFromCivil(y, m, d);
   };
   const a = daysSince(yearA, monthA, dayA);
   const b = daysSince(yearB, monthB, dayB);
@@ -203,12 +195,11 @@ function sameWeek(yearA: number, monthA: number, dayA: number, yearB: number, mo
   // Monday-of-week for each: subtract (weekday - 1) days, where weekday
   // is 1=Mon..7=Sun. Use the standard Zeller formula for weekday.
   const weekdayOf = (y: number, m: number, d: number): number => {
-    const days = daysSince(y, m, d);
-    // 1970-01-01 was a Thursday (ISO 4). So weekday = ((days + 3) mod 7) + 1
-    // mapped to Mon=1..Sun=7. Let's compute: Sun=0..Sat=6 via JS Date.
-    const date = new Date(Date.UTC(y, m - 1, d));
-    const jsDow = date.getUTCDay(); // 0=Sun..6=Sat
-    return jsDow === 0 ? 7 : jsDow;
+    // O(1) proleptic-Gregorian weekday from isoWeek.ts's dayOfWeekFromCivil.
+    // The old Date.UTC(y, m-1, d) form remapped years 0-99 to 1900-1999
+    // (ECMAScript spec), computing the weekday of the wrong century for
+    // first-century dates.
+    return dayOfWeekFromCivil(y, m, d);
   };
   const wa = a - (weekdayOf(yearA, monthA, dayA) - 1);
   const wb = b - (weekdayOf(yearB, monthB, dayB) - 1);

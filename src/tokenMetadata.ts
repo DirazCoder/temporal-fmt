@@ -88,10 +88,15 @@ const TYPES_WITH: Record<string, TemporalType[]> = {
   year: ['PlainDate', 'PlainDateTime', 'ZonedDateTime', 'PlainYearMonth'],
   month: ['PlainDate', 'PlainDateTime', 'ZonedDateTime', 'PlainYearMonth', 'PlainMonthDay'],
   day: ['PlainDate', 'PlainDateTime', 'ZonedDateTime', 'PlainMonthDay'],
-  hour: ['PlainTime', 'PlainDateTime', 'ZonedDateTime', 'Instant'],
-  minute: ['PlainTime', 'PlainDateTime', 'ZonedDateTime', 'Instant'],
-  second: ['PlainTime', 'PlainDateTime', 'ZonedDateTime', 'Instant'],
-  millisecond: ['PlainTime', 'PlainDateTime', 'ZonedDateTime', 'Instant'],
+  // Instant deliberately NOT listed: Temporal.Instant exposes no
+  // hour/minute/second/millisecond wall-clock fields (they're
+  // zone-dependent), so format(instant, 'HH') throws at the field
+  // check — the metadata used to claim Instant was supported, telling
+  // analyzer/IDE consumers the opposite of what runtime does.
+  hour: ['PlainTime', 'PlainDateTime', 'ZonedDateTime'],
+  minute: ['PlainTime', 'PlainDateTime', 'ZonedDateTime'],
+  second: ['PlainTime', 'PlainDateTime', 'ZonedDateTime'],
+  millisecond: ['PlainTime', 'PlainDateTime', 'ZonedDateTime'],
   dayOfWeek: ['PlainDate', 'PlainDateTime', 'ZonedDateTime'],
   timeZoneId: ['ZonedDateTime'],
   offset: ['ZonedDateTime'],
@@ -305,20 +310,23 @@ export const TOKEN_METADATA: Record<string, TokenMetadata> = {
     formatCapable: true, parseCapable: false, localeSensitive: false, calendarSensitive: true, timezoneSensitive: false,
     supportedTypes: TYPES_WITH.dayOfWeek, roundTripSafe: false,
   },
+  // Day-of-year is leap-adjusted, so it needs a YEAR — PlainMonthDay
+  // (month+day with no year) used to be listed as supported here while
+  // format() computed a non-leap day-of-year for it.
   D: {
     meaning: 'Day of year, unpadded (1-366). Format-only — parsing requires resolving against a year.',
     formatCapable: true, parseCapable: false, localeSensitive: false, calendarSensitive: true, timezoneSensitive: false,
-    supportedTypes: TYPES_WITH.day, roundTripSafe: false,
+    supportedTypes: TYPES_WITH.day.filter((t) => t !== 'PlainMonthDay'), roundTripSafe: false,
   },
   DD: {
     meaning: 'Day of year, 2-digit minimum (01-366). Format-only.',
     formatCapable: true, parseCapable: false, localeSensitive: false, calendarSensitive: true, timezoneSensitive: false,
-    supportedTypes: TYPES_WITH.day, roundTripSafe: false,
+    supportedTypes: TYPES_WITH.day.filter((t) => t !== 'PlainMonthDay'), roundTripSafe: false,
   },
   DDD: {
     meaning: 'Day of year, 3-digit zero-padded (001-366). Format-only.',
     formatCapable: true, parseCapable: false, localeSensitive: false, calendarSensitive: true, timezoneSensitive: false,
-    supportedTypes: TYPES_WITH.day, roundTripSafe: false,
+    supportedTypes: TYPES_WITH.day.filter((t) => t !== 'PlainMonthDay'), roundTripSafe: false,
   },
   LLLL: {
     meaning: 'Stand-alone long month name (nominative case in Slavic locales). Identical to MMMM in most locales.',

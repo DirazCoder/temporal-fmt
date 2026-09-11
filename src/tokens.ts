@@ -16,8 +16,30 @@
 
 import { getTemporal, subscribeToTemporalChanges } from './temporalProvider.js';
 import { canonicalCacheKey, getCustomVocab, normalizeLocaleTag } from './localeVocab.js';
-import { InvalidLocaleError } from './errors.js';
+import { InvalidLocaleError, FormatSyntaxError } from './errors.js';
 import { isoWeekYearAndWeek, dayOfYear } from './isoWeek.js';
+
+// Throws the library's standard typed missing-field error for tokens
+// that READ more fields than their TOKENS-table `field` entry declares
+// (the table only drives format()'s single-field precheck). ww/RRRR read
+// year/month/day/dayOfWeek but precheck only dayOfWeek; D/DD/DDD read
+// year/month/day but precheck only day. Without this, a bag carrying the
+// declared field but missing the rest fed undefined into the math and
+// produced literal "NaN" output instead of the descriptive error every
+// other token throws.
+function requireFields(t: TemporalLike, token: string, ...fields: Array<keyof TemporalLike>): void {
+  for (const field of fields) {
+    if (t[field] === undefined) {
+      throw new FormatSyntaxError({
+        token,
+        message:
+          `temporal-fmt: token "${token}" requires "${field}", ` +
+          `which this Temporal object doesn't have. ` +
+          `(e.g. PlainDate has no time fields, PlainTime has no date fields)`,
+      });
+    }
+  }
+}
 
 export function pad(n: number, len: number): string {
   // padStart pads the whole string, sign included, so pad(-45, 4) used to
@@ -530,10 +552,12 @@ export const TOKENS: Array<[string, TokenHandler, keyof TemporalLike]> = [
   // Dec 29-31 often belong to week 1 of the *next* year; Jan 1-3 often
   // belong to week 52/53 of the *previous* year. See isoWeekYearAndWeek().
   ['ww', (t) => {
+    requireFields(t, 'ww', 'year', 'month', 'day');
     const { week } = isoWeekYearAndWeek(t.year!, t.month!, t.day!, t.dayOfWeek!);
     return pad(week, 2);
   }, 'dayOfWeek'],
   ['RRRR', (t) => {
+    requireFields(t, 'RRRR', 'year', 'month', 'day');
     const { isoYear } = isoWeekYearAndWeek(t.year!, t.month!, t.day!, t.dayOfWeek!);
     return pad(isoYear, 4);
   }, 'dayOfWeek'],
@@ -546,9 +570,18 @@ export const TOKENS: Array<[string, TokenHandler, keyof TemporalLike]> = [
   // which is a different shape from the token-based parse() surface.
   // The dayOfYearHelper() in calendarUtils.ts covers the same field for
   // callers who need the numeric value.
-  ['D', (t) => String(dayOfYear(t.year!, t.month!, t.day!)), 'day'],
-  ['DD', (t) => pad(dayOfYear(t.year!, t.month!, t.day!), 2), 'day'],
-  ['DDD', (t) => pad(dayOfYear(t.year!, t.month!, t.day!), 3), 'day'],
+  ['D', (t) => {
+    requireFields(t, 'D', 'year', 'month');
+    return String(dayOfYear(t.year!, t.month!, t.day!));
+  }, 'day'],
+  ['DD', (t) => {
+    requireFields(t, 'DD', 'year', 'month');
+    return pad(dayOfYear(t.year!, t.month!, t.day!), 2);
+  }, 'day'],
+  ['DDD', (t) => {
+    requireFields(t, 'DDD', 'year', 'month');
+    return pad(dayOfYear(t.year!, t.month!, t.day!), 3);
+  }, 'day'],
 
   // Stand-alone month — uses Intl's stand-alone form. In most locales
   // (en, fr, de, es) this is identical to MMMM/MMM. In Slavic/Baltic

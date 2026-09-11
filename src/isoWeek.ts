@@ -52,18 +52,44 @@ export function dayOfYear(year: number, month: number, day: number): number {
 const REFERENCE_YEAR = 2000;
 const REFERENCE_JAN1_DAY_OF_WEEK = 6;
 
+// Howard Hinnant's days_from_civil: O(1) day count for a proleptic
+// Gregorian y/m/d, correct for negative years and year 0 (the (y2>=0?
+// y2 : y2-399)/400 offset form relies on truncating division, which JS
+// doesn't have — Math.floor on the *un-offset* numerator is the exact
+// JS equivalent, see the matching formulas in arithmetic.ts). Shared by
+// dayOfWeekOfJan1 and any caller needing days between two arbitrary
+// dates without a year-by-year walk (those walks were O(|year − 2000|)
+// per call — a field bag claiming year 2e8 hung formatDistance for
+// ~400ms per call and worse for bigger values).
+export function daysFromCivil(year: number, month: number, day: number): number {
+  const y2 = month <= 2 ? year - 1 : year;
+  const era = Math.floor(y2 / 400);
+  const yoe = y2 - era * 400; // [0, 399]
+  const m2 = month > 2 ? month - 3 : month + 9; // [0, 11]
+  const doy = Math.floor((153 * m2 + 2) / 5) + day - 1; // [0, 365]
+  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy; // [0, 146096]
+  return era * 146097 + doe - 719468;
+}
+
+// Day of week (ISO, 1=Mon..7=Sun) for a proleptic Gregorian y/m/d, in
+// O(1). 1970-01-01 was a Thursday (dow 4), so dow = (days + 3) mod 7
+// shifted to 1..7. Replaces the Date.UTC(year, month-1, day) idiom used
+// elsewhere in this library, which silently remaps years 0-99 to
+// 1900-1999 per the ECMAScript spec and produces the wrong weekday for
+// first-century dates.
+export function dayOfWeekFromCivil(year: number, month: number, day: number): number {
+  const days = daysFromCivil(year, month, day);
+  // days=0 is 1970-01-01 (Thursday, dow 4): (0 + 3) % 7 = 3 → 4 ✓
+  return (((days + 3) % 7) + 7) % 7 + 1;
+}
+
 function dayOfWeekOfJan1(year: number): number {
-  // walk year by year from 2000 instead of doing this from scratch every
-  // time — most callers pass a current-era year so this loop is short anyway
-  let offset = 0;
-  if (year >= REFERENCE_YEAR) {
-    for (let y = REFERENCE_YEAR; y < year; y++) offset += daysInYear(y);
-  } else {
-    for (let y = year; y < REFERENCE_YEAR; y++) offset -= daysInYear(y);
-  }
-  // now turn "days since Jan 1 2000" into an ISO weekday. Jan 1 2000 was a 6
-  // (Sat), so: zero-indexed = (6-1 + offset) mod 7, then bump back to 1-indexed
-  const zeroIndexed = (((6 - 1 + offset) % 7) + 7) % 7;
+  // O(1) via daysFromCivil: Jan 1 of `year` is `days` after Jan 1 2000
+  // (a Saturday, dow 6), so dow = (6 - 1 + days) mod 7, bumped to 1-indexed.
+  // The old year-by-year walk from 2000 was O(|year − 2000|) — correct
+  // but linear, and unbounded for hostile field-bag years.
+  const days = daysFromCivil(year, 1, 1) - daysFromCivil(REFERENCE_YEAR, 1, 1);
+  const zeroIndexed = (((REFERENCE_JAN1_DAY_OF_WEEK - 1 + days) % 7) + 7) % 7;
   return zeroIndexed + 1;
 }
 

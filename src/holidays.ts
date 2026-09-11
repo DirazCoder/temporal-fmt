@@ -51,9 +51,21 @@ const MAX_HOLIDAY_YEAR_RANGE = 5_000;
 export function createHolidayCalendar(specs: HolidaySpec[]): HolidayCalendar {
   // computes a year's holiday list lazily, then caches it
   const cache = new Map<number, Array<{ month: number; day: number; name?: string }>>();
+  // The per-instance cache never evicted: isHoliday/nextHoliday/
+  // previousHoliday over N distinct years grew N entries forever (a
+  // calendar asked for many years — hostile or just long-lived — held
+  // every year's list in memory permanently). FIFO-evict past the cap,
+  // same convention as the library's other bounded caches. Rebuilding
+  // an evicted year is O(specs), which is the same cost the first
+  // computation already paid.
+  const MAX_CACHE_YEARS = 1000;
   function forYear(year: number) {
     let list = cache.get(year);
     if (list) return list;
+    if (cache.size >= MAX_CACHE_YEARS) {
+      const oldest = cache.keys().next().value;
+      if (oldest !== undefined) cache.delete(oldest);
+    }
     list = specs.map((s) => {
       let md: { month: number; day: number };
       if (s.compute) {

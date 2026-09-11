@@ -45,8 +45,8 @@
 // each mod's register() in that order, tracking which mod touched which
 // registration key so conflicts can be reported afterward.
 
-import { readdir, mkdtemp, rm, readFile, stat, mkdir } from 'node:fs/promises';
-import { join, extname, resolve, basename } from 'node:path';
+import { readdir, mkdtemp, rm, readFile, stat, mkdir, realpath } from 'node:fs/promises';
+import { join, extname, resolve, basename, relative, isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { execFile } from 'node:child_process';
@@ -99,6 +99,44 @@ function isValidManifest(value) {
   if (v.temporalFmtVersion !== undefined && typeof v.temporalFmtVersion !== 'string') return false;
   if (v.config !== undefined && !isValidConfigSchema(v.config)) return false;
   return true;
+}
+
+// Containment check for paths that come out of a .tfmod manifest. The
+// manifest's "main" (and the mod name, for config lookups) is
+// attacker-controlled archive data — the loader's documented contract is
+// that a .tfmod is self-contained: code comes from inside the extraction
+// dir, config comes from inside the config dir. Without this check a
+// manifest could declare "main": "../../../some/file/outside.mjs" and
+// have the loader import() a file that isn't part of the archive the
+// user installed (breaking the "archive contents == executed code"
+// review assumption), or a mod name like "../../secrets" that reads a
+// config JSON from outside the config tree. Absolute paths, traversal
+// segments, and symlinks that resolve outside the sandbox are all
+// rejected before stat/import/read ever happens.
+function isContainedInside(baseDir, targetPath) {
+  // resolve() collapses `..` segments textually and, when the target is
+  // absolute, discards the base entirely — either way the result is a
+  // canonical absolute path to compare against the base with
+  // path.relative: anything outside base prefixes with `..` (or lands on
+  // a different absolute root), which is exactly what we reject.
+  const base = resolve(baseDir);
+  const target = resolve(baseDir, targetPath);
+  const rel = relative(base, target);
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+}
+
+// Validates the two manifest-controlled strings that reach the
+// filesystem: mod.json's "main" (imported as code) and the mod name
+// (used to find config/<name>.json). Returns a failure reason string on
+// a bad value, undefined on a good one.
+function manifestPathFailure(kind, value) {
+  if (isAbsolute(value)) {
+    return `mod.json "${kind}" must be a relative path inside the archive, got an absolute path "${value}"`;
+  }
+  if (value.split(/[\\/]/).includes('..')) {
+    return `mod.json "${kind}" must not contain ".." path segments (got "${value}") — a .tfmod mod runs only files from inside its own archive`;
+  }
+  return undefined;
 }
 
 async function importMjsMods(absDir, mjsFiles) {
@@ -182,11 +220,34 @@ async function readTfmodManifests(absDir, tfmodFiles, scratchDir) {
       }
     }
 
+    // "main" is archive-controlled data — reject absolute paths and
+    // traversal segments before join/stat/import can escape the
+    // extraction dir (see manifestPathFailure). This is a security
+    // boundary, not a nicety: the loader promises that a .tfmod only
+    // executes code from inside its own archive.
+    const mainFailure = manifestPathFailure('main', manifest.main);
+    if (mainFailure) {
+      failed.push({ file, reason: mainFailure });
+      continue;
+    }
+
     const mainPath = join(extractDir, manifest.main);
     try {
       await stat(mainPath);
     } catch {
       failed.push({ file, reason: `mod.json names "main": "${manifest.main}", but that file isn't in the archive` });
+      continue;
+    }
+    // stat() follows symlinks — a tar member could be a symlink pointing
+    // outside the extraction dir. Re-check containment on the resolved
+    // real path so import() can't follow a link out of the sandbox even
+    // though the textual path looked clean.
+    const realMain = await realpath(mainPath).catch(() => mainPath);
+    if (!isContainedInside(extractDir, realMain)) {
+      failed.push({
+        file,
+        reason: `mod.json "main" ("${manifest.main}") resolves outside the mod's extraction directory — a .tfmod mod runs only files from inside its own archive`,
+      });
       continue;
     }
 
@@ -276,6 +337,17 @@ function resolveLoadOrder(entries) {
 // dir's parent + "config", so the common "./mods" + "./config" pairing
 // needs no extra argument, but any dir can still pass its own.
 async function readUserConfig(configDir, modName) {
+  // modName is archive-controlled (mod.json's "name") — it becomes part
+  // of a filesystem path here, so traversal/absolute forms are rejected
+  // before the read. The mod could read any file itself once its code
+  // runs, but config loading happens BEFORE register() (and for mods that
+  // fail validation entirely), so this path stays locked down on
+  // principle: the loader shouldn't hand archive data a read of files
+  // outside the config tree it owns.
+  const configFailure = manifestPathFailure('name', modName);
+  if (configFailure) {
+    return { value: undefined, path: join(configDir, `${modName}.json`), existed: false, error: configFailure };
+  }
   const configPath = join(configDir, `${modName}.json`);
   try {
     const raw = await readFile(configPath, 'utf8');

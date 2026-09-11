@@ -37,6 +37,15 @@ function getPieces(formatStr: string): Piece[] {
     if (oldestKey !== undefined) tokenizeCache.delete(oldestKey);
   }
   pieces = tokenize(formatStr);
+  // Deep-freeze before caching: the SAME array instance is handed out
+  // by compileFormat().pieces and _getPieces() (documented as readonly
+  // inspection surface). Read-only at the type level alone didn't stop
+  // runtime mutation — a caller writing pieces[0].value used to poison
+  // the shared cache and corrupt every subsequent format() for that
+  // string process-wide. Frozen objects make the mutation attempt
+  // throw (ESM is strict mode) instead of silently corrupting state.
+  for (const piece of pieces) Object.freeze(piece);
+  Object.freeze(pieces);
   tokenizeCache.set(formatStr, pieces);
   return pieces;
 }
@@ -61,8 +70,21 @@ export function format(temporal: TemporalLike, formatStr: string, options: Numbe
         `(got ${formatStr.length}).`,
     });
   }
+  // Null/undefined input used to leak a raw V8 TypeError from the
+  // first field read ("Cannot read properties of null (reading 'year')")
+  // — every other entry point validates its input with a typed error,
+  // and null/undefined is by far the most common wrong input. A null
+  // `options` object hits the same class (the default parameter only
+  // covers undefined).
+  if (temporal === null || temporal === undefined) {
+    throw new FormatSyntaxError({
+      input: String(temporal),
+      reason: `format() expected a Temporal.PlainDate / PlainTime / PlainDateTime / ZonedDateTime (or a TemporalLike field bag), got ${String(temporal)}`,
+    });
+  }
+  const opts = options ?? {};
 
-  const locale = options.locale ?? DEFAULT_LOCALE;
+  const locale = opts.locale ?? DEFAULT_LOCALE;
   const pieces = getPieces(formatStr);
   let result = '';
 
@@ -100,7 +122,7 @@ export function format(temporal: TemporalLike, formatStr: string, options: Numbe
   // Numeral transliteration happens last and only on request — every
   // upstream token handler still emits plain ASCII digits, so this is
   // the single place output digits can diverge from that default.
-  return applyNumbering(result, options);
+  return applyNumbering(result, opts);
 }
 
 // Shape mirrors Intl.DateTimeFormat.formatToParts: each entry is either

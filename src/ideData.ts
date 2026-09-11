@@ -26,6 +26,7 @@
 import { TOKEN_METADATA, ALL_TOKEN_NAMES } from './tokenMetadata.js';
 import { analyzeFormat, listTokens } from './analyze.js';
 import { format as builtinFormat } from './format.js';
+import { getTemporal } from './temporalProvider.js';
 
 export interface TokenAutocompleteEntry {
   label: string;
@@ -49,9 +50,18 @@ function tokenFamily(name: string): string {
   if (/^s+$/.test(name)) return 'Second';
   if (/^S+$/.test(name)) return 'Fractional Second';
   if (name === 'a') return 'Day Period';
-  if (name === 'zzz') return 'Time Zone';
+  // z/zzz/zzzz are all zone tokens — only exact 'zzz' used to be
+  // special-cased, leaving 'z' and 'zzzz' filed under 'Other'.
+  if (name === 'z' || name === 'zzz' || name === 'zzzz') return 'Time Zone';
   if (/^[Xx]+$/.test(name)) return 'UTC Offset';
   if (name === 'do') return 'Ordinal Day';
+  // Unreachable with the current token set: every name in ALL_TOKEN_NAMES
+  // (the only input — see getAutocompleteData) matches a family above, so
+  // the fall-through below only exists as the catch-all for tokens added
+  // in the future. The first ignored line is the ww/RRRR if, whose V8
+  // fall-through block remaps onto it; the second is the return itself;
+  // the third is the function's implicit end-of-body statement.
+  /* c8 ignore next 3 @preserve */
   if (name === 'ww' || name === 'RRRR') return 'ISO Week';
   return 'Other';
 }
@@ -200,7 +210,14 @@ export const DAYJS_TO_TEMPORAL_FMT: TokenConversionHint[] = [
   { from: 'm', to: 'm' },
   { from: 'ss', to: 'ss' },
   { from: 's', to: 's' },
+  // Fractional seconds: Day.js S/SS/SSS are 1/2/3-digit milliseconds,
+  // the same widths temporal-fmt's own S/SS/SSS use. These used to be
+  // missing from the table entirely, so "S"/"SS" silently translated
+  // to quoted LITERAL text (translateDayjs('S') → "'S'") instead of
+  // a token.
   { from: 'SSS', to: 'SSS' },
+  { from: 'SS', to: 'SS' },
+  { from: 'S', to: 'S' },
   { from: 'A', to: 'a', notes: 'Uppercase AM/PM in Day.js — temporal-fmt is always lowercase.' },
   { from: 'a', to: 'a' },
   { from: 'ZZ', to: 'XX', notes: 'Numeric UTC offset, no colon.' },
@@ -210,10 +227,16 @@ export const DAYJS_TO_TEMPORAL_FMT: TokenConversionHint[] = [
   { from: 'Qo', to: null, notes: 'Ordinal quarter (AdvancedFormat) — no temporal-fmt equivalent.' },
   { from: 'Q', to: 'Q' },
   { from: 'Mo', to: null, notes: 'Ordinal month (AdvancedFormat) — no temporal-fmt equivalent.' },
-  { from: 'ww', to: 'ww' },
-  { from: 'wo', to: null, notes: 'Ordinal ISO week (AdvancedFormat) — no temporal-fmt equivalent.' },
-  { from: 'w', to: null, notes: 'Unpadded ISO week — temporal-fmt\'s "ww" is always 2-digit.' },
-  { from: 'gggg', to: 'RRRR', notes: 'Week-numbering year, not the calendar year — same caveat as temporal-fmt\'s RRRR.' },
+  // Day.js w/ww are LOCALE-aware weeks (default en locale: week starts
+  // Sunday, week 1 contains Jan 1) — not the ISO weeks temporal-fmt's
+  // ww computes. Mapping silently would print different week numbers
+  // than the source library for the same date (e.g. 2016-01-01: Day.js
+  // "1" vs temporal-fmt "53"), so refuse with a note instead.
+  { from: 'ww', to: null, notes: 'Locale-aware week of year — temporal-fmt\'s "ww" is a strict ISO week number and disagrees with Day.js\'s locale week for the same date. Compute locale weeks separately if needed.' },
+  { from: 'wo', to: null, notes: 'Ordinal locale week (AdvancedFormat) — no temporal-fmt equivalent.' },
+  { from: 'w', to: null, notes: 'Unpadded locale week of year — see the "ww" note; temporal-fmt has only ISO weeks.' },
+  { from: 'gg', to: null, notes: 'Two-digit locale week-numbering year — no temporal-fmt equivalent (RRRR is 4-digit ISO).' },
+  { from: 'gggg', to: 'RRRR', notes: 'Week-numbering year — mapped, but Day.js\'s is locale-week-based while RRRR is strict ISO; values can differ at year boundaries.' },
   { from: 'L', to: null, notes: 'Localized date format (AdvancedFormat) — write the format string out explicitly.' },
   { from: 'LL', to: null, notes: 'Localized date format (AdvancedFormat) — write the format string out explicitly.' },
   { from: 'LLL', to: null, notes: 'Localized date format (AdvancedFormat) — write the format string out explicitly.' },
@@ -230,7 +253,10 @@ export const DAYJS_TO_TEMPORAL_FMT: TokenConversionHint[] = [
 export const DATE_FNS_TO_TEMPORAL_FMT: TokenConversionHint[] = [
   { from: 'yyyy', to: 'yyyy' },
   { from: 'yy', to: 'yy' },
-  { from: 'y', to: null, notes: 'Unpadded calendar year, opt-in via useAdditionalWeekYearTokens — temporal-fmt has no unpadded-year token; use "yyyy".' },
+  // temporal-fmt HAS an unpadded-year token ("y", same as date-fns);
+  // this used to map to null and throw even though the token passes
+  // straight through.
+  { from: 'y', to: 'y', notes: 'Unpadded calendar year, opt-in via useAdditionalWeekYearTokens — temporal-fmt has the same "y" token.' },
   { from: 'MMMM', to: 'MMMM' },
   { from: 'MMM', to: 'MMM' },
   { from: 'MM', to: 'MM' },
@@ -256,7 +282,11 @@ export const DATE_FNS_TO_TEMPORAL_FMT: TokenConversionHint[] = [
   { from: 'm', to: 'm' },
   { from: 'ss', to: 'ss' },
   { from: 's', to: 's' },
+  // Fractional seconds, same widths as temporal-fmt's own tokens —
+  // used to be missing, silently literalizing "S"/"SS".
   { from: 'SSS', to: 'SSS' },
+  { from: 'SS', to: 'SS' },
+  { from: 'S', to: 'S' },
   { from: 'a', to: 'a' },
   { from: 'aaa', to: 'a' },
   { from: 'XXX', to: 'XXX' },
@@ -270,11 +300,17 @@ export const DATE_FNS_TO_TEMPORAL_FMT: TokenConversionHint[] = [
   { from: 'z', to: 'z' },
   { from: 'QQQ', to: 'QQQ' },
   { from: 'Q', to: 'Q' },
+  { from: 'QQQQ', to: null, notes: 'Long quarter name — temporal-fmt has Q (numeric) and QQQ ("Q1"-style) only.' },
+  { from: 'Qo', to: null, notes: 'Ordinal quarter — no temporal-fmt equivalent.' },
   { from: 'GGGG', to: 'GGGG' },
   { from: 'GGG', to: null, notes: 'Abbreviated era — temporal-fmt only has "G" (short) and "GGGG" (long).' },
   { from: 'GG', to: null, notes: 'Abbreviated era — temporal-fmt only has "G" (short) and "GGGG" (long).' },
   { from: 'G', to: 'G' },
-  { from: 'ww', to: 'ww' },
+  // date-fns w/ww are LOCAL week rules (en-US: week starts Sunday, week
+  // 1 contains Jan 1) — temporal-fmt's ww is strict ISO. Silently
+  // mapping prints different numbers than the source library (2016-01-01:
+  // date-fns "01" vs temporal-fmt "53"), so refuse with a note.
+  { from: 'ww', to: null, notes: 'Local week of year — temporal-fmt\'s "ww" is a strict ISO week number and disagrees with date-fns\'s locale week for the same date. Compute locale weeks separately if needed.' },
   { from: 'w', to: null, notes: 'Unpadded local week number — temporal-fmt\'s "ww" is ISO-week and always 2-digit.' },
   { from: 'RRRR', to: 'RRRR' },
   { from: 'R', to: null, notes: 'Unpadded ISO week-numbering year — temporal-fmt\'s "RRRR" is always 4-digit.' },
@@ -293,14 +329,20 @@ export const DATE_FNS_TO_TEMPORAL_FMT: TokenConversionHint[] = [
 // value, returns the formatted string. Editor plugins use this for
 // live preview as the user types.
 export function previewFormat(formatStr: string, sample?: unknown): string {
-  // Use a fixed sample date if none provided — 2026-08-04T15:45:30.
-  // Picked because it exercises every common token: weekday is Tuesday,
-  // month name has 5 chars, day is single-digit, hour is 12-hour-style,
-  // minute/second both pad.
-  const value = sample ?? {
-    year: 2026, month: 8, day: 4, hour: 15, minute: 45, second: 30, millisecond: 123,
-    dayOfWeek: 2, timeZoneId: 'UTC', offset: '+00:00', calendarId: 'iso8601',
-  };
+  // Use a fixed sample date if none provided — 2026-08-04T15:45:30,
+  // built as a REAL Temporal.PlainDateTime. Picked because it exercises
+  // every common token: weekday is Tuesday, month name has 5 chars, day
+  // is single-digit, hour is 12-hour-style, minute/second both pad.
+  // (A plain field bag used to be passed instead, which can't render
+  // locale-aware tokens at all — previewFormat('MMMM d') threw "needs a
+  // value that implements toLocaleString".)
+  let value = sample;
+  if (value === undefined) {
+    const temporal = getTemporal();
+    value = temporal.PlainDateTime.from({
+      year: 2026, month: 8, day: 4, hour: 15, minute: 45, second: 30, millisecond: 123,
+    });
+  }
   return builtinFormat(value as Parameters<typeof builtinFormat>[0], formatStr, { locale: 'en-US' });
 }
 

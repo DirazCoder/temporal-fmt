@@ -21,6 +21,7 @@
 // without committing to a Temporal implementation.
 
 import { asDateFieldView, daysInMonth, type DateFieldView } from './calendarUtils.js';
+import { dayOfWeekFromCivil, daysFromCivil } from './isoWeek.js';
 
 export type AddUnit = 'years' | 'months' | 'weeks' | 'days' | 'hours' | 'minutes' | 'seconds' | 'milliseconds';
 
@@ -50,8 +51,12 @@ function recomputeDayOfWeek(view: DateTimeFieldView): void {
      constructs a DateTimeFieldView bypassing that validation. */
   if (typeof view.year !== 'number' || typeof view.month !== 'number' || typeof view.day !== 'number') return;
   /* c8 ignore stop @preserve */
-  const jsDow = new Date(Date.UTC(view.year, view.month - 1, view.day)).getUTCDay(); // 0=Sun..6=Sat
-  view.dayOfWeek = jsDow === 0 ? 7 : jsDow; // 1=Mon..7=Sun
+  // dayOfWeekFromCivil: O(1) proleptic-Gregorian weekday. The old
+  // Date.UTC(year, month-1, day) form silently remaps years 0-99 to
+  // 1900-1999 (ECMAScript spec behavior), computing the weekday of the
+  // wrong century — e.g. add(PlainDate('0050-01-01'), 1, 'days') used
+  // to report dayOfWeek 1 (Mon) for a date that's a Sunday.
+  view.dayOfWeek = dayOfWeekFromCivil(view.year, view.month, view.day);
 }
 
 // Adds the requested amount to the value's specified unit. Returns a
@@ -79,7 +84,13 @@ export function add(value: unknown, amount: number, unit: AddUnit): DateTimeFiel
       break;
     }
     case 'months': {
-      // Total months = year*12 + month + amount, then split back.
+      // Total months = year*12 + month + amount, then split back with
+      // floor division/modulo. JS's % keeps the sign of the dividend, so
+      // a hand-rolled negative-modulo fixup used to double-borrow the
+      // year for totals < 0: add(PlainDate('0001-01-15'), -13, 'months')
+      // returned year -2 / month 12 instead of Temporal's -0001-12-15
+      // (floorDiv already accounted for the borrow; the fixup took
+      // another year off on top).
       /* c8 ignore start @preserve -- both `??` fallbacks are unreachable
          for the same reason as the 'years' case above: asDateFieldView()
          guarantees year and month are present numbers before add() ever
@@ -87,19 +98,7 @@ export function add(value: unknown, amount: number, unit: AddUnit): DateTimeFiel
       const total = (result.year ?? 0) * 12 + (result.month ?? 1) - 1 + amount;
       /* c8 ignore stop @preserve */
       result.year = Math.floor(total / 12);
-      result.month = (total % 12) + 1;
-      if (result.month < 1) { result.month += 12; result.year -= 1; }
-      // Negative modulo handling: when total < 0, the mod goes negative.
-      // Re-normalize.
-      /* c8 ignore start @preserve -- unreachable: (total % 12) + 1 can never
-         exceed 12 for any integer total in JS (its range is [-10, 12] since
-         JS's % can return a negative remainder but never one with
-         magnitude >= 12, so adding 1 tops out at 12). Only the < 1 branch
-         above is reachable; this was written symmetrically with it but the
-         overflow direction it guards against can't occur. Kept rather than
-         removed since it costs nothing and documents the intent. */
-      if (result.month > 12) { result.month -= 12; result.year += 1; }
-      /* c8 ignore stop @preserve */
+      result.month = total - result.year * 12 + 1; // floorMod(total, 12) + 1, always in 1..12
       const maxDay = daysInMonth({ year: result.year!, month: result.month! });
       if (result.day! > maxDay) result.day = maxDay;
       recomputeDayOfWeek(result);
@@ -128,21 +127,25 @@ export function add(value: unknown, amount: number, unit: AddUnit): DateTimeFiel
 }
 
 function shiftDays(v: DateTimeFieldView, days: number): DateTimeFieldView {
-  // Convert Y/M/D to a day count, add, convert back. Using the same
-  // algorithm as comparison.ts's sameWeek helper — proleptic Gregorian
-  // day count via Howard Hinnant's era-based formula.
-  const y = v.year!, m = v.month!, d = v.day!;
-  const y2 = m <= 2 ? y - 1 : y;
-  const era = Math.floor((y2 >= 0 ? y2 : y2 - 399) / 400);
-  const yoe = y2 - era * 400;
-  const m2 = m > 2 ? m - 3 : m + 9;
-  const doy = Math.floor((153 * m2 + 2) / 5) + d - 1;
-  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
-  const totalDays = era * 146097 + doe - 719468 + days;
+  // Convert Y/M/D to a day count, add, convert back. The forward
+  // direction uses isoWeek.ts's daysFromCivil — the era term previously
+  // inlined here applied Math.floor to Hinnant's -399-offset numerator,
+  // which double-corrects for negative years (the offset form assumes
+  // truncating division; JS's is flooring), shifting every pre-year-0
+  // date by one day. The inverse (civil_from_days) below is floor-safe
+  // as written (its out-of-range `doe` cases self-compensate through the
+  // yoe formula — property-tested over years -1000..3000, all months,
+  // round-trip identity holds).
+  const totalDays = daysFromCivil(v.year!, v.month!, v.day!) + days;
 
-  // Invert: totalDays → Y/M/D. Same source (Howard Hinnant's days_from_civil).
+  // Invert: totalDays → Y/M/D. Same source (Howard Hinnant's
+  // civil_from_days). The era term MUST use truncating division — the
+  // -146096 offset exists so that trunc lands the era correctly; with
+  // Math.floor every z < 0 came out one day early (the forward formula's
+  // matching error used to hide this on round-trips; now that the
+  // forward direction is exact, the inverse has to be too).
   const z = totalDays + 719468;
-  const era2 = Math.floor((z >= 0 ? z : z - 146096) / 146097);
+  const era2 = Math.trunc((z >= 0 ? z : z - 146096) / 146097);
   const doe2 = z - era2 * 146097;
   const yoe2 = Math.floor((doe2 - Math.floor(doe2 / 1460) + Math.floor(doe2 / 36524) - Math.floor(doe2 / 146096)) / 365);
   const y2out = yoe2 + era2 * 400;
@@ -263,14 +266,10 @@ export function difference(a: unknown, b: unknown, unit: DiffUnit): number {
 }
 
 function toDayCount(v: DateTimeFieldView): number {
-  const y = v.year!, m = v.month!, d = v.day!;
-  const y2 = m <= 2 ? y - 1 : y;
-  const era = Math.floor((y2 >= 0 ? y2 : y2 - 399) / 400);
-  const yoe = y2 - era * 400;
-  const m2 = m > 2 ? m - 3 : m + 9;
-  const doy = Math.floor((153 * m2 + 2) / 5) + d - 1;
-  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
-  return era * 146097 + doe - 719468;
+  // daysFromCivil (isoWeek.ts): the O(1) Hinnant day count, correct for
+  // negative years. The era term previously inlined here double-shifted
+  // pre-year-0 dates by one day (see shiftDays).
+  return daysFromCivil(v.year!, v.month!, v.day!);
 }
 
 function toTotalMs(v: DateTimeFieldView): number {
