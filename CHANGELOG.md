@@ -4,7 +4,7 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
-## 0.9.5 — 2026-09-12 (`PENDING_HASH`)
+## 0.9.5 — 2026-09-12 (`16a438e`)
 
 ### Security
 - `.tfmod` mod archives: `mod.json`'s `"main"` and the mod name are now
@@ -145,7 +145,7 @@ For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
   site) carry `/* c8 ignore ... @preserve */` hints so they survive the
   esbuild bundle, following the repo's existing convention.
 
-## 0.8.985 — 2026-09-12 (`PENDING_HASH`)
+## 0.8.985 — 2026-09-12 (`f0b6154`)
 
 ### Security
 - `formatDistance`/`formatDistanceToNow` reject years outside
