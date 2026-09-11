@@ -243,7 +243,8 @@ async function readTfmodManifests(absDir, tfmodFiles, scratchDir) {
     // real path so import() can't follow a link out of the sandbox even
     // though the textual path looked clean.
     const realMain = await realpath(mainPath).catch(() => mainPath);
-    if (!isContainedInside(extractDir, realMain)) {
+    const realExtractDir = await realpath(extractDir).catch(() => extractDir);
+    if (!isContainedInside(realExtractDir, realMain)) {
       failed.push({
         file,
         reason: `mod.json "main" ("${manifest.main}") resolves outside the mod's extraction directory — a .tfmod mod runs only files from inside its own archive`,
