@@ -167,3 +167,13 @@ test('ww/RRRR cannot be parsed back — pattern builder rejects them as format-o
   assert.throws(() => parse('ww yyyy', '32 2026'), /format-only/);
   assert.throws(() => parse('RRRR yyyy', '2026 2026'), /format-only/);
 });
+test('isoWeek: rejects years outside Temporal\'s representable range instead of walking them (security)', () => {
+  // 0.8.x LTS security fix. dayOfWeekOfJan1() walks one year per
+  // iteration from 2000, and it's reachable from format() with a
+  // duck-typed field bag via the 'ww'/'RRRR' tokens — a hostile year of
+  // 2e8 measured ~360ms per call. Same guard shape as formatDistance's.
+  assert.throws(() => format({ year: 200_000_000, month: 6, day: 15, dayOfWeek: 1 }, 'ww'), /outside the -271821..275760 range/);
+  assert.throws(() => format({ year: -300_000, month: 6, day: 15, dayOfWeek: 1 }, 'RRRR'), /outside the/);
+  // The range boundary is a legal Temporal year — still formats.
+  assert.equal(typeof format({ year: 275_760, month: 6, day: 15, dayOfWeek: 1 }, 'ww'), 'string');
+});

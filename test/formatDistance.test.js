@@ -209,3 +209,19 @@ test('canonicalLocaleKey: falls back to the raw locale string when Intl.Locale t
   const tomorrow = date(2026, 8, 5);
   assert.throws(() => formatDistance(tomorrow, today, { locale: 'en-' }));
 });
+test('formatDistance: rejects a year outside Temporal\'s representable range instead of walking it (security)', () => {
+  // 0.8.x LTS security fix. readFields() accepts duck-typed field bags,
+  // and daysSinceReference() accumulates one year per iteration toward
+  // `year` — a hostile year (2e8 in an app-supplied parsed value) was a
+  // CPU-denial primitive (~380ms/call, linear beyond). PlainDate's
+  // representable range is [-271821, 275760]; anything outside can only
+  // come from malformed input, so it's rejected up front.
+  const hostile = { year: 200_000_000, month: 1, day: 1 };
+  const reference = { year: 2026, month: 1, day: 1 };
+  assert.throws(() => formatDistance(hostile, reference), /outside the -271821..275760 range/);
+  // Non-finite / fractional years too.
+  assert.throws(() => formatDistance({ year: NaN, month: 1, day: 1 }, reference), /outside the/);
+  assert.throws(() => formatDistance({ year: 2026.5, month: 1, day: 1 }, reference), /outside the/);
+  // The range boundary itself is fine — year 275760 is a real PlainDate.
+  assert.equal(typeof formatDistance({ year: 275_760, month: 1, day: 1 }, reference), 'string');
+});

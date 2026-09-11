@@ -58,6 +58,20 @@ function dayOfWeekOfJan1(year: number): number {
   // Sum full-year deltas from the 2000 anchor rather than recomputing from
   // scratch each call — the per-call work is a single mod this way, and
   // the loop rarely runs far (a typical caller passes a current-era year).
+  //
+  // SECURITY FIX (0.8.x LTS, security-only): this loop is O(|year − 2000|)
+  // and reachable from format() with duck-typed field bags ('ww'/'RRRR'
+  // tokens) whose `year` is untrusted caller data — a hostile year of 2e8
+  // measured ~360ms per call, scaling linearly beyond. Real Temporal
+  // values can't carry a year outside PlainDate's representable range,
+  // so the guard only ever fires on malformed/hostile input. Minimal
+  // range check only; the 0.9.x closed-form rewrite is deliberately NOT
+  // backported (LTS takes security fixes only).
+  if (!Number.isFinite(year) || !Number.isInteger(year) || year < -271_821 || year > 275_760) {
+    throw new RangeError(
+      `temporal-fmt: year ${String(year)} is outside the -271821..275760 range a Temporal date can represent.`
+    );
+  }
   let offset = 0;
   if (year >= REFERENCE_YEAR) {
     for (let y = REFERENCE_YEAR; y < year; y++) offset += daysInYear(y);

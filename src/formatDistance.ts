@@ -16,7 +16,6 @@
 
 import { DEFAULT_LOCALE, type FormatOptions } from './tokens.js';
 import { dayOfYear, isGregorianLeapYear } from './isoWeek.js';
-
 // Reads date fields off a Temporal value in the same minimal-shape style
 // as the rest of the library (TemporalLike) — no Temporal factory needed.
 // Works for PlainDate, PlainDateTime, and ZonedDateTime (since they all
@@ -50,6 +49,27 @@ function readFields(value: unknown, label: string): DateFieldView {
       `temporal-fmt: formatDistance got a ${label} with a partial date (some of year/month/day missing). ` +
       `Pass a full Temporal.PlainDate / PlainDateTime / ZonedDateTime.`
     );
+  }
+  // SECURITY FIX (0.8.x LTS, security-only): this function accepts
+  // duck-typed field bags, so `year` is untrusted caller data. The
+  // day-count accumulation below walks year-by-year toward it, making
+  // a hostile year (e.g. 2e8 in a value an app parsed from user input)
+  // a cheap CPU-denial primitive — measured ~380ms per call at year
+  // 2e8 and roughly linear beyond it (year 1e12 ≈ half an hour per
+  // call). Real Temporal values can never carry a year outside
+  // [-271821, 275760] (PlainDate's representable range), so rejecting
+  // that range only ever fires on malformed/hostile input. Minimal
+  // guard only — deliberately not backporting the 0.9.x behavioral
+  // changes (month/day range validation, O(1) closed-form day counts)
+  // since the LTS line takes security fixes only.
+  if (hasYear) {
+    const year = obj.year as number;
+    if (!Number.isFinite(year) || !Number.isInteger(year) || year < -271_821 || year > 275_760) {
+      throw new Error(
+        `temporal-fmt: formatDistance got a ${label} with year ${String(year)}, outside the ` +
+        `-271821..275760 range a Temporal date can represent — refusing to walk it.`
+      );
+    }
   }
   return {
     year: hasYear ? (obj.year as number) : undefined,
