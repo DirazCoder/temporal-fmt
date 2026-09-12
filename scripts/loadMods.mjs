@@ -291,8 +291,16 @@ async function readTfmodManifests(absDir, tfmodFiles, scratchDir) {
       file,
       kind: 'tfmod',
       mod: { name: manifest.name, version: manifest.version, requires: manifest.requires, priority: manifest.priority },
-      importPath: mainPath,
-      extractDir,
+      // realMain/realExtractDir, not the raw paths: spawnWorker() grants
+      // --allow-fs-read on the realpath'd extraction dir (see realRoot()
+      // in modSandbox.mjs), because the OS temp dir is itself a symlink
+      // on macOS (/tmp -> /private/tmp, /var -> /private/var) and on some
+      // Windows setups. If the worker then imports the raw, non-realpath
+      // path, Node's permission model sees a path outside what was
+      // granted and refuses it — the grant and the access have to agree
+      // on which side of the symlink they're both talking about.
+      importPath: realMain,
+      extractDir: realExtractDir,
       configSchema: manifest.config,
       permissions,
     });
