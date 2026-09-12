@@ -43,6 +43,44 @@ jobs:
             exit 1
           fi
 
+      # scripts/semverRange.mjs resolves caret ranges against
+      # scripts/versions.json's recorded release order, not by doing
+      # arithmetic on the version string — this project's 0.9.x patch
+      # numbers don't ship in numeric order (0.9.41 predates 0.9.5), so
+      # a stale table means checkVersionRange silently falls back to
+      # treating this release as "before the tracked window," which
+      # fails every caret range a mod might declare against it. The
+      # next two steps catch that before the full test suite runs:
+      # first that this exact version is tracked at all, then that the
+      # whole table still matches CHANGELOG.md (a version can be
+      # present with a wrong date/commit if the changelog was edited
+      # after the table was last generated).
+
+      - name: Verify this version is tracked in versions.json
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if ! node -e "
+            const v = require('./scripts/versions.json');
+            const known = v.releases.some(r => r.version === process.argv[1]);
+            process.exit(known ? 0 : 1);
+          " "$PKG_VERSION"; then
+            echo "Version $PKG_VERSION isn't in scripts/versions.json."
+            echo "Add a '## $PKG_VERSION — <date> (\`<commit>\`)' heading to CHANGELOG.md,"
+            echo "then run 'node scripts/generateVersionTable.mjs' and commit the result."
+            exit 1
+          fi
+
+      - run: node scripts/generateVersionTable.mjs
+
+      - name: Verify versions.json is up to date with CHANGELOG.md
+        run: |
+          if ! git diff --quiet -- scripts/versions.json; then
+            echo "scripts/versions.json is out of date with CHANGELOG.md."
+            echo "Run 'node scripts/generateVersionTable.mjs' and commit the result before releasing."
+            git diff -- scripts/versions.json
+            exit 1
+          fi
+
       - run: npm run test:all
 
       # Minification disabled for now — Socket.dev's registry scanner flags
