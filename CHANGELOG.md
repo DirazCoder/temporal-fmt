@@ -4,7 +4,77 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
-## 0.9.5 — 2026-09-12 (`16a438e`)
+## 0.9.6 — 2026-09-12 (`00bb0c4`)
+
+### Security
+- Mods no longer run in the host process. Every mod — loose `.mjs` and
+  `.tfmod` alike — now loads inside its own subprocess started with
+  Node's permission model (`--permission` on Node 22.13+,
+  `--experimental-permission` before that), with zero capabilities
+  granted by default. `register()` can no longer touch the filesystem,
+  spawn a process, or start a worker thread unless the user explicitly
+  grants it — previously any mod could read/write anywhere or shell out,
+  because `import()` gave it the same access as the CLI itself.
+- The subprocess never receives the host's environment variables.
+  `process.env` inside a mod is scrubbed down to `PATH`/`TZ`/`LANG` and a
+  couple of Windows bootstrap variables — CI tokens, database URLs, etc.
+  never reach mod code, and there's no permission that can grant them
+  back (the permission model has no flag for env vars, so this is
+  enforced by just not passing them in).
+- A runaway mod can no longer take the CLI down with it: `register()` is
+  killed after 10s, a runtime override call after 5s, and a subprocess is
+  killed if its RSS crosses 512MB (watched from the parent, so it isn't
+  fooled by `--max-old-space-size` or by allocations outside the V8
+  heap). Each of these fails only that mod — the rest of the load pass
+  and the command you ran are unaffected.
+
+### Added
+- `.tfmod` mods can now declare a `"permissions"` array in `mod.json`
+  (`fs:read`, `fs:write`, `child-process`, `worker`), each marked
+  required or optional. The user is prompted once per `name@version` on
+  first load; answers are cached in `.temporal-fmt-permissions.json`
+  next to `mods/`. A denied *required* permission fails the mod outright
+  before any of its code runs; a denied *optional* one just runs the mod
+  with less, reported as `downgraded` instead of `loaded`. Loose `.mjs`
+  mods have no manifest to ask from, so they always run with nothing
+  granted.
+- `ctx.hasPermission(capability)` lets a mod check what it actually got
+  and degrade gracefully instead of crashing on a denied optional
+  capability.
+- `scripts/managePermissions.mjs` — `list` / `grant` / `deny` / `reset`
+  for editing the permission cache without re-triggering a load.
+- The load report now shows sandboxing detail per mod: which
+  capabilities were granted or denied, and — for mods with a runtime
+  override — the timeout and memory ceiling it's running under.
+- New `MODS.md` with the full guide (previously the README's "Mods"
+  section); the README now just links to it.
+
+### Changed
+- Network access still isn't restricted — Node's permission model has no
+  `net` capability on any supported version, so this was never on the
+  table. Now documented explicitly in `MODS.md` rather than left
+  implicit.
+- `formatRange()` batches its two endpoint calls into one subprocess
+  round trip when the active override lives in a mod, instead of paying
+  two round trips for one range.
+- `overrideFormat`/`overrideParse` (and the other `override*` points): a
+  mod's impl still runs as a closure, but that closure now lives in the
+  mod's subprocess. Every `format()`/`parse()` call forwards to it over a
+  synchronous pipe (a private scratch-dir file pair on Windows, since the
+  host has no fd for its end of a named pipe there) and blocks for the
+  reply — a couple of milliseconds per call instead of nanoseconds. The
+  loader tracks, per format string, whether the mod's impl just forwards
+  to the built-in, so a format string the mod never actually changes
+  stops paying the round trip after its first call.
+- `createFormatter()` custom token handlers are the one exception: they
+  still run host-side, rebuilt from source text shipped out of the
+  subprocess at `register()` time. A hot `format()` path can't afford a
+  round trip per token, so a token handler has to be self-contained (no
+  closing over outer state) — the loader verifies this by reviving the
+  handler from source and comparing its output to the original's, and
+  refuses the mod if they don't match.
+
+## 0.9.5 — 2026-09-11 (`16a438e`)
 
 ### Security
 - `.tfmod` mod archives: `mod.json`'s `"main"` and the mod name are now
@@ -145,7 +215,7 @@ For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
   site) carry `/* c8 ignore ... @preserve */` hints so they survive the
   esbuild bundle, following the repo's existing convention.
 
-## 0.8.985 — 2026-09-12 (`f0b6154`)
+## 0.8.985 — 2026-09-11 (`f0b6154`)
 
 ### Security
 - `formatDistance`/`formatDistanceToNow` reject years outside
