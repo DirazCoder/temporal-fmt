@@ -1,0 +1,8 @@
+{
+  "name": "leet-format",
+  "version": "1.0.0",
+  "author": "DirazCoder",
+  "main": "main.mjs",
+  "permissions": [],
+  "temporalFmtVersion": "^0.9.6"
+}
