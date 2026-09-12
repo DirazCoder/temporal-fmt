@@ -26,6 +26,30 @@ library itself, not to keep stretching a mod to cover it. Whether a given
 fix ever gets upstreamed into this repo is a separate question from whether
 it works today as a mod.
 
+## Temporal-Fmt Mod API
+
+Tracks changes to the surface a mod talks to — `ModContext`, permissions, the
+subprocess boundary. Bumps independently of the package version; check this
+before assuming a mod built against an older level still works.
+
+### Level 2 — 0.9.6
+
+- Mods run in their own subprocess under Node's permission model, not the
+  host process — no filesystem, child process, or worker access unless
+  granted.
+- `.tfmod` mods declare a `permissions` array in `mod.json`; the user is
+  prompted once per `name@version` and the answer is cached.
+- `ctx.hasPermission(capability)` for checking a grant and degrading
+  gracefully instead of crashing.
+- `register()` is killed after 10s, a runtime override call after 5s, and a
+  subprocess is killed if its RSS crosses 512MB.
+- The subprocess doesn't inherit the host's environment variables.
+
+### Level 1 — 0.9.4
+
+- `register(ctx, config)` running with direct `import()` access to the host
+  process. No sandbox, no permissions.
+
 ## The sandbox
 
 A mod's code never runs in your process. Every mod — loose `.mjs` and
