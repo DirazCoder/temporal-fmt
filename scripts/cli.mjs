@@ -21,6 +21,7 @@ import {
   translateDayjsFormatString, translateDateFnsFormatString,
 } from '../dist/index.js';
 import { loadMods, formatModLoadReport } from './loadMods.mjs';
+import { stopModSubprocesses } from './modSandbox.mjs';
 
 // Native Temporal (Node 26+) needs no extra install. Below that, this
 // package no longer bundles a polyfill as a dependency (see README ->
@@ -45,7 +46,7 @@ if (!Temporal) {
 // Goes to stderr so it never lands in piped stdout output (see the EPIPE
 // handler below); a load report isn't part of any command's actual output.
 const modReport = await loadMods();
-if (modReport.loaded.length > 0 || modReport.failed.length > 0) {
+if (modReport.loaded.length > 0 || modReport.downgraded.length > 0 || modReport.failed.length > 0) {
   process.stderr.write('temporal-fmt mods:\n' + formatModLoadReport(modReport) + '\n');
 }
 
@@ -310,7 +311,14 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  process.stderr.write(`Error: ${err.message}\n`);
-  process.exit(1);
-});
+// A mod with a runtime override keeps a subprocess alive for as long as
+// this process might call format()/parse() — without this, those pipes
+// hold the event loop open and a one-shot command would hang after its
+// output instead of exiting.
+main()
+  .then(() => stopModSubprocesses())
+  .catch((err) => {
+    process.stderr.write(`Error: ${err.message}\n`);
+    stopModSubprocesses();
+    process.exit(1);
+  });

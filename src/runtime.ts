@@ -105,6 +105,40 @@ export function setFormatOverride(impl: FormatFn, installedBy: string): void {
   formatOverride = { impl, installedBy };
 }
 
+// format() over several values with one format string — the two
+// endpoints of formatRange() today. An installed override can expose a
+// batch form (only the mod sandbox's bridge ever does — see
+// scripts/modSandbox.mjs) as a `formatMany` property on its impl; with
+// one present this collapses N calls into one subprocess round trip,
+// and without one it's just the loop the caller would have written.
+// This is the shape the installed wrapper exposes.
+export type FormatBatchFn = (
+  values: Array<Parameters<FormatFn>[0]>,
+  formatStr: string,
+  options?: Parameters<FormatFn>[2]
+) => string[];
+
+// What the sandbox bridge attaches as impl.formatMany before the wrapper
+// takes it over: same as FormatBatchFn plus the un-overridden format()
+// as a trailing argument, which the bridge's fallback paths need and
+// can't reach on their own (the wrapper injects it — see modApi.ts).
+export type BridgeFormatBatchFn = (
+  values: Array<Parameters<FormatFn>[0]>,
+  formatStr: string,
+  options: Parameters<FormatFn>[2] | undefined,
+  original: FormatFn
+) => string[];
+
+export function callFormatImplBatch(
+  values: Array<Parameters<FormatFn>[0]>,
+  formatStr: string,
+  options?: Parameters<FormatFn>[2]
+): string[] {
+  const impl = getFormatImpl() as FormatFn & { formatMany?: FormatBatchFn };
+  if (typeof impl.formatMany === 'function') return impl.formatMany(values, formatStr, options);
+  return values.map((value) => impl(value, formatStr, options));
+}
+
 export function setFormatToPartsOverride(impl: FormatToPartsFn, installedBy: string): void {
   if (formatToPartsOverride) throw new OverrideConflictError('formatToParts', formatToPartsOverride.installedBy, installedBy);
   formatToPartsOverride = { impl, installedBy };

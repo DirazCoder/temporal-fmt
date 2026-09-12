@@ -116,7 +116,7 @@ export { translateDayjsFormatString } from './codemod.js';
 // mod contract — see README -> Writing Mods. The loader that actually
 // reads a mods/ folder off disk is Node-only and lives in
 // scripts/loadMods.mjs, not here; this is just the shape a mod matches.
-export { buildModContext, buildModContextFor, buildTrackedModContext, isMod, type Mod, type ModContext, type ModRegistrationKey } from './modApi.js';
+export { buildModContext, buildModContextFor, buildTrackedModContext, isMod, GRANTABLE_PERMISSIONS, type Mod, type ModContext, type ModRegistrationKey } from './modApi.js';
 export { OverrideConflictError } from './runtime.js';
 
 

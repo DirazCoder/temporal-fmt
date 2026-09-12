@@ -27,7 +27,7 @@ import { registerLocaleVocab, type LocaleVocab } from './localeVocab.js';
 import { registerRelativeGrammar, type RelativeGrammar } from './relativeGrammar.js';
 import { createFormatter, type FormatterOptions, type Formatter } from './extensibility.js';
 import { createHolidayCalendar, type HolidaySpec, type HolidayCalendar } from './holidays.js';
-import { getFormatImpl, getParseImpl, setFormatOverride, setParseOverride, getCompileFormatImpl, setCompileFormatOverride, getCompileParserImpl, setCompileParserOverride, getParseRelativeImpl, setParseRelativeOverride, getExplainFormatImpl, setExplainFormatOverride, getTokenizeFormatImpl, setTokenizeFormatOverride, getListTokensImpl, setListTokensOverride, getTokenInfoImpl, setTokenInfoOverride, getIsValidFormatImpl, setIsValidFormatOverride, getValidateFormatImpl, setValidateFormatOverride, getFieldForTokenImpl, setFieldForTokenOverride, getMonthsInYearImpl, setMonthsInYearOverride, getIsLeapYearImpl, setIsLeapYearOverride, getIsLeapMonthImpl, setIsLeapMonthOverride, getWeekOfYearImpl, setWeekOfYearOverride, getWeekYearImpl, setWeekYearOverride, getGetMonthImpl, setGetMonthOverride, getGetWeekdayImpl, setGetWeekdayOverride, getIsEqualImpl, setIsEqualOverride, getIsBeforeImpl, setIsBeforeOverride, getIsAfterImpl, setIsAfterOverride, getClampImpl, setClampOverride, getIsBetweenImpl, setIsBetweenOverride, getIsTodayImpl, setIsTodayOverride, getIsTomorrowImpl, setIsTomorrowOverride, getIsYesterdayImpl, setIsYesterdayOverride, getIsSameDayImpl, setIsSameDayOverride, getIsSameWeekImpl, setIsSameWeekOverride, getIsSameMonthImpl, setIsSameMonthOverride, getIsSameQuarterImpl, setIsSameQuarterOverride, getIsSameYearImpl, setIsSameYearOverride, getIsWeekdayImpl, setIsWeekdayOverride, getFloorImpl, setFloorOverride, getCeilImpl, setCeilOverride, getTruncateImpl, setTruncateOverride, getParseRFC3339Impl, setParseRFC3339Override, getFormatRFC3339Impl, setFormatRFC3339Override, getParseRFC2822Impl, setParseRFC2822Override, getParseHTTPDateImpl, setParseHTTPDateOverride, getFromUnixMicrosecondsImpl, setFromUnixMicrosecondsOverride, getFromUnixNanosecondsImpl, setFromUnixNanosecondsOverride, getToUnixSecondsImpl, setToUnixSecondsOverride, getToUnixMillisecondsImpl, setToUnixMillisecondsOverride, getToUnixMicrosecondsImpl, setToUnixMicrosecondsOverride, getToUnixNanosecondsImpl, setToUnixNanosecondsOverride, getParseSQLImpl, setParseSQLOverride, getFormatSQLImpl, setFormatSQLOverride, getFormatDurationToPartsImpl, setFormatDurationToPartsOverride, getParseDurationImpl, setParseDurationOverride, getParseISODurationImpl, setParseISODurationOverride, getFormatISODurationImpl, setFormatISODurationOverride, getBalanceDurationImpl, setBalanceDurationOverride, getCompareDurationImpl, setCompareDurationOverride, getSubtractDurationImpl, setSubtractDurationOverride, getGetLocaleImpl, setGetLocaleOverride, getHasLocaleImpl, setHasLocaleOverride, getCreateConfigImpl, setCreateConfigOverride, getMergeWithConfigImpl, setMergeWithConfigOverride, getListRegisteredGrammarsImpl, setListRegisteredGrammarsOverride, getIntervalImpl, setIntervalOverride, getOverlapsImpl, setOverlapsOverride, getIntersectionImpl, setIntersectionOverride, getUnionImpl, setUnionOverride, getMergeIntervalsImpl, setMergeIntervalsOverride, getFormatRangeToPartsImpl, setFormatRangeToPartsOverride, getBetweenImpl, setBetweenOverride, getParseRRuleImpl, setParseRRuleOverride, getFormatRRuleImpl, setFormatRRuleOverride, getCreateBusinessCalendarImpl, setCreateBusinessCalendarOverride, getSubtractBusinessDaysImpl, setSubtractBusinessDaysOverride, getNextHolidayImpl, setNextHolidayOverride, getPreviousHolidayImpl, setPreviousHolidayOverride, getResolveZonedImpl, setResolveZonedOverride, getGetNextTransitionImpl, setGetNextTransitionOverride, getGetPreviousTransitionImpl, setGetPreviousTransitionOverride, getPossibleInstantsForImpl, setPossibleInstantsForOverride, getGetAutocompleteDataImpl, setGetAutocompleteDataOverride, getGetHoverDocsImpl, setGetHoverDocsOverride, getGetInlineDiagnosticsImpl, setGetInlineDiagnosticsOverride, getPreviewFormatImpl, setPreviewFormatOverride, getGetDocUrlImpl, setGetDocUrlOverride, getTranslateDateFnsFormatStringImpl, setTranslateDateFnsFormatStringOverride } from './runtime.js';
+import { getFormatImpl, getParseImpl, setFormatOverride, setParseOverride, type FormatBatchFn, type BridgeFormatBatchFn, getCompileFormatImpl, setCompileFormatOverride, getCompileParserImpl, setCompileParserOverride, getParseRelativeImpl, setParseRelativeOverride, getExplainFormatImpl, setExplainFormatOverride, getTokenizeFormatImpl, setTokenizeFormatOverride, getListTokensImpl, setListTokensOverride, getTokenInfoImpl, setTokenInfoOverride, getIsValidFormatImpl, setIsValidFormatOverride, getValidateFormatImpl, setValidateFormatOverride, getFieldForTokenImpl, setFieldForTokenOverride, getMonthsInYearImpl, setMonthsInYearOverride, getIsLeapYearImpl, setIsLeapYearOverride, getIsLeapMonthImpl, setIsLeapMonthOverride, getWeekOfYearImpl, setWeekOfYearOverride, getWeekYearImpl, setWeekYearOverride, getGetMonthImpl, setGetMonthOverride, getGetWeekdayImpl, setGetWeekdayOverride, getIsEqualImpl, setIsEqualOverride, getIsBeforeImpl, setIsBeforeOverride, getIsAfterImpl, setIsAfterOverride, getClampImpl, setClampOverride, getIsBetweenImpl, setIsBetweenOverride, getIsTodayImpl, setIsTodayOverride, getIsTomorrowImpl, setIsTomorrowOverride, getIsYesterdayImpl, setIsYesterdayOverride, getIsSameDayImpl, setIsSameDayOverride, getIsSameWeekImpl, setIsSameWeekOverride, getIsSameMonthImpl, setIsSameMonthOverride, getIsSameQuarterImpl, setIsSameQuarterOverride, getIsSameYearImpl, setIsSameYearOverride, getIsWeekdayImpl, setIsWeekdayOverride, getFloorImpl, setFloorOverride, getCeilImpl, setCeilOverride, getTruncateImpl, setTruncateOverride, getParseRFC3339Impl, setParseRFC3339Override, getFormatRFC3339Impl, setFormatRFC3339Override, getParseRFC2822Impl, setParseRFC2822Override, getParseHTTPDateImpl, setParseHTTPDateOverride, getFromUnixMicrosecondsImpl, setFromUnixMicrosecondsOverride, getFromUnixNanosecondsImpl, setFromUnixNanosecondsOverride, getToUnixSecondsImpl, setToUnixSecondsOverride, getToUnixMillisecondsImpl, setToUnixMillisecondsOverride, getToUnixMicrosecondsImpl, setToUnixMicrosecondsOverride, getToUnixNanosecondsImpl, setToUnixNanosecondsOverride, getParseSQLImpl, setParseSQLOverride, getFormatSQLImpl, setFormatSQLOverride, getFormatDurationToPartsImpl, setFormatDurationToPartsOverride, getParseDurationImpl, setParseDurationOverride, getParseISODurationImpl, setParseISODurationOverride, getFormatISODurationImpl, setFormatISODurationOverride, getBalanceDurationImpl, setBalanceDurationOverride, getCompareDurationImpl, setCompareDurationOverride, getSubtractDurationImpl, setSubtractDurationOverride, getGetLocaleImpl, setGetLocaleOverride, getHasLocaleImpl, setHasLocaleOverride, getCreateConfigImpl, setCreateConfigOverride, getMergeWithConfigImpl, setMergeWithConfigOverride, getListRegisteredGrammarsImpl, setListRegisteredGrammarsOverride, getIntervalImpl, setIntervalOverride, getOverlapsImpl, setOverlapsOverride, getIntersectionImpl, setIntersectionOverride, getUnionImpl, setUnionOverride, getMergeIntervalsImpl, setMergeIntervalsOverride, getFormatRangeToPartsImpl, setFormatRangeToPartsOverride, getBetweenImpl, setBetweenOverride, getParseRRuleImpl, setParseRRuleOverride, getFormatRRuleImpl, setFormatRRuleOverride, getCreateBusinessCalendarImpl, setCreateBusinessCalendarOverride, getSubtractBusinessDaysImpl, setSubtractBusinessDaysOverride, getNextHolidayImpl, setNextHolidayOverride, getPreviousHolidayImpl, setPreviousHolidayOverride, getResolveZonedImpl, setResolveZonedOverride, getGetNextTransitionImpl, setGetNextTransitionOverride, getGetPreviousTransitionImpl, setGetPreviousTransitionOverride, getPossibleInstantsForImpl, setPossibleInstantsForOverride, getGetAutocompleteDataImpl, setGetAutocompleteDataOverride, getGetHoverDocsImpl, setGetHoverDocsOverride, getGetInlineDiagnosticsImpl, setGetInlineDiagnosticsOverride, getPreviewFormatImpl, setPreviewFormatOverride, getGetDocUrlImpl, setGetDocUrlOverride, getTranslateDateFnsFormatStringImpl, setTranslateDateFnsFormatStringOverride } from './runtime.js';
 import type { compileFormat as compileFormatBase } from './format.js';
 import type { compileParser as compileParserBase } from './parse.js';
 import type { parseRelative as parseRelativeBase } from './parseRelative.js';
@@ -50,6 +50,21 @@ import type { translateDateFnsFormatString as translateDateFnsFormatStringBase }
 import type { format as FormatFn } from './format.js';
 import type { parse as ParseFn } from './parse.js';
 
+// The closed set of capabilities a mod may ask for. This list is the one
+// both layers share — the loader validates manifests against it, the
+// sandbox translates entries into permission-model flags, and
+// ctx.hasPermission() answers questions from it — so it lives here, in
+// the library, and the loader re-exports it rather than keeping a second
+// copy that could drift. Membership criterion: each entry maps to a Node
+// permission-model flag that exists on every version this package
+// supports (20 through 26). The permission model cannot restrict network
+// access or environment variables on any of those versions, so "net" and
+// "env" are not offered — a permission that can't be enforced would be a
+// lie. "addons" exists as a flag but is deliberately absent too: native
+// code escapes every other restriction, so there is no meaningful way
+// to grant it "a little".
+export const GRANTABLE_PERMISSIONS = ['fs:read', 'fs:write', 'child-process', 'worker'] as const;
+
 // Deliberately just the public registration functions, re-typed here so
 // a mod only ever touches the library through the same surface any other
 // consumer would. No access to internal token tables, tokenizer state,
@@ -70,6 +85,16 @@ export interface ModContext {
   registerRelativeGrammar(grammar: RelativeGrammar): void;
   createFormatter(options?: FormatterOptions): Formatter;
   createHolidayCalendar(specs: HolidaySpec[]): HolidayCalendar;
+  // Whether this mod's execution context actually has the capability —
+  // under the CLI's sandbox, that's what was granted at load time (an
+  // optional permission the user declined reads as false here, so a mod
+  // can skip its supplementary data instead of crashing on the read).
+  // Outside the sandbox there's nothing to grant: every governable
+  // capability is available, so everything in GRANTABLE_PERMISSIONS
+  // reads as true and anything else as false. "net" is false everywhere
+  // because it isn't a capability at all — no permission-model flag backs
+  // it on any supported Node version.
+  hasPermission(capability: string): boolean;
   // `impl` receives the current format()/parse() as its first argument
   // (always the original built-in — only one mod can hold this override
   // at a time, see below, so there's never a "previous mod's override"
@@ -182,9 +207,23 @@ export function buildModContextFor(modName: string): ModContext {
     registerRelativeGrammar,
     createFormatter,
     createHolidayCalendar,
+    hasPermission(capability) {
+      return (GRANTABLE_PERMISSIONS as readonly string[]).includes(capability);
+    },
     overrideFormat(impl) {
       const original = getFormatImpl();
-      setFormatOverride((...args) => impl(original, ...args), modName);
+      const wrapped = (...args: Parameters<typeof FormatFn>) => impl(original, ...args) as ReturnType<typeof FormatFn>;
+      // The sandbox's bridge impl can answer several values in one
+      // subprocess round trip (callFormatImplBatch in runtime.ts). The
+      // batch travels as a property on the wrapper so the built-in
+      // format() it may need to fall back to is in scope where it's
+      // invoked — in-process mods never set one.
+      const batch = (impl as { formatMany?: BridgeFormatBatchFn }).formatMany;
+      if (typeof batch === 'function') {
+        (wrapped as typeof FormatFn & { formatMany?: FormatBatchFn }).formatMany =
+          (values, formatStr, options) => batch(values, formatStr, options, original);
+      }
+      setFormatOverride(wrapped, modName);
     },
     overrideParse(impl) {
       const original = getParseImpl();

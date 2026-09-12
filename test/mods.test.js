@@ -594,10 +594,16 @@ test('.tfmod: a mod with a config schema and no user config file gets its declar
   const dir = mkdtempSync(join(tmpdir(), 'temporal-fmt-mods-'));
   mkdirSync(join(dir, 'mods'));
   const proofPath = join(dir, 'proof.json');
+  // The mod writes its resolved config to disk, so it needs fs:write —
+  // granted via the permission cache rather than a terminal prompt,
+  // which is exactly what a non-interactive context is supposed to fall
+  // back to reading.
+  writeFileSync(join(dir, '.temporal-fmt-permissions.json'), JSON.stringify({ 'configurable@': { 'fs:write': true } }));
   buildTfmod(join(dir, 'mods', 'configurable.tfmod'), {
     'mod.json': JSON.stringify({
       name: 'configurable',
       main: 'main.mjs',
+      permissions: ['fs:write'],
       config: [
         { key: 'greeting', type: 'string', default: 'hi' },
         { key: 'maxRetries', type: 'number', default: 3, min: 0, max: 10 },
@@ -625,11 +631,13 @@ test('.tfmod: a user config file in config/ overrides the mod\'s declared defaul
   mkdirSync(join(dir, 'mods'));
   mkdirSync(join(dir, 'config'));
   const proofPath = join(dir, 'proof.json');
+  writeFileSync(join(dir, '.temporal-fmt-permissions.json'), JSON.stringify({ 'configurable@': { 'fs:write': true } }));
   writeFileSync(join(dir, 'config', 'configurable.json'), JSON.stringify({ greeting: 'yo', maxRetries: 7 }));
   buildTfmod(join(dir, 'mods', 'configurable.tfmod'), {
     'mod.json': JSON.stringify({
       name: 'configurable',
       main: 'main.mjs',
+      permissions: ['fs:write'],
       config: [
         { key: 'greeting', type: 'string', default: 'hi' },
         { key: 'maxRetries', type: 'number', default: 3, min: 0, max: 10 },
@@ -657,11 +665,13 @@ test('.tfmod: an out-of-range config value falls back to its default and is repo
   mkdirSync(join(dir, 'mods'));
   mkdirSync(join(dir, 'config'));
   const proofPath = join(dir, 'proof.json');
+  writeFileSync(join(dir, '.temporal-fmt-permissions.json'), JSON.stringify({ 'configurable@': { 'fs:write': true } }));
   writeFileSync(join(dir, 'config', 'configurable.json'), JSON.stringify({ maxRetries: 999, typoKey: true }));
   buildTfmod(join(dir, 'mods', 'configurable.tfmod'), {
     'mod.json': JSON.stringify({
       name: 'configurable',
       main: 'main.mjs',
+      permissions: ['fs:write'],
       config: [{ key: 'maxRetries', type: 'number', default: 3, min: 0, max: 10 }],
     }),
     'main.mjs': `
@@ -697,23 +707,32 @@ test('.tfmod: an invalid config schema in mod.json fails the manifest check', ()
 });
 
 test('.mjs mods (no manifest available) always receive an empty config object', () => {
-  const proofPath = mkdtempSync(join(tmpdir(), 'temporal-fmt-mods-'));
   const dir = withModsDir({
     'plain.mjs': `
-      import { writeFileSync } from 'node:fs';
+      // A loose .mjs mod can't request any capabilities (that's the
+      // point of this test's sibling behavior — no manifest, no
+      // permissions), so the proof that config is {} has to travel
+      // through a registration instead of a file write: encode the
+      // config JSON as month names in a locale vocab and read it back
+      // from the format output.
       export default {
         name: 'plain',
         register(ctx, config) {
-          writeFileSync(${JSON.stringify(join(proofPath, 'proof.json'))}, JSON.stringify(config));
+          const encoded = JSON.stringify(config);
+          ctx.registerLocaleVocab('xx-cfg-proof', {
+            monthLong: Array.from({ length: 12 }, (_, i) => encoded + '-' + (i + 1) + 'L'),
+            monthShort: Array.from({ length: 12 }, (_, i) => encoded + '-' + (i + 1) + 'S'),
+            weekdayLong: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+            weekdayShort: ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'],
+            dayPeriod: ['AM', 'PM'],
+          });
         }
       };
     `,
   });
-  const { stderr, exitCode } = runCliIn(dir, ...FORMAT_ARGS);
+  const { stderr, stdout, exitCode } = runCliIn(dir, 'format', '2026-08-04', 'MMMM', '--locale=xx-cfg-proof');
   assert.equal(exitCode, 0);
   assert.match(stderr, /loaded plain \(plain\.mjs\)/);
-  const written = JSON.parse(readFileSync(join(proofPath, 'proof.json'), 'utf8'));
-  assert.deepEqual(written, {});
+  assert.equal(stdout.trim(), '{}-8L');
   rmSync(dir, { recursive: true, force: true });
-  rmSync(proofPath, { recursive: true, force: true });
 });

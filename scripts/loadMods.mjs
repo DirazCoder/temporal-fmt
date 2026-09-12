@@ -25,36 +25,56 @@
 //
 //   2. A .tfmod archive — a gzipped tar (same format as .tgz, renamed
 //      for identity) containing mod.json (metadata: name/version/main/
-//      requires/priority) plus main.mjs and, optionally, a data/
-//      directory of files main.mjs can read at register() time. This
-//      exists for mods that need more than one file, and so the loader
+//      requires/priority/permissions) plus main.mjs and, optionally, a
+//      data/ directory of files main.mjs can read at register() time.
+//      This exists for mods that need more than one file, so the loader
 //      can learn a mod's name/requires without executing any of its
 //      code — mod.json is read directly from the archive, no import()
-//      happens until dependency order is already decided. Loose .mjs
-//      mods don't get this: the loader has to import() them just to
-//      read `name` off the default export, which is fine at the current
-//      "few files, run once at CLI startup" scale but wouldn't be if
-//      this needed to list installed mods without running any of them.
+//      happens until dependency order is already decided — and because
+//      it's the only shape that can request capabilities (a loose .mjs
+//      file has no manifest to declare permissions in, so it runs with
+//      none; see MODS.md).
 //
 // Loading is two passes either way. Pass one collects every mod's
 // name/requires/priority without calling register() yet (via mod.json
-// for .tfmod, via import() for .mjs) — order can't be decided until
-// every mod's declared dependencies are known. Pass two resolves a load
-// order from those dependencies (priority as a tiebreak, then filename
-// as the final tiebreak) and only then imports (for .tfmod) and runs
-// each mod's register() in that order, tracking which mod touched which
-// registration key so conflicts can be reported afterward.
+// for .tfmod, via a sandboxed subprocess import for .mjs — see
+// scripts/modSandbox.mjs) — order can't be decided until every mod's
+// declared dependencies are known. Pass two resolves a load order from
+// those dependencies (priority as a tiebreak, then filename as the
+// final tiebreak) and runs each mod's register() — in its own sandboxed
+// subprocess with only the capabilities the user granted, its
+// registrations replayed here against the real registry, tracking which
+// mod touched which registration key so conflicts can be reported
+// afterward.
+//
+// register() never runs in this process anymore. A mod that only
+// registers data (a locale, a holiday set) runs in a short-lived
+// subprocess that exits once its registrations have been handed back; a
+// mod that installs a runtime override (overrideFormat/overrideParse/
+// any ctx.override*) keeps its subprocess alive as the target of a
+// synchronous pipe bridge, because that closure has to answer every
+// later format()/parse() call and it can't leave the sandbox.
 
 import { readdir, mkdtemp, rm, readFile, stat, mkdir, realpath } from 'node:fs/promises';
 import { join, extname, resolve, basename, relative, isAbsolute } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { buildTrackedModContext, isMod, OverrideConflictError } from '../dist/index.js';
+import { buildTrackedModContext, OverrideConflictError } from '../dist/index.js';
 import { checkVersionRange } from './semverRange.mjs';
 import { isValidConfigSchema, resolveConfig } from './modConfig.mjs';
 import { createRequire } from 'node:module';
+import {
+  GRANTABLE_PERMISSIONS,
+  createSandboxContext,
+  describeMjsMods,
+  resolvePermissions,
+  runModInSandbox,
+  makeOverrideBridgeImpl,
+  runtimeTimeoutMs,
+  memoryCeilingMb,
+} from './modSandbox.mjs';
+import { fromWire, rehydrateFormatterOptions, isExperimentalPermissionModel } from './modWire.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -82,12 +102,13 @@ async function extractTfmod(archivePath, destDir) {
 
 // Validates the shape the loader actually reads off mod.json — a subset
 // of Mod's fields (no `register`, since mod.json is data, not code) plus
-// `main`, the entry-point filename inside the archive, plus two fields
-// only .tfmod mods get to declare (loose .mjs mods have no manifest to
-// put them in): `temporalFmtVersion`, a semver range or exact version
-// this mod was built against; and `config`, a schema for user-editable
-// settings (see modConfig.mjs). Both are optional — a mod that doesn't
-// need either just omits them.
+// `main`, the entry-point filename inside the archive, plus fields only
+// .tfmod mods get to declare (loose .mjs mods have no manifest to put
+// them in): `temporalFmtVersion`, a semver range or exact version this
+// mod was built against; `config`, a schema for user-editable settings
+// (see modConfig.mjs); and `permissions`, the capabilities the mod
+// wants, each marked required or optional. All are optional — a mod that
+// doesn't need any just omits them.
 function isValidManifest(value) {
   if (typeof value !== 'object' || value === null) return false;
   const v = value;
@@ -98,7 +119,28 @@ function isValidManifest(value) {
   if (v.priority !== undefined && typeof v.priority !== 'number') return false;
   if (v.temporalFmtVersion !== undefined && typeof v.temporalFmtVersion !== 'string') return false;
   if (v.config !== undefined && !isValidConfigSchema(v.config)) return false;
+  if (v.permissions !== undefined && !(Array.isArray(v.permissions) && v.permissions.every(isValidPermissionEntry))) return false;
   return true;
+}
+
+// Two shapes say the same thing: "fs:read" (a bare capability — the
+// pre-required/optional format, still accepted so nothing that used to
+// hard-fail on denial silently downgrades) or { "capability": "fs:read",
+// "required": true }. A missing "required" means required: a mod that
+// doesn't say is asking, not wishing.
+function isValidPermissionEntry(p) {
+  if (typeof p === 'string') return true;
+  return (
+    typeof p === 'object' && p !== null &&
+    typeof p.capability === 'string' &&
+    (p.required === undefined || typeof p.required === 'boolean')
+  );
+}
+
+function normalizePermissions(permissions) {
+  return permissions.map((p) =>
+    typeof p === 'string' ? { capability: p, required: true } : { capability: p.capability, required: p.required ?? true }
+  );
 }
 
 // Containment check for paths that come out of a .tfmod manifest. The
@@ -139,36 +181,11 @@ function manifestPathFailure(kind, value) {
   return undefined;
 }
 
-async function importMjsMods(absDir, mjsFiles) {
-  const entries = [];
-  const failed = [];
-  for (const file of mjsFiles) {
-    const fullPath = join(absDir, file);
-    let mod;
-    try {
-      const imported = await import(pathToFileURL(fullPath).href);
-      mod = imported.default;
-    } catch (err) {
-      failed.push({ file, reason: `failed to import: ${err.message}` });
-      continue;
-    }
-    if (!isMod(mod)) {
-      failed.push({
-        file,
-        reason: 'default export must be an object with a "name" string, a "register" function, and — if present — "requires" as a string array and "priority" as a number',
-      });
-      continue;
-    }
-    entries.push({ file, kind: 'mjs', mod, importPath: fullPath, configSchema: undefined });
-  }
-  return { entries, failed };
-}
-
 // Extracts every .tfmod into its own subdirectory of `scratchDir` and
 // reads mod.json out of each — no main.mjs gets imported here. That's
 // the whole point of the manifest: the loader can find out a mod's
-// name/requires (needed for pass-two ordering) without running any of
-// the mod's own code first.
+// name/requires/permissions (needed for pass-two ordering and the
+// permission prompts) without running any of the mod's own code first.
 async function readTfmodManifests(absDir, tfmodFiles, scratchDir) {
   const entries = [];
   const failed = [];
@@ -203,7 +220,25 @@ async function readTfmodManifests(absDir, tfmodFiles, scratchDir) {
       failed.push({
         file,
         reason:
-          'mod.json must have a "name" string and a "main" string, and — if present — "version" as a string, "requires" as a string array, "priority" as a number, "temporalFmtVersion" as a string, and "config" as a valid settings schema',
+          'mod.json must have a "name" string and a "main" string, and — if present — "version" as a string, "requires" as a string array, "priority" as a number, "temporalFmtVersion" as a string, "config" as a valid settings schema, and "permissions" as an array of capabilities or { capability, required } entries',
+      });
+      continue;
+    }
+
+    const permissions = normalizePermissions(manifest.permissions ?? []);
+
+    // The permission list is closed on purpose. Anything a mod declares
+    // that no flag can back would be a permission the loader claims to
+    // enforce but can't, so this fails the mod with the full set of what
+    // exists and why the common absences (network, environment) don't.
+    const unknown = permissions.filter((p) => !GRANTABLE_PERMISSIONS.includes(p.capability)).map((p) => p.capability);
+    if (unknown.length > 0) {
+      failed.push({
+        file,
+        reason:
+          `mod.json "permissions" includes ${unknown.map((p) => `"${p}"`).join(', ')} — supported capabilities are ` +
+          `${GRANTABLE_PERMISSIONS.join(', ')}. Network access isn't offered because Node's permission model can't restrict it ` +
+          `on any supported version, and environment variables can't be granted, only scrubbed (they are).`,
       });
       continue;
     }
@@ -257,7 +292,9 @@ async function readTfmodManifests(absDir, tfmodFiles, scratchDir) {
       kind: 'tfmod',
       mod: { name: manifest.name, version: manifest.version, requires: manifest.requires, priority: manifest.priority },
       importPath: mainPath,
+      extractDir,
       configSchema: manifest.config,
+      permissions,
     });
   }
   return { entries, failed };
@@ -311,7 +348,7 @@ function resolveLoadOrder(entries) {
         const depEntry = byName.get(depName);
         const insertAt = ready.findIndex((e) => readyBefore(depEntry, e) < 0);
         if (insertAt === -1) ready.push(depEntry);
-        else ready.splice(insertAt, 0, depEntry);
+        else ready.splice(insertAt, 1, depEntry);
       }
     }
   }
@@ -363,10 +400,28 @@ async function readUserConfig(configDir, modName) {
   }
 }
 
+// A loose .mjs mod hitting a denied capability gets this appended to
+// its failure line. The permission model's own error ("Access to this
+// API has been restricted") doesn't say why nothing was granted or how
+// to change it, and a mod that can't run is exactly the moment to.
+function zeroPermissionHint(reason) {
+  if (!/Access to this API has been restricted/.test(reason)) return reason;
+  return (
+    `${reason} — this mod has no granted capabilities (a loose .mjs mod can't request any). ` +
+    `Package it as a .tfmod with a "permissions" field to ask for what it needs.`
+  );
+}
+
 export async function loadMods(dir = './mods', configDir = join(resolve(dir), '..', 'config')) {
-  const report = { loaded: [], failed: [], conflicts: [] };
+  const report = { loaded: [], downgraded: [], failed: [], conflicts: [] };
   const absDir = resolve(dir);
   const absConfigDir = resolve(configDir);
+  // Permission answers live next to mods/, like config/ does: it's the
+  // host project's data about what it has agreed to, not part of the
+  // mods themselves, and keeping it beside the folder means it's the
+  // same "delete this to start over" story as the config dir.
+  const permissionsPath = join(resolve(dir), '..', '.temporal-fmt-permissions.json');
+  const sandboxCtx = await createSandboxContext();
 
   let dirEntries;
   try {
@@ -406,7 +461,12 @@ export async function loadMods(dir = './mods', configDir = join(resolve(dir), '.
   let mjsEntries = [];
   let tfmodEntries = [];
   try {
-    const mjsResult = await importMjsMods(absDir, mjsFiles);
+    // Pass one for .mjs: each file is imported inside its own
+    // zero-permission subprocess, which reports the default export's
+    // name/requires/priority back and exits. Nothing about a mod's
+    // top-level code has ever been safe to assume, and now none of it
+    // runs in this process even for discovery.
+    const mjsResult = await describeMjsMods(absDir, mjsFiles, sandboxCtx);
     mjsEntries = mjsResult.entries;
     report.failed.push(...mjsResult.failed);
 
@@ -441,29 +501,14 @@ export async function loadMods(dir = './mods', configDir = join(resolve(dir), '.
     report.failed.push(...orderFailures);
 
     const registeredBy = new Map(); // "kind:key" -> [{ file, name }]
+    // Registrations so far this pass, in load order — each subprocess
+    // replays them locally so a mod that reads earlier state (a grammar
+    // built on another mod's vocab, say) sees what it would have
+    // in-process.
+    let priorRegistrations = [];
 
     for (const entry of order) {
-      const { file, kind, mod, importPath, configSchema } = entry;
-      let registerFn = mod.register;
-
-      // .tfmod entries only had their manifest read in pass one — the
-      // actual register() function lives in main.mjs, imported now that
-      // load order is settled and this mod is confirmed to run.
-      if (kind === 'tfmod') {
-        let imported;
-        try {
-          imported = await import(pathToFileURL(importPath).href);
-        } catch (err) {
-          report.failed.push({ file, reason: `failed to import "${mod.name}"'s main file: ${err.message}` });
-          continue;
-        }
-        const mainExport = imported.default;
-        if (typeof mainExport?.register !== 'function') {
-          report.failed.push({ file, reason: `"${mod.name}"'s main file's default export must have a "register" function` });
-          continue;
-        }
-        registerFn = mainExport.register;
-      }
+      const { file, kind, mod, importPath, configSchema, permissions } = entry;
 
       // Config only applies to .tfmod mods with a declared schema — a
       // loose .mjs mod has no manifest to put a schema in, so it always
@@ -490,16 +535,95 @@ export async function loadMods(dir = './mods', configDir = join(resolve(dir), '.
         }
       }
 
+      // The permission gate, before any mod code runs: each requested
+      // capability is either already answered for this exact
+      // name@version (cache), asked of the user now (default no on
+      // empty input, or when there's no terminal to ask), or denied.
+      // Loose .mjs mods never get here with requests — they have no
+      // manifest — and run with nothing granted.
+      let grantedPermissions = new Set();
+      let denials = [];
+      if (permissions.length > 0) {
+        const resolved = await resolvePermissions({
+          modName: mod.name,
+          version: mod.version,
+          requested: permissions.map((p) => p.capability),
+          cachePath: permissionsPath,
+        });
+        grantedPermissions = resolved.granted;
+        denials = resolved.denials;
+
+        // A denied required capability is a hard no: the mod said it can't
+        // do its job without this, so running it with the capability
+        // missing would just move the failure somewhere more confusing.
+        // Fail it here, same as an unhandled crash, before any of its
+        // code gets a process.
+        const requiredDenied = permissions.filter((p) => p.required && !grantedPermissions.has(p.capability));
+        if (requiredDenied.length > 0) {
+          const caps = requiredDenied.map((p) => p.capability).join(', ');
+          const autoDenied = requiredDenied.some((p) =>
+            denials.find((d) => d.permission === p.capability)?.reason.startsWith('no terminal')
+          );
+          const grantCommand = requiredDenied.length === 1
+            ? `node scripts/managePermissions.mjs grant ${mod.name}${mod.version ? `@${mod.version}` : ''} ${caps}`
+            : 'node scripts/managePermissions.mjs grant <mod> <capability> (one per denied capability)';
+          report.failed.push({
+            file,
+            reason:
+              `denied required permission: ${caps} — "${mod.name}" won't load without it` +
+              (autoDenied ? ' (denied automatically: no terminal to ask)' : '') +
+              `. Grant it with "${grantCommand}", or delete .temporal-fmt-permissions.json to re-ask everything.`,
+          });
+          continue;
+        }
+      }
+
+      // Anything denied at this point is optional — the mod runs with
+      // what it got, and the report says downgraded rather than loaded so
+      // "it ran with less than it asked for" is scannable at a glance.
+      const downgraded = permissions.some((p) => !p.required && !grantedPermissions.has(p.capability));
+
+      const sandboxRun = await runModInSandbox({
+        kind,
+        modPath: importPath,
+        modName: mod.name,
+        modReadRoot: kind === 'tfmod' ? entry.extractDir : absDir,
+        grantedPermissions,
+        config: resolvedConfig,
+        priorRegistrations,
+        sandboxCtx,
+      });
+
+      if (!sandboxRun.ok) {
+        const reason = kind === 'mjs' ? zeroPermissionHint(sandboxRun.reason) : sandboxRun.reason;
+        report.failed.push({ file, reason });
+        continue;
+      }
+
+      // Host-side replay: the subprocess recorded what register()
+      // called, and this is where it actually takes effect — through
+      // the same tracked context an in-process mod would have used, so
+      // conflict detection, override exclusivity, and the report all
+      // behave exactly as they did before sandboxing.
       const touched = [];
       const trackedCtx = buildTrackedModContext(mod.name, (regKey) => touched.push(regKey));
-
       try {
-        await registerFn(trackedCtx, resolvedConfig);
+        for (const record of sandboxRun.registrations) {
+          if (record.fn === 'createFormatter') {
+            trackedCtx.createFormatter(rehydrateFormatterOptions(record.args[0]));
+          } else {
+            trackedCtx[record.fn](...record.args.map((a) => fromWire(a, sandboxCtx.hostTemporal)));
+          }
+        }
+        for (const fnName of sandboxRun.overrides) {
+          const method = `override${fnName[0].toUpperCase()}${fnName.slice(1)}`;
+          trackedCtx[method](makeOverrideBridgeImpl(sandboxRun.bridge, fnName, mod.name, sandboxCtx));
+        }
       } catch (err) {
         if (err instanceof OverrideConflictError) {
           report.failed.push({ file, reason: err.message });
         } else {
-          report.failed.push({ file, reason: `register() threw: ${err.message}` });
+          report.failed.push({ file, reason: `replaying "${mod.name}"'s registrations failed: ${err.message}` });
         }
         continue;
       }
@@ -510,7 +634,22 @@ export async function loadMods(dir = './mods', configDir = join(resolve(dir), '.
         registeredBy.get(mapKey).push({ file, name: mod.name });
       }
 
-      report.loaded.push({ file, name: mod.name, version: mod.version });
+      priorRegistrations = [...priorRegistrations, ...sandboxRun.registrations];
+
+      (downgraded ? report.downgraded : report.loaded).push({
+        file,
+        name: mod.name,
+        version: mod.version,
+        kind,
+        sandbox: {
+          permissionsRequested: permissions,
+          granted: [...grantedPermissions],
+          denials,
+          overrides: sandboxRun.overrides,
+          timeoutMs: sandboxRun.overrides.length > 0 ? runtimeTimeoutMs() : undefined,
+          memoryCeilingMb: sandboxRun.overrides.length > 0 ? memoryCeilingMb() : undefined,
+        },
+      });
     }
 
     for (const [mapKey, registrants] of registeredBy) {
@@ -534,8 +673,15 @@ export async function loadMods(dir = './mods', configDir = join(resolve(dir), '.
 
 export function formatModLoadReport(report) {
   const lines = [];
+  const anyMods = (report.loaded.length > 0 || report.downgraded?.length > 0 || report.failed.length > 0);
+  if (anyMods && isExperimentalPermissionModel()) {
+    lines.push('  (sandboxing is experimental on this Node version — Node\'s permission model stabilized in 22.13)');
+  }
   for (const m of report.loaded) {
-    lines.push(`  loaded ${m.name}${m.version ? `@${m.version}` : ''} (${m.file})`);
+    lines.push(`  loaded ${m.name}${m.version ? `@${m.version}` : ''} (${m.file})${sandboxSuffix(m)}`);
+  }
+  for (const m of report.downgraded ?? []) {
+    lines.push(`  downgraded ${m.name}${m.version ? `@${m.version}` : ''} (${m.file})${sandboxSuffix(m)}`);
   }
   for (const f of report.failed) {
     lines.push(`  failed ${f.file}: ${f.reason}`);
@@ -544,4 +690,35 @@ export function formatModLoadReport(report) {
     lines.push(`  conflict on ${c.kind} "${c.key}": ${c.mods.join(', ')} — "${c.winner}" wins (loaded last)`);
   }
   return lines.join('\n');
+}
+
+function sandboxSuffix(m) {
+  if (!m.sandbox) return '';
+  const { permissionsRequested, granted, denials, overrides, timeoutMs, memoryCeilingMb: ceilingMb } = m.sandbox;
+
+  let permissionPart;
+  if (permissionsRequested.length === 0) {
+    permissionPart = m.kind === 'mjs'
+      ? 'sandboxed: no permissions — a loose .mjs mod can\'t request any, package as .tfmod to ask for capabilities'
+      : 'sandboxed: no permissions requested';
+  } else {
+    const bits = permissionsRequested.map((p) =>
+      granted.includes(p.capability)
+        ? `${p.capability} granted`
+        : `${p.capability} denied (optional)`
+    );
+    permissionPart = `sandboxed: ${bits.join(', ')}`;
+    const unprompted = denials.filter((d) => d.reason.startsWith('no terminal'));
+    if (unprompted.length > 0) {
+      permissionPart += ` (${unprompted.length} denied with no terminal to ask — re-run interactively or answer once in ${'.temporal-fmt-permissions.json'})`;
+    }
+  }
+
+  const parts = [permissionPart];
+  if (overrides.length > 0) {
+    const timeoutLabel = timeoutMs < 1000 ? `${timeoutMs}ms` : `${Math.round(timeoutMs / 1000)}s`;
+    const watched = `${timeoutLabel} timeout, ${ceilingMb}MB memory ceiling`;
+    parts.push(`${overrides.join(', ')} override${overrides.length > 1 ? 's' : ''} via subprocess, ${watched}`);
+  }
+  return ` [${parts.join('] [')}]`;
 }
