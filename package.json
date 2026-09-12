@@ -119,6 +119,7 @@
     "scripts/loadMods.d.mts",
     "scripts/modConfig.mjs",
     "scripts/semverRange.mjs",
+    "scripts/versions.json",
     "scripts/modSandbox.mjs",
     "scripts/modSandbox.d.mts",
     "scripts/modWorker.mjs",

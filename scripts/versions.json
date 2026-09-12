@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "generatedFrom": "CHANGELOG.md",
+  "floorDate": "2026-08-30",
+  "releases": [
+    {
+      "version": "0.9.4",
+      "date": "2026-08-30",
+      "commit": "ac66e77"
+    },
+    {
+      "version": "0.9.41",
+      "date": "2026-09-07",
+      "commit": "b518814"
+    },
+    {
+      "version": "0.9.5",
+      "date": "2026-09-11",
+      "commit": "16a438e"
+    },
+    {
+      "version": "0.9.6",
+      "date": "2026-09-12",
+      "commit": "00bb0c4"
+    }
+  ]
+}
