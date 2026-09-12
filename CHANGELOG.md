@@ -4,6 +4,10 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.61 — 2026-09-12 (`e8ab517`)
+
+Fixes `checkVersionRange` in `scripts/semverRange.mjs` comparing host and range versions by raw patch-number arithmetic, which misordered releases like `0.9.41` and `0.9.5` (patch 41 > patch 5 numerically, despite 0.9.5 shipping later). Comparisons are now resolved against `scripts/versions.json`, a table generated from this changelog's actual release order via `scripts/generateVersionTable.mjs`. Also adds `scripts/versions.json` to the package's published `files`, which had been omitted — installs were hitting `MODULE_NOT_FOUND` on it since `semverRange.mjs` requires it at load time.
+
 ## 0.9.6 — 2026-09-12 (`00bb0c4`)
 
 Temporal-Fmt Mod API Level 2.
