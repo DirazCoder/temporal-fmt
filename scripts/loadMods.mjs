@@ -422,7 +422,16 @@ function zeroPermissionHint(reason) {
 
 export async function loadMods(dir = './mods', configDir = join(resolve(dir), '..', 'config')) {
   const report = { loaded: [], downgraded: [], failed: [], conflicts: [] };
-  const absDir = resolve(dir);
+  // realpath, not just resolve: resolve() only makes the path absolute,
+  // it doesn't follow symlinks, and the OS temp dir is a symlink on
+  // macOS (/var -> /private/var) and some Windows setups. Every mod path
+  // handed to the sandboxed worker is built by joining onto absDir, and
+  // spawnWorker() separately realpath's its --allow-fs-read roots (see
+  // realRoot() in modSandbox.mjs) — if absDir stayed on the symlinked
+  // side, the grant (realpath'd) and the actual import (not) would refer
+  // to the same file by two different paths and the permission model
+  // would refuse an import that should have been allowed.
+  const absDir = await realpath(resolve(dir)).catch(() => resolve(dir));
   const absConfigDir = resolve(configDir);
   // Permission answers live next to mods/, like config/ does: it's the
   // host project's data about what it has agreed to, not part of the
