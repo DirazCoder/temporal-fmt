@@ -6,6 +6,8 @@ For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
 ## 0.9.6 — 2026-09-12 (`00bb0c4`)
 
+Temporal-Fmt Mod API Level 2.
+
 ### Security
 - Mods no longer run in the host process. Every mod — loose `.mjs` and
   `.tfmod` alike — now loads inside its own subprocess started with
