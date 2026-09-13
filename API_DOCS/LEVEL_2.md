@@ -13,6 +13,8 @@ What that means in practice:
 - The subprocess doesn't inherit your environment variables. `process.env` inside a mod contains `PATH`, `TZ`, `LANG`, and a few Windows bootstrap variables, nothing else — there's no grant that changes this, since env vars are where secrets live and the permission model has no flag to gate them.
 - `console.log` from a mod goes to stderr (the protocol channel is stdout, or on Windows the reply file).
 
+The channel itself is platform-dependent, and the difference is visible if you look: on macOS and Linux it's the subprocess's pipes, read directly by file descriptor. A Windows named pipe carries no file descriptor for the host's end — a fact of the platform, not a Node bug — so there each mod's subprocess gets a private scratch directory under the system temp folder and the same line protocol rides two plain files. Two consequences worth knowing: a runtime-override call costs a few extra milliseconds on Windows (the subprocess polls for new requests rather than being woken by the kernel), and the subprocess necessarily holds filesystem write access to its own scratch directory — the one place its protocol replies live — even when `fs:write` was denied. That's the whole carve-out: mod code still cannot write anywhere else, so the denial isn't weakened anywhere a human keeps files.
+
 Four things the sandbox does **not** do:
 
 1. **It does not restrict network access.** No Node permission-model flag gates sockets on any supported version. A mod can still `import('node:http')` and make requests. If your threat model needs no network egress, don't run third-party mods.
