@@ -897,7 +897,7 @@ Type a subcommand with all its arguments inline (`validate yyyy-MM-dd`) or just 
 
 ## Mods (advanced, optional)
 
-Mod support (0.9.4+) lets you extend or patch behavior without forking. See [MODS.md](./MODS.md) for the full guide — writing and packaging mods, the permission sandbox every mod runs in, load order and conflicts, runtime overrides, and what happens when a mod is broken.
+Mod support (0.9.4+) lets you extend or patch behavior without forking. [MODS.md](./MODS.md) covers installing and running mods someone else wrote — the sandbox from the user side, permissions, load order, and what happens when a mod is broken. Writing your own mod is a separate guide, split by API level: [API_DOCS/LEVEL_1.md](./API_DOCS/LEVEL_1.md) (0.9.4–0.9.5) and [API_DOCS/LEVEL_2.md](./API_DOCS/LEVEL_2.md) (0.9.6+).
 
 ## Subpath imports
 
