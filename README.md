@@ -20,6 +20,14 @@ Locale-aware tokens need Node 20+ regardless of which path you use — native
 on 26+, or falling back to the Temporal implementation's own
 `toLocaleString()` otherwise. Untested below Node 20.
 
+> **Just want `format`/`parse`, nothing else, ever?** Check out
+> [`temporal-fmt-lite`](https://github.com/DirazCoder/temporal-fmt-lite) —
+> a frozen snapshot of this library's original v0.8.2 surface: the same two
+> functions, the same locale support, no CLI/mods/recurrence/business-calendar
+> weight to opt out of via subpaths, and no new tokens or exports getting
+> added later. Security and correctness fixes only, no LTS promise. If you
+> outgrow it, migrating to the full `temporal-fmt` is additive, not a rewrite.
+
 ## Install
 
 ```sh
