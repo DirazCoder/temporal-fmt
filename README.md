@@ -989,11 +989,11 @@ Migrate file by file, dropping the wrapper once nothing calls the old path anymo
 - **Offset tokens can't express sub-minute historical offsets.** They read `ZonedDateTime.prototype.offset`, which Temporal exposes as `+HH:MM` for any modern date. Historical LMT offsets with seconds (Europe/London before 1847 was `+00:01:15`) aren't reachable through that field, and the offset tokens' regex shapes don't include a seconds group either. Construct the `ZonedDateTime` directly if you need to round-trip one of those. Offset range is bounded to `-12:00` through `+14:00` (Baker Island to Kiritimati) — `+14:01`/`-12:01` throw even though each digit is individually plausible, since no real zone uses an offset past that range.
 
 ## Related tools
-
-Neither of these ships as part of this repository — separate packages, install them on their own:
-
-- [`eslint-plugin-temporal-fmt`](https://www.npmjs.com/package/eslint-plugin-temporal-fmt) — lints format strings for common mistakes (e.g. `hh` without `a`). This is what backs the `analyzeFormat(formatStr).warnings` check mentioned in [Introspection and the analyzer](#introspection-and-the-analyzer) — same underlying metadata, surfaced as a lint diagnostic instead of a runtime call.
-- [`temporal-fmt-codemod`](https://github.com/DirazCoder/temporal-fmt-codemod) — a jscodeshift AST codemod that rewrites `dayjs(x).format(...)`/date-fns `format(...)` *call sites* across a codebase, not just format-string literals. A different job from the CLI's `translate` subcommand (see [CLI](#cli)), which only translates a format string you hand it and doesn't touch call sites; use this instead if you're migrating an entire codebase and want the calls themselves rewritten.
+ 
+Neither of these ships as part of this repository — separate packages. **Both are now deprecated and archived** — single-maintainer bandwidth, no further updates — but the last published versions still work if you want them:
+ 
+- [`eslint-plugin-temporal-fmt`](https://www.npmjs.com/package/eslint-plugin-temporal-fmt) *(deprecated, archived)* — lints format strings for common mistakes (e.g. `hh` without `a`). This is what backed the `analyzeFormat(formatStr).warnings` check mentioned in [Introspection and the analyzer](#introspection-and-the-analyzer) — same underlying metadata, surfaced as a lint diagnostic instead of a runtime call.
+- [`temporal-fmt-codemod`](https://github.com/DirazCoder/temporal-fmt-codemod) *(deprecated, archived)* — a jscodeshift AST codemod that rewrote `dayjs(x).format(...)`/date-fns `format(...)` *call sites* across a codebase, not just format-string literals. A different job from the CLI's `translate` subcommand (see [CLI](#cli)), which only translates a format string you hand it and doesn't touch call sites; this was the option for migrating an entire codebase and rewriting the calls themselves.
 
 ## Testing
 
