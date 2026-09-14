@@ -1,4 +1,4 @@
-# Mod API — Level 3 (0.9.7+)
+# Mod API — Level 3 (0.9.70+)
 
 A mod is a file that runs `register(ctx, config)` once at load time. Every mod — loose `.mjs` and `.tfmod` alike — runs in its own subprocess under a permission sandbox; the only way it affects the host process is through `ModContext`, serialized across the subprocess boundary. At this level `ctx` can add new locales, grammars, formatters, holiday calendars, and format tokens; replace the implementation of almost any existing library function; read user-adjustable settings; report structured logs and non-fatal issues into the load report; and check both its granted permissions and the host's mod-API level before it relies on something that might not be there.
 

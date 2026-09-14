@@ -4,7 +4,7 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
-## 0.9.7 — 2026-09-14 (`pending`)
+## 0.9.70 — 2026-09-14 (`a91510d`)
 
 Temporal-Fmt Mod API Level 3.
 
