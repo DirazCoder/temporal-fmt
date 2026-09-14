@@ -1031,10 +1031,10 @@ Migrate file by file, dropping the wrapper once nothing calls the old path anymo
 
 ## Related tools
 
-Neither of these ships as part of this repository — separate packages, install them on their own:
+Neither of these ships as part of this repository — separate packages. **Both are now deprecated and archived** — single-maintainer bandwidth, no further updates — but the last published versions still work if you want them:
 
-- [`eslint-plugin-temporal-fmt`](https://www.npmjs.com/package/eslint-plugin-temporal-fmt) — lints format strings for common mistakes (e.g. `hh` without `a`). This is what backs the `analyzeFormat(formatStr).warnings` check mentioned in [Introspection and the analyzer](#introspection-and-the-analyzer) — same underlying metadata, surfaced as a lint diagnostic instead of a runtime call.
-- [`temporal-fmt-codemod`](https://github.com/DirazCoder/temporal-fmt-codemod) — a jscodeshift AST codemod that rewrites `dayjs(x).format(...)`/date-fns `format(...)` *call sites* across a codebase, not just format-string literals. A different job from the CLI's `translate` subcommand (see [CLI](#cli)), which only translates a format string you hand it and doesn't touch call sites; use this instead if you're migrating an entire codebase and want the calls themselves rewritten.
+- [`eslint-plugin-temporal-fmt`](https://www.npmjs.com/package/eslint-plugin-temporal-fmt) *(deprecated, archived)* — lints format strings for common mistakes (e.g. `hh` without `a`). This is what backed the `analyzeFormat(formatStr).warnings` check mentioned in [Introspection and the analyzer](#introspection-and-the-analyzer) — same underlying metadata, surfaced as a lint diagnostic instead of a runtime call.
+- [`temporal-fmt-codemod`](https://github.com/DirazCoder/temporal-fmt-codemod) *(deprecated, archived)* — a jscodeshift AST codemod that rewrote `dayjs(x).format(...)`/date-fns `format(...)` *call sites* across a codebase, not just format-string literals. A different job from the CLI's `translate` subcommand (see [CLI](#cli)), which only translates a format string you hand it and doesn't touch call sites; this was the option for migrating an entire codebase and rewriting the calls themselves.
 
 ## Testing
 
