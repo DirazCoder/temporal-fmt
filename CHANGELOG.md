@@ -4,6 +4,76 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.7 — 2026-09-14 (`pending`)
+
+Temporal-Fmt Mod API Level 3.
+
+### Added
+- `ctx.registerFormatToken(token)` — adds a custom token into the real,
+  shared token table `format()`/`parse()` both read from, everywhere in
+  the process. `createFormatter()`'s own `options.tokens` only ever
+  affected the standalone `Formatter` object it returned; this is the
+  fix for the common case that couldn't cover — one new token (say
+  `PIRATE`) available to every `format()` call, not just callers who
+  specifically ask for one mod's own formatter. Last-write-wins by name
+  (same rule as `registerLocale`), including against a built-in token
+  name — `Mod.priority` is the tiebreak, same as every other
+  registration kind. Runs host-side like `createFormatter`'s tokens do:
+  the handler crosses the sandbox boundary as source text, gets revived
+  with `new Function`, and is checked against the original by calling
+  both with the same probe value before the mod's load is accepted.
+- `ctx.log(level, message, meta?)` — structured logging shown in the
+  load report instead of vanishing into a sandboxed mod's own stderr
+  (which isn't the terminal's — see `MODS.md`'s sandbox section). Falls
+  back to the matching `console` method when there's no load report to
+  attach to.
+- `ctx.reportIssue(issue)` — non-fatal problem reporting for a mod
+  that's degrading gracefully rather than crashing, shown next to
+  permission grants in the load report. `severity` defaults to
+  `'warning'`.
+- `"minApiLevel"` in `mod.json` — the lowest mod API level a `.tfmod`
+  needs. A mod declaring a level higher than the host provides now
+  fails cleanly at load time, before `register()` runs, naming both
+  numbers — previously this would run right up to the first missing
+  `ctx` function and fail with a raw "is not a function." A mod
+  declaring a level the host meets or exceeds loads normally; the
+  level system stays additive, same as it's always been.
+- `API_DOCS/LEVEL_3.md` — a fully self-contained guide to this level
+  (same self-contained treatment `LEVEL_1.md`/`LEVEL_2.md` already got),
+  covering everything above plus a full restatement of the sandbox,
+  permissions, load order, packaging, config, and override mechanics
+  from earlier levels, so there's no level-to-level hopping required to
+  write a Level 3 mod.
+
+### Changed
+- `ctx.hasPermission(capability)` is now typed as the literal union
+  `'fs:read' | 'fs:write' | 'child-process' | 'worker'` instead of a
+  bare `string`. A typo like `hasPermission('fs:reed')` is now a
+  compile-time error in a TypeScript-authored mod, instead of a
+  capability that silently and permanently read `false`. No runtime
+  behavior change — the check underneath still accepts (and still
+  correctly returns `false` for) anything outside the union, since a
+  loose `.mjs` mod has no compiler to catch the same mistake.
+- `createFormatter()`'s doc comments (JSDoc and `ModContext`) now
+  explicitly point at `registerFormatToken` for the "I want this token
+  everywhere" case, since that's never been something `createFormatter`
+  itself could do.
+
+### Fixed
+- `registerFormatToken` didn't actually do anything. `tokens.ts` had a
+  full mod-registration/rebuild-listener mechanism
+  (`onTokenTableChange`, `getEffectiveTokens`, `registerToken`), but
+  neither `tokenize.ts`'s token-matching table nor `format.ts`'s
+  handler lookup table ever subscribed to it — both were built once
+  from the static built-in token list at module load time and never
+  updated. A mod calling `ctx.registerFormatToken(...)` had its
+  registration silently accepted and then ignored by every `format()`
+  call. Both modules now rebuild from the live, mod-aware token table
+  whenever a registration happens; `format.ts`'s tokenize cache is also
+  cleared on rebuild, since a format string already tokenized (and
+  cached) as literal text before a token was registered would otherwise
+  never re-tokenize for the rest of the process.
+
 ## 0.9.61 — 2026-09-12 (`e8ab517`)
 
 Fixes `checkVersionRange` in `scripts/semverRange.mjs` comparing host and range versions by raw patch-number arithmetic, which misordered releases like `0.9.41` and `0.9.5` (patch 41 > patch 5 numerically, despite 0.9.5 shipping later). Comparisons are now resolved against `scripts/versions.json`, a table generated from this changelog's actual release order via `scripts/generateVersionTable.mjs`. Also adds `scripts/versions.json` to the package's published `files`, which had been omitted — installs were hitting `MODULE_NOT_FOUND` on it since `semverRange.mjs` requires it at load time.

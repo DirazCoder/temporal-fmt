@@ -156,3 +156,205 @@ test('overrideFormat: a formatMany on the impl rides through to formatRange as t
   assert.equal(format(Temporal.PlainDate.from('2026-08-04'), 'yyyy'), '2026');
   assert.equal(batchUses, 1);
 });
+
+// buildModContextFor's log()/reportIssue() are the untracked fallback —
+// no loadMods() load report to attach to, so they write straight to
+// globalThis.console instead of dropping the line. Each level routes to
+// its matching console method (debug/info/warn/error for log, always
+// error for reportIssue regardless of severity), which is the specific
+// thing an earlier version of this code got wrong: debug/info both fell
+// through to console.error until a level-by-level test caught it. Swap
+// out globalThis.console for the duration of the test and put the real
+// one back after, so this doesn't affect any other file's output.
+test('buildModContextFor: log() routes each level to the matching console method', () => {
+  const ctx = buildModContextFor('console-mod');
+  const calls = [];
+  const realConsole = globalThis.console;
+  globalThis.console = {
+    debug: (...a) => calls.push(['debug', ...a]),
+    info: (...a) => calls.push(['info', ...a]),
+    warn: (...a) => calls.push(['warn', ...a]),
+    error: (...a) => calls.push(['error', ...a]),
+  };
+  try {
+    ctx.log('debug', 'debug message');
+    ctx.log('info', 'info message', { key: 'value' });
+    ctx.log('warn', 'warn message');
+    ctx.log('error', 'error message');
+  } finally {
+    globalThis.console = realConsole;
+  }
+
+  assert.equal(calls.length, 4);
+  assert.equal(calls[0][0], 'debug');
+  assert.equal(calls[0][1], '[console-mod] debug: debug message');
+  assert.equal(calls[1][0], 'info');
+  assert.equal(calls[1][1], '[console-mod] info: info message {"key":"value"}');
+  assert.equal(calls[2][0], 'warn');
+  assert.equal(calls[2][1], '[console-mod] warn: warn message');
+  assert.equal(calls[3][0], 'error');
+  assert.equal(calls[3][1], '[console-mod] error: error message');
+});
+
+test('buildModContextFor: reportIssue() always writes via console.error, defaulting severity to warning', () => {
+  const ctx = buildModContextFor('issue-mod');
+  const calls = [];
+  const realConsole = globalThis.console;
+  globalThis.console = { error: (...a) => calls.push(a) };
+  try {
+    ctx.reportIssue({ message: 'no severity given' });
+    ctx.reportIssue({ message: 'explicit warning', severity: 'warning' });
+    ctx.reportIssue({ message: 'explicit error', severity: 'error', detail: { code: 7 } });
+  } finally {
+    globalThis.console = realConsole;
+  }
+
+  assert.equal(calls.length, 3);
+  assert.equal(calls[0][0], '[issue-mod] warning: no severity given');
+  assert.equal(calls[1][0], '[issue-mod] warning: explicit warning');
+  assert.equal(calls[2][0], '[issue-mod] error: explicit error {"code":7}');
+});
+
+// If globalThis.console doesn't exist at all (a truly console-less
+// runtime — the module's own doc comment calls this out as the reason
+// it reaches through globalThis instead of the bare `console` global),
+// log()/reportIssue() drop the line instead of throwing.
+test('buildModContextFor: log() and reportIssue() are no-ops, not throws, with no console present', () => {
+  const ctx = buildModContextFor('consoleless-mod');
+  const realConsole = globalThis.console;
+  // eslint-disable-next-line no-undefined
+  globalThis.console = undefined;
+  try {
+    assert.doesNotThrow(() => ctx.log('info', 'nowhere to go'));
+    assert.doesNotThrow(() => ctx.reportIssue({ message: 'nowhere to go' }));
+  } finally {
+    globalThis.console = realConsole;
+  }
+});
+
+// buildTrackedModContext wraps log()/reportIssue() to also call
+// onDiagnostic — this is the path scripts/loadMods.mjs uses to collect
+// events for the printed load report. Both still fall through to the
+// base (console) implementation too, per the source comment on
+// buildTrackedModContext, so a tracked mod's diagnostics are never only
+// visible in the report and never only on the console.
+test('buildTrackedModContext: log() and reportIssue() both notify onDiagnostic and fall through to base', () => {
+  const events = [];
+  const ctx = buildTrackedModContext('diag-mod', () => {}, (e) => events.push(e));
+  const calls = [];
+  const realConsole = globalThis.console;
+  globalThis.console = {
+    debug: (...a) => calls.push(a),
+    info: (...a) => calls.push(a),
+    warn: (...a) => calls.push(a),
+    error: (...a) => calls.push(a),
+  };
+  try {
+    ctx.log('info', 'loaded holidays', { count: 340 });
+    ctx.reportIssue({ message: 'fs:read denied', severity: 'warning', detail: { capability: 'fs:read' } });
+    ctx.reportIssue({ message: 'defaults to warning' });
+  } finally {
+    globalThis.console = realConsole;
+  }
+
+  assert.deepEqual(events, [
+    { source: 'log', level: 'info', message: 'loaded holidays', meta: { count: 340 } },
+    { source: 'reportIssue', level: 'warn', message: 'fs:read denied', detail: { capability: 'fs:read' } },
+    { source: 'reportIssue', level: 'warn', message: 'defaults to warning', detail: undefined },
+  ]);
+  // reportIssue's onDiagnostic level is 'error' only when severity is
+  // literally 'error' — everything else (including no severity at all)
+  // reports as 'warn', matching the [warn]/[error] prefixes the load
+  // report actually prints.
+  assert.equal(calls.length, 3);
+});
+
+test("buildTrackedModContext: reportIssue()'s severity: 'error' maps to onDiagnostic level 'error'", () => {
+  const events = [];
+  const ctx = buildTrackedModContext('diag-mod-2', () => {}, (e) => events.push(e));
+  const realConsole = globalThis.console;
+  globalThis.console = { error: () => {} };
+  try {
+    ctx.reportIssue({ message: 'fatal-ish but non-fatal', severity: 'error' });
+  } finally {
+    globalThis.console = realConsole;
+  }
+  assert.equal(events[0].level, 'error');
+});
+
+// registerFormatToken is additive at this level (Level 3) but shares the
+// same last-write-wins/priority-tiebreak reasoning as registerLocale
+// etc. — buildTrackedModContext tracks it under its own 'formatToken'
+// kind (distinct from createFormatter's 'formatterTokens', a genuinely
+// different, non-conflicting registration scoped to one Formatter
+// instance rather than the shared format()/parse() table). "kk" isn't a
+// built-in token prefix (checked against tokens.ts's TOKENS table), so
+// this exercises the token reaching the real, shared table rather than
+// silently falling through to literal passthrough or colliding with an
+// existing token's greedy match.
+test('buildTrackedModContext: tracks registerFormatToken under its own kind, distinct from createFormatter tokens', () => {
+  const touched = [];
+  const ctx = buildTrackedModContext('token-mod', (k) => touched.push(k));
+
+  ctx.registerFormatToken({ name: 'kk', handler: () => 'ahoy', field: 'year' });
+
+  assert.deepEqual(touched, [{ kind: 'formatToken', key: 'kk' }]);
+  assert.equal(format(Temporal.PlainDate.from('2026-08-04'), 'kk'), 'ahoy');
+});
+
+// The subtle part of registerFormatToken: tokenize.ts/format.ts cache
+// tokenized format strings (tokenizeCache in format.ts) and the
+// tokenizer's own idea of which strings ARE tokens (SORTED_TOKEN_STRINGS
+// in tokenize.ts). If a format string was already formatted (and thus
+// cached as "kn is literal text") before a mod registers "kn" as a
+// token, the cache has to be invalidated — otherwise that exact string
+// would tokenize as literal text forever, even after registration.
+test('registerFormatToken: invalidates the tokenize cache so an already-cached format string picks up a token registered afterward', () => {
+  const before = format(Temporal.PlainDate.from('2026-08-04'), 'kn');
+  assert.equal(before, 'kn'); // no such token yet — passes through as literal
+
+  const ctx = buildTrackedModContext('cache-mod', () => {});
+  ctx.registerFormatToken({ name: 'kn', handler: () => 'now-a-token', field: 'year' });
+
+  const after = format(Temporal.PlainDate.from('2026-08-04'), 'kn');
+  assert.equal(after, 'now-a-token');
+});
+
+// Last-write-wins by name: a second mod registering the same token name
+// replaces the first mod's handler, same rule as registerLocale.
+test('registerFormatToken: a second mod registering the same name overwrites the first (last-write-wins)', () => {
+  const ctx1 = buildTrackedModContext('first-token-mod', () => {});
+  const ctx2 = buildTrackedModContext('second-token-mod', () => {});
+
+  ctx1.registerFormatToken({ name: 'kp', handler: () => 'first', field: 'year' });
+  assert.equal(format(Temporal.PlainDate.from('2026-08-04'), 'kp'), 'first');
+
+  ctx2.registerFormatToken({ name: 'kp', handler: () => 'second', field: 'year' });
+  assert.equal(format(Temporal.PlainDate.from('2026-08-04'), 'kp'), 'second');
+});
+
+// buildTrackedModContext's onDiagnostic parameter defaults to a no-op
+// () => {} so the older two-argument call shape (this file's own
+// buildTrackedModContext('tracker-mod', onRegister) calls above, and
+// scripts/loadMods.mjs before it started passing a diagnostic callback)
+// keeps working unchanged. That default is only actually invoked when
+// log()/reportIssue() are called on a context built the two-argument
+// way — nothing else on this page exercises it.
+test('buildTrackedModContext: onDiagnostic defaults to a no-op when omitted, log()/reportIssue() still work', () => {
+  const ctx = buildTrackedModContext('no-diagnostic-callback-mod', () => {});
+  assert.doesNotThrow(() => ctx.log('info', 'no one is listening'));
+  assert.doesNotThrow(() => ctx.reportIssue({ message: 'no one is listening either' }));
+});
+
+// A mod can shadow a built-in token name — allowed, matching
+// createFormatter's own merge rule, but here the blast radius is every
+// format() call in the process rather than one Formatter instance.
+test('registerFormatToken: can shadow a built-in token name process-wide', () => {
+  const original = format(Temporal.PlainDate.from('2026-08-04'), 'yyyy');
+  assert.equal(original, '2026');
+
+  const ctx = buildTrackedModContext('shadow-mod', () => {});
+  ctx.registerFormatToken({ name: 'yyyy', handler: () => 'SHADOWED', field: 'year' });
+
+  assert.equal(format(Temporal.PlainDate.from('2026-08-04'), 'yyyy'), 'SHADOWED');
+});

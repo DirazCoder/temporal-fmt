@@ -25,6 +25,19 @@ export { GRANTABLE_PERMISSIONS } from '../dist/index.js';
 export const SETUP_TIMEOUT_MS = 10_000;
 export const RUNTIME_TIMEOUT_MS = 5_000;
 
+// The mod API's level number — bumped only when a real capability
+// changes (see API_DOCS/), not on every release. A mod declares the
+// lowest level it needs via mod.json's "minApiLevel"; the loader checks
+// it against this constant before running any mod code. Deliberately
+// separate from the package's semver (HOST_VERSION in loadMods.mjs):
+// "minApiLevel": 3 is what a mod author actually knows they used
+// (registerFormatToken, ctx.log, ...), where a package version range
+// like "temporalFmtVersion": ">=0.9.62" asks them to know which release
+// happened to ship that level, and drifts out of sync the moment a
+// level's introducing version gets misremembered or a patch changes
+// nothing API-relevant.
+export const CURRENT_API_LEVEL = 3;
+
 // The permission-model flag changed names when the feature went stable in
 // Node 22.13.0: --experimental-permission before, --permission after.
 // Hardcoding either name would break on one side of that line (Node 20
@@ -213,5 +226,16 @@ export function rehydrateFormatterOptions(wireOptions) {
       field: t.field,
       handler: reviveFunction(t.handlerSource),
     })),
+  };
+}
+
+// Single-token counterpart to rehydrateFormatterOptions, for
+// registerFormatToken's replay — same wire shape as one entry in a
+// createFormatter tokens array, just not wrapped in { tokens: [...] }.
+export function rehydrateCustomToken(wireToken) {
+  return {
+    name: wireToken.name,
+    field: wireToken.field,
+    handler: reviveFunction(wireToken.handlerSource),
   };
 }

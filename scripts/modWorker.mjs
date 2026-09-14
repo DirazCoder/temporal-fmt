@@ -147,6 +147,31 @@ function buildRecordingContext(modName, state) {
     return base.createFormatter(options);
   };
 
+  // Same handler-source-text treatment as createFormatter above, just
+  // for the one token registerFormatToken adds — see serializeCustomToken.
+  ctx.registerFormatToken = (token) => {
+    state.registrations.push({ fn: 'registerFormatToken', args: [serializeCustomToken(token)] });
+    return base.registerFormatToken(token);
+  };
+
+  // log()/reportIssue() carry plain data (strings, JSON-able meta/detail)
+  // rather than closures, so they cross the boundary as-is via toWire —
+  // no source-text/self-containment dance needed the way custom token
+  // handlers require. Collected in their own array, not state.registrations,
+  // since these aren't registry entries a conflict could ever apply to;
+  // see ModDiagnostic in modApi.ts for why that's a separate shape.
+  ctx.log = (level, message, meta) => {
+    state.diagnostics.push({ source: 'log', level, message, meta: meta !== undefined ? toWire(meta) : undefined });
+  };
+  ctx.reportIssue = (issue) => {
+    state.diagnostics.push({
+      source: 'reportIssue',
+      level: issue.severity === 'error' ? 'error' : 'warn',
+      message: issue.message,
+      detail: issue.detail !== undefined ? toWire(issue.detail) : undefined,
+    });
+  };
+
   for (const key of Object.keys(ctx)) {
     if (!key.startsWith('override')) continue;
     ctx[key] = (impl) => {
@@ -173,29 +198,26 @@ function buildRecordingContext(modName, state) {
 // host. Both handlers throwing (the probe object isn't a real Temporal
 // instance and the handler wanted one) is inconclusive rather than
 // guilty, so the source still ships.
-function serializeFormatterOptions(options) {
-  if (options === undefined) return {};
-  const { tokens, defaultLocale } = options ?? {};
-  if (tokens !== undefined && !Array.isArray(tokens)) {
-    throw new Error('createFormatter "tokens" must be an array of custom tokens');
+// Serializes one CustomToken (name/handler/field) to its wire shape —
+// the handler crosses as source text, probed against a synthetic
+// Temporal-shaped object so a handler that closes over outer state (and
+// so can't survive being rebuilt from source in a different process)
+// fails loudly here instead of silently misbehaving on the host. Shared
+// by createFormatter's token list and registerFormatToken's single
+// token, since both are the exact same shape.
+function serializeCustomToken(token) {
+  if (!token || typeof token.name !== 'string' || typeof token.handler !== 'function') {
+    throw new Error('custom tokens need a "name" string and a "handler" function');
   }
-  const wireTokens = (tokens ?? []).map((token) => {
-    if (!token || typeof token.name !== 'string' || typeof token.handler !== 'function') {
-      throw new Error('custom tokens need a "name" string and a "handler" function');
-    }
-    return { name: token.name, field: token.field, handlerSource: String(token.handler) };
-  });
-
-  for (const wire of wireTokens) {
-    const revived = reviveFunction(wire.handlerSource);
-    if (!revived) continue;
+  const wire = { name: token.name, field: token.field, handlerSource: String(token.handler) };
+  const revived = reviveFunction(wire.handlerSource);
+  if (revived) {
     const probe = { year: 2026, month: 9, day: 12, hour: 15, minute: 45, second: 30 };
-    const original = tokens.find((t) => t.name === wire.name);
     let originalResult;
     try {
-      originalResult = original.handler(probe, 'en-US');
+      originalResult = token.handler(probe, 'en-US');
     } catch {
-      continue;
+      return wire;
     }
     let revivedResult;
     try {
@@ -208,7 +230,7 @@ function serializeFormatterOptions(options) {
           `Move the outer values into the handler body.`
         );
       }
-      continue;
+      return wire;
     }
     if (String(originalResult) !== String(revivedResult)) {
       throw new Error(
@@ -217,6 +239,16 @@ function serializeFormatterOptions(options) {
       );
     }
   }
+  return wire;
+}
+
+function serializeFormatterOptions(options) {
+  if (options === undefined) return {};
+  const { tokens, defaultLocale } = options ?? {};
+  if (tokens !== undefined && !Array.isArray(tokens)) {
+    throw new Error('createFormatter "tokens" must be an array of custom tokens');
+  }
+  const wireTokens = (tokens ?? []).map(serializeCustomToken);
 
   const out = {};
   if (wireTokens.length > 0) out.tokens = wireTokens;
@@ -244,6 +276,17 @@ function rehydrateFormatterOptions(wireOptions) {
       field: t.field,
       handler: reviveFunction(t.handlerSource),
     })),
+  };
+}
+
+// Single-token counterpart to rehydrateFormatterOptions, for
+// registerFormatToken's replay — same wire shape as one entry in a
+// createFormatter tokens array, just not wrapped in { tokens: [...] }.
+function rehydrateCustomToken(wireToken) {
+  return {
+    name: wireToken.name,
+    field: wireToken.field,
+    handler: reviveFunction(wireToken.handlerSource),
   };
 }
 
@@ -342,7 +385,7 @@ async function runDescribe(desc) {
 async function runRegister(init) {
   await bootstrapTemporal(init.polyfillPath);
 
-  const state = { modName: init.modName, granted: init.grantedPermissions ?? [], registrations: [], overrides: new Map() };
+  const state = { modName: init.modName, granted: init.grantedPermissions ?? [], registrations: [], diagnostics: [], overrides: new Map() };
   activeState = state;
 
   // Later mods can read what earlier mods registered (a relative-time
@@ -357,6 +400,8 @@ async function runRegister(init) {
     for (const record of init.priorRegistrations) {
       const args = record.fn === 'createFormatter'
         ? [rehydrateFormatterOptions(record.args[0])]
+        : record.fn === 'registerFormatToken'
+        ? [rehydrateCustomToken(record.args[0])]
         : record.args.map((a) => fromWire(a, Temporal));
       replayCtx[record.fn](...args);
     }
@@ -415,6 +460,7 @@ async function runRegister(init) {
     result: {
       ok: true,
       registrations: state.registrations,
+      diagnostics: state.diagnostics,
       overrides: [...state.overrides.keys()],
     },
   });

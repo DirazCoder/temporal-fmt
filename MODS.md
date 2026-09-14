@@ -25,23 +25,28 @@ can express, that's a sign to open an issue or PR the feature into the
 library itself, not to keep stretching a mod to cover it.
 
 **Building a mod isn't covered here.** For the actual API, the sandbox, and
-how to package one, see [API_DOCS/LEVEL_1.md](./API_DOCS/LEVEL_1.md) and
-[API_DOCS/LEVEL_2.md](./API_DOCS/LEVEL_2.md). This document is about running
+how to package one, see [API_DOCS/LEVEL_1.md](./API_DOCS/LEVEL_1.md),
+[API_DOCS/LEVEL_2.md](./API_DOCS/LEVEL_2.md), and
+[API_DOCS/LEVEL_3.md](./API_DOCS/LEVEL_3.md). This document is about running
 mods someone else already wrote.
 
 ## Mod API levels
 
 Tracks the surface a mod talks to — `ModContext`, permissions, the
 subprocess boundary. Bumps independently of the package version; check
-which level a mod was built against before assuming it still works.
+which level a mod was built against before assuming it still works. A
+`.tfmod` can declare the lowest level it needs via `mod.json`'s
+`minApiLevel` — see [API_DOCS/LEVEL_3.md](./API_DOCS/LEVEL_3.md#declaring-the-api-level-your-mod-needs).
 
 | Level | Version | What it added |
 |---|---|---|
 | 1 | 0.9.4, 0.9.41, 0.9.5 | `register(ctx, config)`, direct process access, no sandbox |
 | 2 | 0.9.6+ | Subprocess sandbox, permissions, `hasPermission`, `overrideXxx` |
+| 3 | unreleased | `registerFormatToken`, `ctx.log`, `ctx.reportIssue`, `minApiLevel` |
 
-Full details for each are in [API_DOCS/LEVEL_1.md](./API_DOCS/LEVEL_1.md) and
-[API_DOCS/LEVEL_2.md](./API_DOCS/LEVEL_2.md).
+Full details for each are in [API_DOCS/LEVEL_1.md](./API_DOCS/LEVEL_1.md),
+[API_DOCS/LEVEL_2.md](./API_DOCS/LEVEL_2.md), and
+[API_DOCS/LEVEL_3.md](./API_DOCS/LEVEL_3.md).
 
 ## Installing a mod
 

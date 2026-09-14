@@ -14,13 +14,18 @@
  * limitations under the License.
  */
 
-import { TOKENS, DEFAULT_LOCALE, type TemporalLike, type FormatOptions } from './tokens.js';
+import { TOKENS, DEFAULT_LOCALE, getEffectiveTokens, onTokenTableChange, type TemporalLike, type FormatOptions } from './tokens.js';
 import { tokenize, type Piece } from './tokenize.js';
 import { MAX_FORMAT_LENGTH } from './constants.js';
 import { applyNumbering, type NumberingFormatOptions } from './numbering.js';
 import { FormatSyntaxError, UnknownTokenError } from './errors.js';
 
-const HANDLER_BY_TOKEN = new Map(TOKENS.map(([tok, fn, field]) => [tok, { fn, field }]));
+// `let`, not `const` — rebuilt below whenever a mod registers a format
+// token, same reasoning as tokenize.ts's SORTED_TOKEN_STRINGS. Every
+// read site in this file reads the live binding at call time (none of
+// them capture it into a closure at import time), so reassigning here
+// is enough; nothing needs to hold a reference to the Map itself.
+let HANDLER_BY_TOKEN = new Map(TOKENS.map(([tok, fn, field]) => [tok, { fn, field }]));
 
 // Pre-tokenized format strings, keyed by (formatStr) — locale doesn't
 // change the tokenization step, only the per-token rendering, so the
@@ -28,6 +33,20 @@ const HANDLER_BY_TOKEN = new Map(TOKENS.map(([tok, fn, field]) => [tok, { fn, fi
 // other caches in this library.
 const tokenizeCache = new Map<string, Piece[]>();
 const MAX_TOKENIZE_CACHE_SIZE = 500;
+
+// A mod's registerFormatToken() rebuilds both HANDLER_BY_TOKEN here and
+// tokenize.ts's own token-string list in the same synchronous listener
+// pass (tokens.ts's registerToken() calls every subscriber in turn) —
+// see the comment on tokens.ts's rebuildListeners for why the two can
+// never be allowed to drift apart. The tokenizeCache also has to be
+// cleared here: if some format string was already tokenized (and
+// cached) before this registration, the newly-registered token's
+// characters would be stuck as cached literal text forever otherwise —
+// this is the fix for exactly that staleness.
+onTokenTableChange(() => {
+  HANDLER_BY_TOKEN = new Map(getEffectiveTokens().map(([tok, fn, field]) => [tok, { fn, field }]));
+  tokenizeCache.clear();
+});
 
 function getPieces(formatStr: string): Piece[] {
   let pieces = tokenizeCache.get(formatStr);

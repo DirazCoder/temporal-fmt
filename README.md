@@ -34,8 +34,6 @@ on 26+, or falling back to the Temporal implementation's own
 npm install temporal-fmt
 ```
 
-[View on npm](https://www.npmjs.com/package/temporal-fmt)
-
 ## Get started
 
 ```js
@@ -905,7 +903,7 @@ Type a subcommand with all its arguments inline (`validate yyyy-MM-dd`) or just 
 
 ## Mods (advanced, optional)
 
-Mod support (0.9.4+) lets you extend or patch behavior without forking. [MODS.md](./MODS.md) covers installing and running mods someone else wrote — the sandbox from the user side, permissions, load order, and what happens when a mod is broken. Writing your own mod is a separate guide, split by API level: [API_DOCS/LEVEL_1.md](./API_DOCS/LEVEL_1.md) (0.9.4–0.9.5) and [API_DOCS/LEVEL_2.md](./API_DOCS/LEVEL_2.md) (0.9.6+).
+Mod support (0.9.4+) lets you extend or patch behavior without forking. MODS.md covers installing and running mods someone else wrote — the sandbox from the user side, permissions, load order, and what happens when a mod is broken. Writing your own mod is a separate guide, split by API level: API_DOCS/LEVEL_1.md (0.9.4–0.9.5), API_DOCS/LEVEL_2.md (0.9.6-0.9.61), and API_DOCS/LEVEL_3.md (0.9.7+).
 
 ## Subpath imports
 

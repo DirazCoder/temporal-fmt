@@ -25,9 +25,9 @@
 import { registerLocale, type ExtendedLocaleVocab } from './localeRegistry.js';
 import { registerLocaleVocab, type LocaleVocab } from './localeVocab.js';
 import { registerRelativeGrammar, type RelativeGrammar } from './relativeGrammar.js';
-import { createFormatter, type FormatterOptions, type Formatter } from './extensibility.js';
+import { createFormatter, type FormatterOptions, type Formatter, type CustomToken } from './extensibility.js';
 import { createHolidayCalendar, type HolidaySpec, type HolidayCalendar } from './holidays.js';
-import { getFormatImpl, getParseImpl, setFormatOverride, setParseOverride, type FormatBatchFn, type BridgeFormatBatchFn, getCompileFormatImpl, setCompileFormatOverride, getCompileParserImpl, setCompileParserOverride, getParseRelativeImpl, setParseRelativeOverride, getExplainFormatImpl, setExplainFormatOverride, getTokenizeFormatImpl, setTokenizeFormatOverride, getListTokensImpl, setListTokensOverride, getTokenInfoImpl, setTokenInfoOverride, getIsValidFormatImpl, setIsValidFormatOverride, getValidateFormatImpl, setValidateFormatOverride, getFieldForTokenImpl, setFieldForTokenOverride, getMonthsInYearImpl, setMonthsInYearOverride, getIsLeapYearImpl, setIsLeapYearOverride, getIsLeapMonthImpl, setIsLeapMonthOverride, getWeekOfYearImpl, setWeekOfYearOverride, getWeekYearImpl, setWeekYearOverride, getGetMonthImpl, setGetMonthOverride, getGetWeekdayImpl, setGetWeekdayOverride, getIsEqualImpl, setIsEqualOverride, getIsBeforeImpl, setIsBeforeOverride, getIsAfterImpl, setIsAfterOverride, getClampImpl, setClampOverride, getIsBetweenImpl, setIsBetweenOverride, getIsTodayImpl, setIsTodayOverride, getIsTomorrowImpl, setIsTomorrowOverride, getIsYesterdayImpl, setIsYesterdayOverride, getIsSameDayImpl, setIsSameDayOverride, getIsSameWeekImpl, setIsSameWeekOverride, getIsSameMonthImpl, setIsSameMonthOverride, getIsSameQuarterImpl, setIsSameQuarterOverride, getIsSameYearImpl, setIsSameYearOverride, getIsWeekdayImpl, setIsWeekdayOverride, getFloorImpl, setFloorOverride, getCeilImpl, setCeilOverride, getTruncateImpl, setTruncateOverride, getParseRFC3339Impl, setParseRFC3339Override, getFormatRFC3339Impl, setFormatRFC3339Override, getParseRFC2822Impl, setParseRFC2822Override, getParseHTTPDateImpl, setParseHTTPDateOverride, getFromUnixMicrosecondsImpl, setFromUnixMicrosecondsOverride, getFromUnixNanosecondsImpl, setFromUnixNanosecondsOverride, getToUnixSecondsImpl, setToUnixSecondsOverride, getToUnixMillisecondsImpl, setToUnixMillisecondsOverride, getToUnixMicrosecondsImpl, setToUnixMicrosecondsOverride, getToUnixNanosecondsImpl, setToUnixNanosecondsOverride, getParseSQLImpl, setParseSQLOverride, getFormatSQLImpl, setFormatSQLOverride, getFormatDurationToPartsImpl, setFormatDurationToPartsOverride, getParseDurationImpl, setParseDurationOverride, getParseISODurationImpl, setParseISODurationOverride, getFormatISODurationImpl, setFormatISODurationOverride, getBalanceDurationImpl, setBalanceDurationOverride, getCompareDurationImpl, setCompareDurationOverride, getSubtractDurationImpl, setSubtractDurationOverride, getGetLocaleImpl, setGetLocaleOverride, getHasLocaleImpl, setHasLocaleOverride, getCreateConfigImpl, setCreateConfigOverride, getMergeWithConfigImpl, setMergeWithConfigOverride, getListRegisteredGrammarsImpl, setListRegisteredGrammarsOverride, getIntervalImpl, setIntervalOverride, getOverlapsImpl, setOverlapsOverride, getIntersectionImpl, setIntersectionOverride, getUnionImpl, setUnionOverride, getMergeIntervalsImpl, setMergeIntervalsOverride, getFormatRangeToPartsImpl, setFormatRangeToPartsOverride, getBetweenImpl, setBetweenOverride, getParseRRuleImpl, setParseRRuleOverride, getFormatRRuleImpl, setFormatRRuleOverride, getCreateBusinessCalendarImpl, setCreateBusinessCalendarOverride, getSubtractBusinessDaysImpl, setSubtractBusinessDaysOverride, getNextHolidayImpl, setNextHolidayOverride, getPreviousHolidayImpl, setPreviousHolidayOverride, getResolveZonedImpl, setResolveZonedOverride, getGetNextTransitionImpl, setGetNextTransitionOverride, getGetPreviousTransitionImpl, setGetPreviousTransitionOverride, getPossibleInstantsForImpl, setPossibleInstantsForOverride, getGetAutocompleteDataImpl, setGetAutocompleteDataOverride, getGetHoverDocsImpl, setGetHoverDocsOverride, getGetInlineDiagnosticsImpl, setGetInlineDiagnosticsOverride, getPreviewFormatImpl, setPreviewFormatOverride, getGetDocUrlImpl, setGetDocUrlOverride, getTranslateDateFnsFormatStringImpl, setTranslateDateFnsFormatStringOverride } from './runtime.js';
+import { getFormatImpl, getParseImpl, setFormatOverride, setParseOverride, registerFormatToken, type FormatBatchFn, type BridgeFormatBatchFn, getCompileFormatImpl, setCompileFormatOverride, getCompileParserImpl, setCompileParserOverride, getParseRelativeImpl, setParseRelativeOverride, getExplainFormatImpl, setExplainFormatOverride, getTokenizeFormatImpl, setTokenizeFormatOverride, getListTokensImpl, setListTokensOverride, getTokenInfoImpl, setTokenInfoOverride, getIsValidFormatImpl, setIsValidFormatOverride, getValidateFormatImpl, setValidateFormatOverride, getFieldForTokenImpl, setFieldForTokenOverride, getMonthsInYearImpl, setMonthsInYearOverride, getIsLeapYearImpl, setIsLeapYearOverride, getIsLeapMonthImpl, setIsLeapMonthOverride, getWeekOfYearImpl, setWeekOfYearOverride, getWeekYearImpl, setWeekYearOverride, getGetMonthImpl, setGetMonthOverride, getGetWeekdayImpl, setGetWeekdayOverride, getIsEqualImpl, setIsEqualOverride, getIsBeforeImpl, setIsBeforeOverride, getIsAfterImpl, setIsAfterOverride, getClampImpl, setClampOverride, getIsBetweenImpl, setIsBetweenOverride, getIsTodayImpl, setIsTodayOverride, getIsTomorrowImpl, setIsTomorrowOverride, getIsYesterdayImpl, setIsYesterdayOverride, getIsSameDayImpl, setIsSameDayOverride, getIsSameWeekImpl, setIsSameWeekOverride, getIsSameMonthImpl, setIsSameMonthOverride, getIsSameQuarterImpl, setIsSameQuarterOverride, getIsSameYearImpl, setIsSameYearOverride, getIsWeekdayImpl, setIsWeekdayOverride, getFloorImpl, setFloorOverride, getCeilImpl, setCeilOverride, getTruncateImpl, setTruncateOverride, getParseRFC3339Impl, setParseRFC3339Override, getFormatRFC3339Impl, setFormatRFC3339Override, getParseRFC2822Impl, setParseRFC2822Override, getParseHTTPDateImpl, setParseHTTPDateOverride, getFromUnixMicrosecondsImpl, setFromUnixMicrosecondsOverride, getFromUnixNanosecondsImpl, setFromUnixNanosecondsOverride, getToUnixSecondsImpl, setToUnixSecondsOverride, getToUnixMillisecondsImpl, setToUnixMillisecondsOverride, getToUnixMicrosecondsImpl, setToUnixMicrosecondsOverride, getToUnixNanosecondsImpl, setToUnixNanosecondsOverride, getParseSQLImpl, setParseSQLOverride, getFormatSQLImpl, setFormatSQLOverride, getFormatDurationToPartsImpl, setFormatDurationToPartsOverride, getParseDurationImpl, setParseDurationOverride, getParseISODurationImpl, setParseISODurationOverride, getFormatISODurationImpl, setFormatISODurationOverride, getBalanceDurationImpl, setBalanceDurationOverride, getCompareDurationImpl, setCompareDurationOverride, getSubtractDurationImpl, setSubtractDurationOverride, getGetLocaleImpl, setGetLocaleOverride, getHasLocaleImpl, setHasLocaleOverride, getCreateConfigImpl, setCreateConfigOverride, getMergeWithConfigImpl, setMergeWithConfigOverride, getListRegisteredGrammarsImpl, setListRegisteredGrammarsOverride, getIntervalImpl, setIntervalOverride, getOverlapsImpl, setOverlapsOverride, getIntersectionImpl, setIntersectionOverride, getUnionImpl, setUnionOverride, getMergeIntervalsImpl, setMergeIntervalsOverride, getFormatRangeToPartsImpl, setFormatRangeToPartsOverride, getBetweenImpl, setBetweenOverride, getParseRRuleImpl, setParseRRuleOverride, getFormatRRuleImpl, setFormatRRuleOverride, getCreateBusinessCalendarImpl, setCreateBusinessCalendarOverride, getSubtractBusinessDaysImpl, setSubtractBusinessDaysOverride, getNextHolidayImpl, setNextHolidayOverride, getPreviousHolidayImpl, setPreviousHolidayOverride, getResolveZonedImpl, setResolveZonedOverride, getGetNextTransitionImpl, setGetNextTransitionOverride, getGetPreviousTransitionImpl, setGetPreviousTransitionOverride, getPossibleInstantsForImpl, setPossibleInstantsForOverride, getGetAutocompleteDataImpl, setGetAutocompleteDataOverride, getGetHoverDocsImpl, setGetHoverDocsOverride, getGetInlineDiagnosticsImpl, setGetInlineDiagnosticsOverride, getPreviewFormatImpl, setPreviewFormatOverride, getGetDocUrlImpl, setGetDocUrlOverride, getTranslateDateFnsFormatStringImpl, setTranslateDateFnsFormatStringOverride } from './runtime.js';
 import type { compileFormat as compileFormatBase } from './format.js';
 import type { compileParser as compileParserBase } from './parse.js';
 import type { parseRelative as parseRelativeBase } from './parseRelative.js';
@@ -83,8 +83,46 @@ export interface ModContext {
   registerLocale(locale: string, vocab: ExtendedLocaleVocab): void;
   registerLocaleVocab(locale: string, vocab: LocaleVocab): void;
   registerRelativeGrammar(grammar: RelativeGrammar): void;
+  // Returns a standalone Formatter with its own token table — the
+  // custom tokens in `options.tokens` are only visible to callers who
+  // hold and call the returned object. This does NOT reach the module-
+  // level format()/parse() every other caller in the process uses; see
+  // extensibility.ts's createFormatter for the full explanation. If you
+  // want a token available to every format() call, not just your own
+  // Formatter instance, use registerFormatToken below instead.
   createFormatter(options?: FormatterOptions): Formatter;
   createHolidayCalendar(specs: HolidaySpec[]): HolidayCalendar;
+  // Adds a token into the actual shared table format()/parse() read
+  // from — unlike createFormatter's `tokens` option, which only affects
+  // the one Formatter instance it returns. This is the fix for the
+  // common case createFormatter can't cover: a mod wanting one new
+  // token (say PIRATE) available to every format() call in the process,
+  // not just callers who specifically ask for this mod's own formatter.
+  // Last-write-wins by name — including against a built-in name, same
+  // as createFormatter's own merge rule — so a second mod (or a higher-
+  // `priority` one loading later) registering the same name replaces
+  // this one rather than throwing. That's deliberately different from
+  // overrideFormat/overrideParse below: those guard one exclusive global
+  // slot, tokens are a namespace, and two mods each wanting one harmless
+  // token is a normal thing to happen, not a correctness bug to hard-
+  // error on.
+  registerFormatToken(token: CustomToken): void;
+  // Structured logging, shown in the host's load report instead of
+  // vanishing into stderr the way a mod's own console.log would (a
+  // sandboxed mod's stdout/stderr aren't even the terminal's — see
+  // modWorker.mjs — so console.log from inside register() is invisible
+  // to the person running the CLI unless they go looking). Not for
+  // problems the caller needs to react to — those are reportIssue below
+  // — this is "here's what I'm doing / noticed," visible on request.
+  log(level: 'debug' | 'info' | 'warn' | 'error', message: string, meta?: Record<string, unknown>): void;
+  // Non-fatal problem reporting: a mod that's degrading gracefully (a
+  // locale file with a malformed entry, an optional permission it didn't
+  // get and is working around) can say so here instead of choosing
+  // between throwing (kills the mod for a problem it already handled)
+  // and console.log (invisible, see log() above). Shown next to
+  // permission grants in the load report, so "this mod loaded but isn't
+  // fully working" is visible without reading the mod's source.
+  reportIssue(issue: { message: string; severity?: 'warning' | 'error'; detail?: unknown }): void;
   // Whether this mod's execution context actually has the capability —
   // under the CLI's sandbox, that's what was granted at load time (an
   // optional permission the user declined reads as false here, so a mod
@@ -94,7 +132,14 @@ export interface ModContext {
   // reads as true and anything else as false. "net" is false everywhere
   // because it isn't a capability at all — no permission-model flag backs
   // it on any supported Node version.
-  hasPermission(capability: string): boolean;
+  //
+  // Typed as the literal union, not a bare `string`, so a typo like
+  // 'fs:reed' is a compile-time error in a TS-authored mod instead of a
+  // capability that silently and permanently reads false — the runtime
+  // check underneath still accepts (and still correctly returns false
+  // for) anything outside the union, since a loose .mjs mod has no
+  // compiler to catch the same mistake and still needs an honest answer.
+  hasPermission(capability: typeof GRANTABLE_PERMISSIONS[number]): boolean;
   // `impl` receives the current format()/parse() as its first argument
   // (always the original built-in — only one mod can hold this override
   // at a time, see below, so there's never a "previous mod's override"
@@ -207,6 +252,30 @@ export function buildModContextFor(modName: string): ModContext {
     registerRelativeGrammar,
     createFormatter,
     createHolidayCalendar,
+    registerFormatToken,
+    // Base behavior for callers with no load report to attach to (using
+    // buildModContext()/buildModContextFor() directly, outside
+    // scripts/loadMods.mjs): print via globalThis.console if one exists,
+    // so the message isn't just dropped, prefixed with the mod's name
+    // since there's no report entry to already be scoped under one.
+    // Reached through globalThis rather than the bare `console` global —
+    // this module has no lib.dom/lib.node in its tsconfig on purpose
+    // (see the file-top comment: usable by non-Node consumers too), and
+    // a truly console-less runtime just silently drops the line instead
+    // of throwing. The CLI's actual load path always goes through
+    // buildTrackedModContext below, which replaces both of these with
+    // report-collecting versions — this fallback only fires for a mod
+    // loaded some other way.
+    log(level, message, meta) {
+      const c = (globalThis as { console?: { error?: (...args: unknown[]) => void; warn?: (...args: unknown[]) => void; info?: (...args: unknown[]) => void; debug?: (...args: unknown[]) => void } }).console;
+      const write = level === 'error' ? c?.error : level === 'warn' ? c?.warn : level === 'info' ? c?.info : c?.debug;
+      write?.(`[${modName}] ${level}: ${message}${meta ? ` ${JSON.stringify(meta)}` : ''}`);
+    },
+    reportIssue(issue) {
+      const c = (globalThis as { console?: { error?: (...args: unknown[]) => void } }).console;
+      const severity = issue.severity ?? 'warning';
+      c?.error?.(`[${modName}] ${severity}: ${issue.message}${issue.detail !== undefined ? ` ${JSON.stringify(issue.detail)}` : ''}`);
+    },
     hasPermission(capability) {
       return (GRANTABLE_PERMISSIONS as readonly string[]).includes(capability);
     },
@@ -565,11 +634,26 @@ export function buildModContext(): ModContext {
 
 export interface ModRegistrationKey {
   // which ModContext method was called
-  kind: 'locale' | 'localeVocab' | 'relativeGrammar' | 'formatterTokens' | 'overrideFormat' | 'overrideParse';
+  kind: 'locale' | 'localeVocab' | 'relativeGrammar' | 'formatterTokens' | 'formatToken' | 'overrideFormat' | 'overrideParse';
   // the locale tag, grammar language, custom token name, or (for the two
   // override kinds) just the literal string 'format'/'parse' — there's
   // only one of each to conflict on, unlike the keyed registrations above
   key: string;
+}
+
+// One ctx.log() or ctx.reportIssue() call, captured for the load report.
+// Unlike ModRegistrationKey these never conflict with each other — a
+// mod can log or report as many times as it wants — so there's no `key`
+// to collide on, just a stream of events the loader collects and shows.
+export interface ModDiagnostic {
+  source: 'log' | 'reportIssue';
+  level: 'debug' | 'info' | 'warn' | 'error';
+  message: string;
+  // log()'s optional structured payload. Absent for reportIssue events
+  // (they carry `detail` instead, below).
+  meta?: Record<string, unknown>;
+  // reportIssue()'s optional free-form payload. Absent for log() events.
+  detail?: unknown;
 }
 
 // Wraps a ModContext so the loader can tell which mod touched which
@@ -588,7 +672,21 @@ export interface ModRegistrationKey {
 // letting the loader discover a collision after the fact. They're
 // tracked here anyway so a successful override still shows up in the
 // load report the same way a successful locale registration does.
-export function buildTrackedModContext(modName: string, onRegister: (key: ModRegistrationKey) => void): ModContext {
+//
+// onDiagnostic is separate from onRegister rather than folded into the
+// same callback with a fake ModRegistrationKey: log()/reportIssue()
+// calls don't have a "key" two mods could conflict on, they're just a
+// stream of events for this one mod, so giving them their own shape
+// keeps ModRegistrationKey's `key` field meaningful (something that CAN
+// collide) instead of overloading it with something that never does.
+// Optional and defaulted to a no-op so the existing single-argument call
+// shape (tests, buildTrackedModContext(name, onRegister) alone) keeps
+// working unchanged.
+export function buildTrackedModContext(
+  modName: string,
+  onRegister: (key: ModRegistrationKey) => void,
+  onDiagnostic: (event: ModDiagnostic) => void = () => {}
+): ModContext {
   const base = buildModContextFor(modName);
   return {
     // Everything not called out below (all 81 zero-fan-out override
@@ -600,6 +698,19 @@ export function buildTrackedModContext(modName: string, onRegister: (key: ModReg
     // them have a shared key two mods could conflict on the way a locale
     // tag or token name does, so there's nothing meaningful to track.
     ...base,
+    log(level, message, meta) {
+      onDiagnostic({ source: 'log', level, message, meta });
+      base.log(level, message, meta);
+    },
+    reportIssue(issue) {
+      onDiagnostic({
+        source: 'reportIssue',
+        level: issue.severity === 'error' ? 'error' : 'warn',
+        message: issue.message,
+        detail: issue.detail,
+      });
+      base.reportIssue(issue);
+    },
     registerLocale(locale, vocab) {
       onRegister({ kind: 'locale', key: locale });
       base.registerLocale(locale, vocab);
@@ -617,6 +728,10 @@ export function buildTrackedModContext(modName: string, onRegister: (key: ModReg
         onRegister({ kind: 'formatterTokens', key: token.name });
       }
       return base.createFormatter(options);
+    },
+    registerFormatToken(token) {
+      onRegister({ kind: 'formatToken', key: token.name });
+      base.registerFormatToken(token);
     },
     createHolidayCalendar(specs) {
       // Not tracked: createHolidayCalendar returns a fresh, unshared

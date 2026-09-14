@@ -33,6 +33,8 @@
 
 import { format as baseFormat, formatToParts as baseFormatToParts } from './format.js';
 import { parse as baseParse } from './parse.js';
+import { registerToken } from './tokens.js';
+import type { CustomToken } from './extensibility.js';
 import { safeParse as base_safeParse, tryParse as base_tryParse, parseToParts as base_parseToParts } from './parse.js';
 import { formatDistance as base_formatDistance, formatDistanceToNow as base_formatDistanceToNow } from './formatDistance.js';
 import { daysInYear as base_daysInYear, getQuarter as base_getQuarter, startOf as base_startOf, endOf as base_endOf } from './calendarUtils.js';
@@ -156,6 +158,29 @@ export function _resetOverridesForTesting(): void {
   formatOverride = undefined;
   formatToPartsOverride = undefined;
   parseOverride = undefined;
+}
+
+// Adds a custom token into the real, shared token table format()/parse()
+// both read from — not a private copy scoped to one createFormatter()
+// instance (see extensibility.ts for why that's a dead end: a mod-built
+// Formatter is never wired into the module-level format() everything
+// else calls). tokens.ts's registerToken() does the actual table
+// rebuild; this just re-types CustomToken into the tuple shape TOKENS
+// uses internally.
+//
+// Last-write-wins on name, same as registerLocale, not a hard error
+// like setFormatOverride above. Two independent mods each adding one
+// harmless token (PIRATE, LEET, ...) is a plausible, not-really-a-bug
+// scenario, unlike two mods fighting over the one global format()
+// implementation — and Mod.priority already exists so an author can
+// choose who wins a shared key. A hard error here would make priority
+// meaningless for tokens while every other registration kind honors it.
+// This also means a mod CAN shadow a built-in token name (yyyy, MMM,
+// ...); that's consistent with createFormatter's own merge rule, not a
+// new hole, but it's worth calling out because the blast radius here is
+// every format() call in the process, not one formatter instance.
+export function registerFormatToken(token: CustomToken): void {
+  registerToken([token.name, token.handler, token.field]);
 }
 
 // Resets the 81 generated override points (see bottom of file) — split

@@ -628,3 +628,52 @@ export const TOKENS: Array<[string, TokenHandler, keyof TemporalLike]> = [
   }, 'timeZoneId'],
 
 ];
+
+// Mod-registered tokens, layered on top of the static TOKENS above.
+// Last-write-wins by name (same rule as registerLocale and
+// createFormatter's own token merging) — a second registerFormatToken()
+// call for a name already claimed, whether that name came from another
+// mod or from TOKENS itself, replaces the earlier entry. See
+// registerFormatToken() in runtime.ts for why this beats a hard error:
+// Mod.priority exists precisely so an author can control who wins a
+// shared key, and that only means something if collisions actually
+// resolve instead of throwing.
+const registeredTokens = new Map<string, [string, TokenHandler, keyof TemporalLike]>();
+
+// tokenize.ts and format.ts each derive a lookup table from TOKENS at
+// import time (SORTED_TOKEN_STRINGS, HANDLER_BY_TOKEN). Once mods can
+// add tokens after those tables are built, something has to tell both
+// modules to rebuild — this is that hook. Both subscribers rebuild in
+// the same call so the tokenizer's idea of "is this a token" and
+// format()'s idea of "what does this token do" can never drift apart
+// (the c8-ignored "impossible" branches in format.ts assume exactly
+// that they can't).
+const rebuildListeners: Array<() => void> = [];
+
+export function onTokenTableChange(listener: () => void): void {
+  rebuildListeners.push(listener);
+}
+
+// All tokens currently in effect: built-ins plus mod-registered,
+// mod-registered winning on a name clash. Recomputed on every call
+// rather than cached here — registration only happens at mod-load
+// time, so there's no hot-path cost to paying for the rebuild each time
+// a listener fires.
+export function getEffectiveTokens(): Array<[string, TokenHandler, keyof TemporalLike]> {
+  const merged = new Map(TOKENS.map((t) => [t[0], t] as const));
+  for (const [name, entry] of registeredTokens) merged.set(name, entry);
+  return [...merged.values()];
+}
+
+export function registerToken(token: [string, TokenHandler, keyof TemporalLike]): void {
+  registeredTokens.set(token[0], token);
+  for (const listener of rebuildListeners) listener();
+}
+
+// Test-only: clears mod-registered tokens and notifies subscribers, so
+// one test file's registerFormatToken() call can't leak into the next.
+// Mirrors _resetOverridesForTesting() in runtime.ts.
+export function _resetRegisteredTokensForTesting(): void {
+  registeredTokens.clear();
+  for (const listener of rebuildListeners) listener();
+}

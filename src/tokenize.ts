@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { TOKENS } from './tokens.js';
+import { TOKENS, getEffectiveTokens, onTokenTableChange } from './tokens.js';
 import { FormatSyntaxError, UnknownTokenError } from './errors.js';
 
 export type Piece =
@@ -34,8 +34,21 @@ export interface SpannedPiece {
   end: number;
 }
 
-// gotta sort longest-first or the greedy scan grabs "M" when "MMMM" was actually there
-const SORTED_TOKEN_STRINGS = TOKENS.map(([tok]) => tok).sort((a, b) => b.length - a.length);
+// gotta sort longest-first or the greedy scan grabs "M" when "MMMM" was actually there.
+// Starts from the static TOKENS (so this module works before any mod has
+// registered anything) and rebuilds from tokens.ts's getEffectiveTokens()
+// whenever a mod calls registerFormatToken — otherwise a token registered
+// after this module loaded would never be recognized here, and format()
+// would tokenize it as literal text even though HANDLER_BY_TOKEN in
+// format.ts knows about it. `let`, not `const`, precisely so the rebuild
+// below can replace the binding rather than mutate a shared array in place.
+let SORTED_TOKEN_STRINGS = TOKENS.map(([tok]) => tok).sort((a, b) => b.length - a.length);
+
+onTokenTableChange(() => {
+  SORTED_TOKEN_STRINGS = getEffectiveTokens()
+    .map(([tok]) => tok)
+    .sort((a, b) => b.length - a.length);
+});
 
 /**
  * Splits a format string like `"yyyy-MM-dd 'at' HH:mm"` into token/literal

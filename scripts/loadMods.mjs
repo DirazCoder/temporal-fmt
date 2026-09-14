@@ -74,7 +74,7 @@ import {
   runtimeTimeoutMs,
   memoryCeilingMb,
 } from './modSandbox.mjs';
-import { fromWire, rehydrateFormatterOptions, isExperimentalPermissionModel } from './modWire.mjs';
+import { fromWire, rehydrateFormatterOptions, rehydrateCustomToken, isExperimentalPermissionModel, CURRENT_API_LEVEL } from './modWire.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -105,10 +105,14 @@ async function extractTfmod(archivePath, destDir) {
 // `main`, the entry-point filename inside the archive, plus fields only
 // .tfmod mods get to declare (loose .mjs mods have no manifest to put
 // them in): `temporalFmtVersion`, a semver range or exact version this
-// mod was built against; `config`, a schema for user-editable settings
-// (see modConfig.mjs); and `permissions`, the capabilities the mod
-// wants, each marked required or optional. All are optional — a mod that
-// doesn't need any just omits them.
+// mod was built against; `minApiLevel`, the lowest mod-API level this
+// mod needs (see CURRENT_API_LEVEL in modWire.mjs — a separate axis from
+// temporalFmtVersion, since a mod author knows which ctx functions they
+// used far more reliably than which package version introduced them);
+// `config`, a schema for user-editable settings (see modConfig.mjs); and
+// `permissions`, the capabilities the mod wants, each marked required or
+// optional. All are optional — a mod that doesn't need any just omits
+// them.
 function isValidManifest(value) {
   if (typeof value !== 'object' || value === null) return false;
   const v = value;
@@ -118,6 +122,7 @@ function isValidManifest(value) {
   if (v.requires !== undefined && !(Array.isArray(v.requires) && v.requires.every((r) => typeof r === 'string'))) return false;
   if (v.priority !== undefined && typeof v.priority !== 'number') return false;
   if (v.temporalFmtVersion !== undefined && typeof v.temporalFmtVersion !== 'string') return false;
+  if (v.minApiLevel !== undefined && !(Number.isInteger(v.minApiLevel) && v.minApiLevel >= 1)) return false;
   if (v.config !== undefined && !isValidConfigSchema(v.config)) return false;
   if (v.permissions !== undefined && !(Array.isArray(v.permissions) && v.permissions.every(isValidPermissionEntry))) return false;
   return true;
@@ -220,7 +225,7 @@ async function readTfmodManifests(absDir, tfmodFiles, scratchDir) {
       failed.push({
         file,
         reason:
-          'mod.json must have a "name" string and a "main" string, and — if present — "version" as a string, "requires" as a string array, "priority" as a number, "temporalFmtVersion" as a string, "config" as a valid settings schema, and "permissions" as an array of capabilities or { capability, required } entries',
+          'mod.json must have a "name" string and a "main" string, and — if present — "version" as a string, "requires" as a string array, "priority" as a number, "temporalFmtVersion" as a string, "minApiLevel" as a positive integer, "config" as a valid settings schema, and "permissions" as an array of capabilities or { capability, required } entries',
       });
       continue;
     }
@@ -253,6 +258,24 @@ async function readTfmodManifests(absDir, tfmodFiles, scratchDir) {
         failed.push({ file, reason: `"${manifest.name}" ${versionCheck.reason}` });
         continue;
       }
+    }
+
+    // Same reasoning, different axis: minApiLevel is what a mod author
+    // actually knows (the ctx functions they used), not the package
+    // version those functions shipped in. A mod that needs Level 3 and
+    // gets loaded on a Level 2 host would otherwise run right up until
+    // it calls ctx.registerFormatToken/ctx.log and hits a raw "is not a
+    // function" — this turns that into a clean failure before any mod
+    // code executes, naming the level gap directly. A mod declaring a
+    // level the host EXCEEDS is fine and says nothing; the level system
+    // is additive by design (see API_DOCS/), so a Level 1 mod runs
+    // unmodified on however far past Level 1 the host has gone.
+    if (manifest.minApiLevel !== undefined && manifest.minApiLevel > CURRENT_API_LEVEL) {
+      failed.push({
+        file,
+        reason: `"${manifest.name}" needs mod API level ${manifest.minApiLevel}, this host provides level ${CURRENT_API_LEVEL} — update temporal-fmt, or use a version of this mod built against an older API level.`,
+      });
+      continue;
     }
 
     // "main" is archive-controlled data — reject absolute paths and
@@ -623,13 +646,32 @@ export async function loadMods(dir = './mods', configDir = join(resolve(dir), '.
       // conflict detection, override exclusivity, and the report all
       // behave exactly as they did before sandboxing.
       const touched = [];
-      const trackedCtx = buildTrackedModContext(mod.name, (regKey) => touched.push(regKey));
+      const diagnostics = [];
+      const trackedCtx = buildTrackedModContext(mod.name, (regKey) => touched.push(regKey), (event) => diagnostics.push(event));
       try {
         for (const record of sandboxRun.registrations) {
           if (record.fn === 'createFormatter') {
             trackedCtx.createFormatter(rehydrateFormatterOptions(record.args[0]));
+          } else if (record.fn === 'registerFormatToken') {
+            trackedCtx.registerFormatToken(rehydrateCustomToken(record.args[0]));
           } else {
             trackedCtx[record.fn](...record.args.map((a) => fromWire(a, sandboxCtx.hostTemporal)));
+          }
+        }
+        // log()/reportIssue() calls don't touch the registry, so they
+        // don't need fromWire's Temporal-instance rehydration the way
+        // registration args do — meta/detail already crossed as plain
+        // JSON-able data (see modWorker.mjs's toWire call for each).
+        // Replaying through trackedCtx (rather than just copying
+        // sandboxRun.diagnostics straight into the report) reuses its
+        // base fallback printing, same as an in-process mod's log()
+        // call would get, so sandboxed and in-process mods behave the
+        // same way here too.
+        for (const event of sandboxRun.diagnostics ?? []) {
+          if (event.source === 'log') {
+            trackedCtx.log(event.level, event.message, event.meta);
+          } else {
+            trackedCtx.reportIssue({ message: event.message, severity: event.level === 'error' ? 'error' : 'warning', detail: event.detail });
           }
         }
         for (const fnName of sandboxRun.overrides) {
@@ -658,6 +700,7 @@ export async function loadMods(dir = './mods', configDir = join(resolve(dir), '.
         name: mod.name,
         version: mod.version,
         kind,
+        diagnostics,
         sandbox: {
           permissionsRequested: permissions,
           granted: [...grantedPermissions],
@@ -696,9 +739,11 @@ export function formatModLoadReport(report) {
   }
   for (const m of report.loaded) {
     lines.push(`  loaded ${m.name}${m.version ? `@${m.version}` : ''} (${m.file})${sandboxSuffix(m)}`);
+    for (const line of diagnosticLines(m.diagnostics)) lines.push(line);
   }
   for (const m of report.downgraded ?? []) {
     lines.push(`  downgraded ${m.name}${m.version ? `@${m.version}` : ''} (${m.file})${sandboxSuffix(m)}`);
+    for (const line of diagnosticLines(m.diagnostics)) lines.push(line);
   }
   for (const f of report.failed) {
     lines.push(`  failed ${f.file}: ${f.reason}`);
@@ -707,6 +752,21 @@ export function formatModLoadReport(report) {
     lines.push(`  conflict on ${c.kind} "${c.key}": ${c.mods.join(', ')} — "${c.winner}" wins (loaded last)`);
   }
   return lines.join('\n');
+}
+
+// One indented line per ctx.log()/ctx.reportIssue() call a mod made
+// during register(), directly under its loaded/downgraded line — this
+// is the whole point of both functions: visible in the report a person
+// actually reads, not lost in a subprocess's discarded stdout/stderr
+// (see modWorker.mjs's top comment on why a mod's own console.log can't
+// reach the terminal at all under the sandbox).
+function diagnosticLines(diagnostics) {
+  return (diagnostics ?? []).map((d) => {
+    const extra = d.source === 'log' && d.meta !== undefined ? ` ${JSON.stringify(d.meta)}`
+      : d.source === 'reportIssue' && d.detail !== undefined ? ` ${JSON.stringify(d.detail)}`
+      : '';
+    return `    [${d.level}] ${d.message}${extra}`;
+  });
 }
 
 function sandboxSuffix(m) {
