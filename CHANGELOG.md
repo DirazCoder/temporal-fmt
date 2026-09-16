@@ -4,6 +4,65 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.71 — 2026-09-16 (`e3ed2af`)
+
+### Added
+- `numberingSystem` / `parseNumberingSystem` accept `'auto'` — instead of
+  hardcoding a numbering-system code, resolve whichever one the call's
+  own locale actually uses, via
+  `Intl.NumberFormat(locale).resolvedOptions().numberingSystem`. `ar-EG`
+  gets Arabic-Indic digits, `bn-BD` gets Bengali, `en-US` stays ASCII,
+  all from the same `{ numberingSystem: 'auto' }` — no per-locale
+  branching in caller code. Works identically on the parse side, and
+  through `createConfig()`: a config's `numberingSystem: 'auto'`
+  resolves per call against whichever locale that call ends up using,
+  so one config can drive different digits for different callers
+  instead of pinning a single system. When a locale's native system
+  isn't one this library can transliterate (Thai, Lao, Myanmar, ...),
+  `'auto'` falls back to `'latn'` rather than throwing — only a
+  malformed locale tag throws. Unset still means `'latn'` everywhere;
+  this is purely opt-in, existing calls are unaffected.
+- Locale-aware month/weekday tokens (`MMMM`/`MMM`/`EEEE`/`EEE`/stand-alone
+  `LLLL`/`cccc`) now render correctly for dates before the Gregorian
+  calendar's adoption. The bug: ICU's `gregory` calendar applies a
+  Julian cutover at October 15, 1582, so handing `Intl.DateTimeFormat` a
+  pre-cutover date got it silently reinterpreted under Julian rules —
+  `1500-07-05` (proleptic Gregorian, which is what `Temporal` actually
+  uses) would come back as Julian `1500-06-25`, landing on the wrong
+  month and a weekday shifted by 10 days. Numeric tokens were never
+  touched by this, since they don't go through `Intl` at all — only the
+  name lookups did. Fixed by never handing Intl the historical date in
+  the first place: the month/weekday number comes straight off
+  `Temporal`'s own proleptic-Gregorian fields, then that number gets
+  looked up against a safe modern reference date (the same reference
+  dates the locale vocab is already built from, so format output still
+  round-trips through parse). Non-Gregorian-calendar objects (Hebrew,
+  Islamic, ...) are untouched — ICU doesn't apply this cutover to them,
+  so the existing path was already correct.
+
+### Docs
+- README's old "Known limitations" section is gone — each item turned
+  out to already have a fuller writeup living elsewhere (ambiguous glued
+  tokens under Parsing, offset tokens under Offset tokens, numbering
+  systems under its own section), so the summary list was just a stale
+  duplicate. Folded a couple of gaps into those existing sections
+  instead: unpadded/separated tokens as the actual fix for parse
+  ambiguity, and why `xxx` is the one offset token that can carry a
+  sub-minute historical offset (`Europe/London` pre-1847) through
+  verbatim instead of throwing.
+
+### Tests
+- New `pre1582.test.js` pins the cutover fix — the 1582-10-04/10-14/10-15
+  boundary, BCE dates, `ZonedDateTime`, a non-Gregorian calendar object
+  left alone, and a full format/parse round-trip.
+- `numberingSystem.wiring.test.js` and the Vitest unit suite gain
+  `'auto'` coverage: `ar-EG`/`bn-BD` resolution, the `latn` fallback for
+  unsupported native systems, underscore-locale normalization, and the
+  malformed-locale error path.
+- `caches.test.js` extends its eviction stress test to a fourth cache
+  (`autoNumberingCache`), confirming `'auto'` resolution survives past
+  500 entries.
+
 ## 0.9.70 — 2026-09-14 (`a91510d`)
 
 Temporal-Fmt Mod API Level 3.
