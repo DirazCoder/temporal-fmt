@@ -79,7 +79,6 @@ The package looks large on npm — locales, recurrence, business calendars, time
 - [Mods (advanced, optional)](#mods-advanced-optional) — full guide in [MODS.md](./MODS.md)
 - [Subpath imports](#subpath-imports)
 - [Migrating from Day.js or date-fns](#migrating-from-dayjs-or-date-fns)
-- [Known limitations](#known-limitations)
 - [Related tools](#related-tools)
 - [Testing](#testing)
 - [Contributing](#contributing)
@@ -199,6 +198,8 @@ parse('yyyy-Md', '2026-121', { lenient: true }).toString() // '2026-12-01'
 
 **Heuristic**: if one of the tokens in the ambiguous run is `d` (day), prefer the split where the day value is ≤ 12. The reasoning: someone who glues a run like `"121"` into an `Md` format is more likely to mean Dec 1 (M=12, d=1) than Jan 21 (M=1, d=21) — if they meant Jan 21, they'd more often write it with a separator or padding (`"1/21"`, `"01/21"`). It's not a guarantee, which is exactly why it's opt-in. When the heuristic doesn't narrow it down (both splits have day ≤ 12), or when there's no `d` token in the run at all (e.g. `Hm`), it falls back to the first valid split — deterministic, but arbitrary. Default behavior (lenient unset or `false`) is unchanged either way.
 
+Ambiguity is also easy to avoid outright — the same fixes the heuristic's reasoning hints at: zero-pad the tokens (`MM`/`dd`) or put a literal separator between them (`M/d`), and there's only ever one split to find. Unambiguous glued runs parse fine in strict mode: `"85"` against `yyyy-Md` has exactly one valid split (month 8, day 5), so only genuinely ambiguous input throws. One structural case always throws regardless of ambiguity: a glued run in a format string with no `yyyy` at all (`Md`, `dM`, `Hm` on their own) can never produce a date, since `parse()` needs year, month, and day together to build one (the incomplete-date error in [Typed errors](#typed-errors)).
+
 ### Offset tokens (`X`/`XX`/`XXX`/`x`/`xx`/`xxx`)
 
 The six offset tokens only work on `ZonedDateTime`. On a `PlainDate`/`PlainTime`/`PlainDateTime` they throw the same "requires offset, which this Temporal object doesn't have" error every other field-typed token throws when its field is missing.
@@ -206,6 +207,8 @@ The six offset tokens only work on `ZonedDateTime`. On a `PlainDate`/`PlainTime`
 Uppercase (`X`/`XX`/`XXX`) collapses `+00:00` to `Z` for UTC. Lowercase (`x`/`xx`/`xxx`) always emits a numeric offset, even for UTC (`+00`, `+0000`, `+00:00`). The single-letter forms (`X`/`x`) drop minutes when they're zero (`+05` rather than `+0500`) and append them with no colon when non-zero (`+0530`) — the LDML spec's "hours required, minutes optional when zero" rule.
 
 On parse, an offset token needs a full date and time to anchor the instant — same rule `zzz` enforces. With an offset token and no `zzz`, the resulting `ZonedDateTime`'s `timeZoneId` is the offset string itself (e.g. `"+09:00"`). With **both** `zzz` and an offset token, it's a cross-check: `zzz` wins for the result's `timeZoneId` (the IANA name is the meaningful label), and the offset token's value must match that zone's actual offset at the parsed instant. Disagreement throws rather than silently picking one — `parse('yyyy-MM-dd HH:mm zzz XXX', '2026-08-04 15:45 America/New_York +09:00')` throws, because August in New York is `-04:00`, not `+09:00`.
+
+Sub-minute historical offsets: the tokens read `ZonedDateTime`'s `offset` field, which is `±HH:MM` for any modern date but carries a seconds component for pre-railway local-mean-time zones (Europe/London before 1847 surfaces `-00:01:15`). `xxx` is the one variant with a slot for that — it passes a sub-minute offset through verbatim — while the other five throw a descriptive error recommending `xxx` rather than silently truncating the seconds away. Parse-side offset shapes have no seconds group, so a sub-minute offset can't be parsed back through a token; construct the `ZonedDateTime` directly if you need to round-trip one of those.
 
 Range: `-12:00` to `+14:00`, the IANA-supported range. Out-of-range values throw a descriptive error naming the bound.
 
@@ -832,6 +835,17 @@ parse('yyyy-MM-dd', '٢٠٢٦-٠٨-٠٤', { parseNumberingSystem: 'arab' }).toSt
 
 The two option names are deliberately different (`numberingSystem` vs. `parseNumberingSystem`), not a naming inconsistency — the two directions aren't always symmetric. You might want Arabic-Indic digits in your UI output without expecting Arabic-Indic digits back on input, or the reverse, so a caller mixing `format()` and `parse()` options in one config object can set each independently. `formatToParts()` applies numbering per-part rather than once at the end, so a caller styling individual token parts (one `<span>` per token, say) still gets correctly-transliterated digits in each part instead of plain ASCII. An unsupported system name throws immediately rather than silently falling back to `'latn'`.
 
+Rather than hardcoding a system code, pass `'auto'` to use whichever numeral system the call's locale itself uses, resolved through `Intl.NumberFormat(locale).resolvedOptions().numberingSystem`:
+
+```js
+format(date, 'yyyy-MM-dd', { numberingSystem: 'auto', locale: 'ar-EG' }); // "٢٠٢٦-٠٨-٠٤" — ar-EG's native digits
+format(date, 'yyyy-MM-dd', { numberingSystem: 'auto', locale: 'bn-BD' }); // "২০২৬-০৮-০৪"
+format(date, 'yyyy-MM-dd', { numberingSystem: 'auto' });                  // "2026-08-04" — en-US defaults to latn
+parse('yyyy-MM-dd', '٢٠٢٦-٠٨-٠٤', { parseNumberingSystem: 'auto', locale: 'ar-EG' }); // same resolution, input direction
+```
+
+`'auto'` works the same on both sides and through `createConfig()` (a config's `numberingSystem: 'auto'` resolves per call, against whichever locale that call uses). When the locale's native system isn't one this library can transliterate (Thai digits, Lao, Myanmar, ...), `'auto'` falls back to `'latn'` rather than throwing — only a malformed locale tag throws. Unset still means `'latn'` everywhere; `'auto'` is an opt-in, not a default change.
+
 If you'd rather convert digits yourself instead of going through `format()`/`parse()`'s options — say, transliterating a string that came from somewhere else entirely — the underlying conversion is available directly:
 
 ```js
@@ -1017,15 +1031,6 @@ function formatDate(date, formatStr, opts) {
 ```
 
 Migrate file by file, dropping the wrapper once nothing calls the old path anymore.
-
-## Known limitations
-
-- **Numerals default to Western digits** in numeric tokens, regardless of locale, unless you opt into `{ numberingSystem }` / `{ parseNumberingSystem }` — see [Numbering systems](#numbering-systems).
-- **Locale-aware tokens need Node 20+**, native or polyfilled. Untested below that.
-- **You must provide a Temporal implementation** on anything below Node 26 — see [Providing `Temporal`](#providing-temporal).
-- **Pre-1582 dates and locale-aware tokens don't mix well on native Temporal (Node 26+).** `MMMM`/`MMM`/`EEEE`/`EEE` can render the wrong month or weekday for dates before roughly 1582 CE. This is an ICU limitation, not a bug here: ICU's default Gregorian calendar cutover is October 15, 1582, so `Intl.DateTimeFormat.formatToParts()` silently reinterprets earlier dates under the Julian calendar even though `Temporal` itself uses a proleptic Gregorian calendar throughout — see [tc39/ecma402#1003](https://github.com/tc39/ecma402/issues/1003). Numeric tokens never touch `Intl` and aren't affected.
-- **Gluing two unpadded numeric tokens with no separator is ambiguous for some inputs**, and `parse()` throws rather than guessing (`Md`, `dM`, `Hm` against certain input). `"121"` against `yyyy-Md` could mean month 1/day 21 or month 12/day 1 — both valid, no single correct reading. Unambiguous inputs against the same format string parse fine (`"85"` against `yyyy-Md` has only one valid split). Fix it by zero-padding (`MM`/`dd`), adding a separator, or opting into `{ lenient: true }`. Note that `Md` (or `dM`/`Hm`) with no `yyyy` present always throws regardless of ambiguity — `parse()` needs year, month, and day together to build a date at all.
-- **Offset tokens can't express sub-minute historical offsets.** They read `ZonedDateTime.prototype.offset`, which Temporal exposes as `+HH:MM` for any modern date. Historical LMT offsets with seconds (Europe/London before 1847 was `+00:01:15`) aren't reachable through that field, and the offset tokens' regex shapes don't include a seconds group either. Construct the `ZonedDateTime` directly if you need to round-trip one of those. Offset range is bounded to `-12:00` through `+14:00` (Baker Island to Kiritimati) — `+14:01`/`-12:01` throw even though each digit is individually plausible, since no real zone uses an offset past that range.
 
 ## Related tools
 

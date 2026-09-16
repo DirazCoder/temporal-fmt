@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createConfig,
+  format,
   mergeWithConfig,
   setTemporal,
 } from '../dist/index.js';
@@ -69,4 +70,16 @@ test('mergeWithConfig: fills in calendar, timezone, and lenient when config sets
   assert.equal(merged.calendar, 'hebrew');
   assert.equal(merged.timezone, 'America/New_York');
   assert.equal(merged.lenient, true);
+});
+
+test('config-level numberingSystem "auto" flows through mergeWithConfig into format(), resolving per call', () => {
+  // The README documents that a config's numberingSystem: 'auto' resolves
+  // against whichever locale each call uses — so the same config drives
+  // ar-EG input to Arabic-Indic digits while a per-call locale override
+  // back to en-US still gets ASCII.
+  const c = createConfig({ locale: 'ar-EG', numberingSystem: 'auto' });
+  const date = Temporal.PlainDate.from('2026-08-04');
+  assert.equal(format(date, 'yyyy', mergeWithConfig(c, {})), '٢٠٢٦');
+  // per-call locale wins over the config's, and 'auto' follows it
+  assert.equal(format(date, 'yyyy', mergeWithConfig(c, { locale: 'en-US' })), '2026');
 });

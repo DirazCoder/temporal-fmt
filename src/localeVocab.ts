@@ -119,9 +119,9 @@ export function subscribeToVocabChanges(listener: () => void): void {
 /**
  * Supply a custom month/weekday/day-period vocabulary for a locale key,
  * overriding the Intl-derived vocab this library would otherwise build
- * for that key. Useful for locales Intl doesn't cover well — the README's
- * known-limitations section calls out the Hebrew leap-month gap as a
- * specific case this addresses.
+ * for that key. Useful for locales Intl doesn't cover well — the
+ * Parsing section of the README ("MMMM/MMM assume a 12-month calendar")
+ * calls out the Hebrew leap-month gap as a specific case this addresses.
  *
  * Throws descriptively on malformed input (wrong array lengths, empty
  * strings, duplicate entries, missing fields) rather than failing later
@@ -254,13 +254,15 @@ const MAX_VOCAB_CACHE_SIZE = 500;
 
 // Some locales (ja-JP) split a field across two parts — month "8" plus a
 // counter suffix "月" as a separate sibling "literal" — while format()'s
-// tokens go through toLocaleString(), which concatenates everything into
-// "8月". Reading only the type-tagged part used to drop that suffix, so
+// post-1582 tokens go through toLocaleString(), which concatenates
+// everything into "8月", and the pre-1582 path in tokens.ts
+// (preCutoverGregorianName) formats one field at a time the same way this
+// does. Reading only the type-tagged part used to drop that suffix, so
 // this locale's vocab never matched what format() actually produced.
 // Only merges *adjacent* literals, not the whole string, since the
 // dayPeriod/weekday formatters below carry an extra hour part that a
 // join-everything approach would wrongly absorb.
-function partValue(formatter: Intl.DateTimeFormat, date: Date, type: Intl.DateTimeFormatPartTypes): string {
+export function partValue(formatter: Intl.DateTimeFormat, date: Date, type: Intl.DateTimeFormatPartTypes): string {
   const parts = formatter.formatToParts(date);
   const index = parts.findIndex((p) => p.type === type);
   /* c8 ignore start @preserve -- defensive guard against a real but

@@ -3,16 +3,18 @@ import assert from 'node:assert/strict';
 import { format, parse, formatDuration, setTemporal } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
-// Three separate module-level Maps cap themselves at 500 entries and evict
+// Four separate module-level Maps cap themselves at 500 entries and evict
 // the oldest key once full: patternCache (parse.ts), formatterCache
-// (tokens.ts), and calendarCache (parse.ts). None of them are exported, and
-// nothing elsewhere in the suite pushes any of them past a handful of keys —
-// the eviction branch (`if (cache.size >= MAX) { delete oldest }`) has never
-// actually run under test. These push each one over its cap using distinct
-// locale tags per iteration (so every call is a genuine cache miss, not a
-// hit) and confirm the library still works correctly afterward, since a
-// broken eviction (e.g. wrong key deleted, or a crash on empty cache) would
-// otherwise only surface in a long-running process, not a short test file.
+// (tokens.ts), calendarCache (parse.ts), and autoNumberingCache
+// (numbering.ts, for the numberingSystem: 'auto' locale resolution).
+// None of them are exported, and nothing elsewhere in the suite pushes any
+// of them past a handful of keys — the eviction branch (`if (cache.size >=
+// MAX) { delete oldest }`) has never actually run under test. These push
+// each one over its cap using distinct locale tags per iteration (so every
+// call is a genuine cache miss, not a hit) and confirm the library still
+// works correctly afterward, since a broken eviction (e.g. wrong key
+// deleted, or a crash on empty cache) would otherwise only surface in a
+// long-running process, not a short test file.
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 setTemporal(Temporal);
 
@@ -75,4 +77,19 @@ test('unitFormatterCache (formatDuration.ts) evicts correctly once pushed past i
     formatDuration({ hours: 1 }, 'hhh', { locale: `en-US-x-d${i}` });
   }
   assert.equal(formatDuration({ hours: 1 }, 'hhh'), '1 hour');
+});
+
+test('autoNumberingCache (numbering.ts) evicts correctly once pushed past 500 entries — auto resolution still works afterward', () => {
+  // resolveAutoNumberingSystem() caches by canonical locale tag — vary the
+  // locale per call so each one is a distinct key. 'yyyy' is a pure numeric
+  // token, so none of these calls touch formatterCache: the only cache under
+  // load here is the auto-resolution one.
+  const date = Temporal.PlainDate.from('2026-08-04');
+  for (let i = 0; i < 520; i++) {
+    format(date, 'yyyy', { numberingSystem: 'auto', locale: `en-US-x-n${i}` });
+  }
+  // Both a latn-resolving and a native-digit locale must still resolve
+  // correctly after ~20 evictions have cycled through.
+  assert.equal(format(date, 'yyyy', { numberingSystem: 'auto', locale: 'en-US' }), '2026');
+  assert.equal(format(date, 'yyyy', { numberingSystem: 'auto', locale: 'ar-EG' }), '٢٠٢٦');
 });

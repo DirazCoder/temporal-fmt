@@ -15,7 +15,7 @@
  */
 
 import { getTemporal, subscribeToTemporalChanges } from './temporalProvider.js';
-import { canonicalCacheKey, getCustomVocab, normalizeLocaleTag } from './localeVocab.js';
+import { canonicalCacheKey, getCustomVocab, normalizeLocaleTag, partValue } from './localeVocab.js';
 import { InvalidLocaleError, FormatSyntaxError } from './errors.js';
 import { isoWeekYearAndWeek, dayOfYear } from './isoWeek.js';
 
@@ -186,6 +186,71 @@ function intlSupportsNativeTemporal(): boolean {
   return nativeSupport;
 }
 
+// The Julian → Gregorian cutover, as ICU applies it. ICU's gregory
+// calendar (unlike Temporal's, which is proleptic Gregorian throughout)
+// treats every date before October 15, 1582 as a Julian-calendar date:
+// the Julian calendar ran ~10 days behind proleptic Gregorian in that
+// era, so a date Temporal correctly calls 1500-07-05 gets silently
+// reinterpreted by Intl as Julian 1500-06-25 — the wrong month near
+// boundaries, and a weekday shifted by 10 mod 7 = 3 slots everywhere.
+// See tc39/ecma402#1003. Whether the cutover is even observable varies
+// by engine and entry point (V8's plain-Date path disables it; the
+// native-Temporal formatToParts path on some Node 26 builds does not),
+// so this can't be probed reliably at runtime — pre-cutover dates have
+// to be routed around Intl's calendar math entirely.
+const GREGORIAN_CUTOVER_YEAR = 1582;
+const GREGORIAN_CUTOVER_MONTH = 10;
+const GREGORIAN_CUTOVER_DAY = 15;
+
+// True when the Temporal object's own (proleptic-Gregorian, hence
+// trustworthy) fields place it before the ICU cutover. Deliberately
+// NaN-tolerant rather than undefined-checking: a Temporal type that
+// lacks one of these fields (PlainMonthDay has no year, PlainYearMonth
+// no day) feeds undefined into Number(), every NaN comparison is false,
+// and the object falls out as "not before the cutover" onto its existing
+// formatting path — no undefined-specific branches to keep covered, and
+// no behavior change for field-partial types.
+function isBeforeGregorianCutover(t: TemporalLike): boolean {
+  if (t.year !== GREGORIAN_CUTOVER_YEAR) return Number(t.year) < GREGORIAN_CUTOVER_YEAR;
+  if (t.month !== GREGORIAN_CUTOVER_MONTH) return Number(t.month) < GREGORIAN_CUTOVER_MONTH;
+  return Number(t.day) < GREGORIAN_CUTOVER_DAY;
+}
+
+// Renders a locale-aware month/weekday name for a pre-cutover date
+// WITHOUT ever handing the date itself to Intl. Intl is used purely as a
+// name lookup table indexed by month/weekday number — never as the thing
+// that computes which month/weekday a historical date falls on, which is
+// the computation the Julian cutover corrupts. The number comes straight
+// off the Temporal object's own fields (proleptic-Gregorian-correct by
+// construction, since that's what Temporal is), and the name comes from
+// formatting a safe modern reference date carrying that same number.
+//
+// The reference dates are deliberately the same ones getLocaleVocab()
+// (localeVocab.ts) uses to build the parse-side vocabulary — 2020-mm-01
+// for months, the Monday-anchored 2024-01-01..07 week for weekdays — so
+// format() output for a pre-cutover date is byte-identical to what
+// parse() matches against, and round-trips keep working. partValue()
+// gives us the same adjacent-literal merging (ja-JP's "8月") the vocab
+// builder uses, for the same reason.
+function preCutoverGregorianName(
+  temporal: TemporalLike,
+  locale: string,
+  formatterOptions: Intl.DateTimeFormatOptions,
+  partType: 'month' | 'weekday'
+): string {
+  // timeZone: 'UTC' matters: the references are built via Date.UTC
+  // (midnight UTC), and without pinning the formatter's zone a host
+  // timezone behind UTC would shift them to the previous local day.
+  // month/dayOfWeek are guaranteed present — format()'s field precheck
+  // for MMMM/MMM ('month') and EEEE/EEE ('dayOfWeek') ran before the
+  // token handler was invoked at all.
+  const reference = partType === 'month'
+    ? new Date(Date.UTC(2020, temporal.month! - 1, 1))
+    : new Date(Date.UTC(2024, 0, temporal.dayOfWeek!));
+  const formatter = getFormatter(locale, { ...formatterOptions, timeZone: 'UTC' });
+  return partValue(formatter, reference, partType);
+}
+
 function intlPart(
   temporal: TemporalLike,
   locale: string,
@@ -240,6 +305,32 @@ function intlPart(
       `toLocaleString (a real Temporal object). A plain field bag cannot render ` +
       `locale-aware names — pass a Temporal.PlainDate/PlainDateTime/ZonedDateTime.`
     );
+  }
+
+  // Pre-1582 cutover guard. ICU's gregory calendar reinterprets dates
+  // before October 15, 1582 under Julian-calendar rules (see the long
+  // comment on isBeforeGregorianCutover above for the why), so for those
+  // dates Intl must never be handed the Temporal object itself — neither
+  // through formatToParts() below nor through toLocaleString() in the
+  // polyfill branch — since either route lets ICU's calendar math decide
+  // which month/weekday the date falls on, and that's exactly what the
+  // cutover corrupts. Route month/weekday name lookups through a safe
+  // modern reference date instead (preCutoverGregorianName above). Only
+  // month/weekday parts are affected: era is AD/CE either way for CE
+  // dates, and timeZoneName depends on the instant, not the calendar.
+  // Only Gregorian-shaped objects take this path — a Temporal object
+  // carrying a non-Gregorian calendar (hebrew, islamic, ...) has its
+  // month/weekday fields in that calendar already, and ICU's
+  // non-Gregorian calendars don't apply the Julian cutover at all, so
+  // feeding one through a gregory-keyed reference lookup would index the
+  // wrong month number into the wrong calendar. Custom vocabs never
+  // reach here (localeAwareName resolves them before calling intlPart).
+  if (
+    (partType === 'month' || partType === 'weekday') &&
+    formatterOptions.calendar === 'gregory' &&
+    isBeforeGregorianCutover(temporal)
+  ) {
+    return preCutoverGregorianName(temporal, locale, formatterOptions, partType);
   }
 
   // Temporal.prototype.toLocaleString() is part of the Temporal spec itself:

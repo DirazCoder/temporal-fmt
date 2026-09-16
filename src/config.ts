@@ -24,7 +24,7 @@
 // createConfig() just hands back a frozen object and that's it.
 
 import { DEFAULT_LOCALE } from './tokens.js';
-import type { NumberingSystem } from './numbering.js';
+import type { NumberingSystemOption } from './numbering.js';
 
 export interface TemporalFmtConfig {
   // BCP-47 tag, defaults to 'en-US'
@@ -34,8 +34,10 @@ export interface TemporalFmtConfig {
   calendar?: string;
   // IANA id like 'America/New_York', or leave it undefined for system tz
   timezone?: string;
-  // defaults to 'latn'
-  numberingSystem: NumberingSystem | string;
+  // defaults to 'latn'. 'auto' is accepted too — resolved per call from
+  // the effective locale via Intl (see numbering.ts), so one config can
+  // drive different digits per locale instead of pinning a single system
+  numberingSystem: NumberingSystemOption;
   // 1 = Monday, 7 = Sunday. default's 1, matches what isoWeek.ts already does
   firstDayOfWeek: 1 | 7;
   // for round()/roundDuration(), defaults to 'nearest'

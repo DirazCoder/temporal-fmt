@@ -80,7 +80,7 @@ export { formatRelative, formatRelativeToNow, type FormatRelativeOptions } from 
 export { registerLocale, type ExtendedLocaleVocab } from './localeRegistry.js';
 
 // numbering systems
-export { convertDigits, convertDigitsToAscii, applyNumbering, applyParseNumbering, SUPPORTED_NUMBERING_SYSTEMS, type NumberingSystem, type NumberingFormatOptions } from './numbering.js';
+export { convertDigits, convertDigitsToAscii, applyNumbering, applyParseNumbering, SUPPORTED_NUMBERING_SYSTEMS, type NumberingSystem, type NumberingSystemOption, type NumberingFormatOptions } from './numbering.js';
 
 // config
 export { DEFAULT_CONFIG, type TemporalFmtConfig } from './config.js';

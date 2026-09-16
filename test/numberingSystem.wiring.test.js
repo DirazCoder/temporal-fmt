@@ -112,3 +112,94 @@ test('format() and parse() options are independent: numberingSystem does not aff
   const asciiFormatted = format(date, 'yyyy-MM-dd');
   assert.equal(parse('yyyy-MM-dd', asciiFormatted, { parseNumberingSystem: 'arab' }).toString(), '2026-08-04');
 });
+
+// --- 'auto' ---
+// 'auto' asks Intl.NumberFormat(locale).resolvedOptions().numberingSystem
+// what the call's locale itself uses, instead of requiring the caller to
+// know the ICU numbering-system code. Unset (the default) still means
+// 'latn' — 'auto' is an opt-in, not a default change.
+
+test('format(): numberingSystem "auto" resolves the locale\'s native system (ar-EG -> arab)', () => {
+  // ar-EG's default numbering system is arab on every ICU/CLDR build this
+  // suite runs against — same stability class as the hardcoded month-name
+  // assertions elsewhere in the suite (e.g. 'août' for fr-FR).
+  const result = format(date, 'yyyy-MM-dd', { numberingSystem: 'auto', locale: 'ar-EG' });
+  assert.equal(result, '٢٠٢٦-٠٨-٠٤');
+});
+
+test('format(): numberingSystem "auto" with a non-arabic locale stays ASCII (en-US -> latn)', () => {
+  assert.equal(format(date, 'yyyy-MM-dd', { numberingSystem: 'auto', locale: 'en-US' }), '2026-08-04');
+});
+
+test('format(): numberingSystem "auto" with no locale defaults to en-US and stays ASCII', () => {
+  // The default locale is 'en-US' (latn), and the default numberingSystem
+  // is unchanged — 'auto' without a locale is not a way to sneak non-latn
+  // digits in, it just resolves the default locale like an explicit
+  // 'en-US' would.
+  assert.equal(format(date, 'yyyy-MM-dd', { numberingSystem: 'auto' }), '2026-08-04');
+});
+
+test('format(): numberingSystem "auto" resolves bn-BD -> beng, not just arabic', () => {
+  // Guards against an implementation that hardcodes arab as "the" native
+  // system instead of genuinely consulting Intl per locale. Full date, to
+  // match the README's bn-BD example verbatim.
+  const result = format(date, 'yyyy-MM-dd', { numberingSystem: 'auto', locale: 'bn-BD' });
+  assert.equal(result, '২০২৬-০৮-০৪');
+});
+
+test('format(): numberingSystem "auto" falls back to latn when the locale\'s native system is unsupported', () => {
+  // th-TH-u-nu-thai explicitly opts the locale into Thai digits, which
+  // this library doesn't transliterate — 'auto' must fall back to latn
+  // rather than throw (falling back is the documented contract; only a
+  // malformed locale tag throws).
+  const result = format(date, 'yyyy', { numberingSystem: 'auto', locale: 'th-TH-u-nu-thai' });
+  assert.equal(result, '2026');
+});
+
+test('format(): numberingSystem "auto" normalizes underscore locale tags like every other locale path', () => {
+  // 'ar_EG' is rejected by Intl constructors raw; the library normalizes
+  // to 'ar-EG' everywhere else (see hardening.test.js) and the auto
+  // resolution must not be the one path that forgot.
+  const result = format(date, 'yyyy', { numberingSystem: 'auto', locale: 'ar_EG' });
+  assert.equal(result, '٢٠٢٦');
+});
+
+test('format(): numberingSystem "auto" with a malformed locale throws the typed error, not a bare RangeError', () => {
+  // 'yyyy' never touches Intl.DateTimeFormat, so without the auto
+  // resolution this call would silently succeed — the malformed tag only
+  // surfaces because 'auto' actually consults Intl for the locale.
+  assert.throws(
+    () => format(date, 'yyyy', { numberingSystem: 'auto', locale: 'not a locale!' }),
+    /not a locale!/
+  );
+});
+
+test('parse(): parseNumberingSystem "auto" accepts the locale\'s native digits', () => {
+  const result = parse('yyyy-MM-dd', '٢٠٢٦-٠٨-٠٤', { parseNumberingSystem: 'auto', locale: 'ar-EG' });
+  assert.equal(result.toString(), '2026-08-04');
+});
+
+test('parse(): parseNumberingSystem "auto" with a latn locale accepts ASCII input as-is', () => {
+  const result = parse('yyyy-MM-dd', '2026-08-04', { parseNumberingSystem: 'auto', locale: 'en-US' });
+  assert.equal(result.toString(), '2026-08-04');
+});
+
+test('parse(): parseNumberingSystem "auto" with no locale defaults to en-US and accepts ASCII', () => {
+  const result = parse('yyyy-MM-dd', '2026-08-04', { parseNumberingSystem: 'auto' });
+  assert.equal(result.toString(), '2026-08-04');
+});
+
+test('round-trip: auto on both directions with a native-digit locale', () => {
+  const formatted = format(date, 'yyyy-MM-dd', { numberingSystem: 'auto', locale: 'ar-EG' });
+  assert.equal(formatted, '٢٠٢٦-٠٨-٠٤');
+  const parsed = parse('yyyy-MM-dd', formatted, { parseNumberingSystem: 'auto', locale: 'ar-EG' });
+  assert.equal(parsed.toString(), '2026-08-04');
+});
+
+test('explicit systems still work unchanged alongside auto (no default drift)', () => {
+  // The additive check: an explicit 'latn' in a locale whose native
+  // system is arab must still win — 'auto' didn't change how explicit
+  // values are handled, and unset is still latn.
+  assert.equal(format(date, 'yyyy', { numberingSystem: 'latn', locale: 'ar-EG' }), '2026');
+  assert.equal(format(date, 'yyyy', { locale: 'ar-EG' }), '2026');
+});
