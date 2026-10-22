@@ -58,7 +58,16 @@ export interface TemporalNamespace {
   PlainMonthDay?: TemporalFactory;
 }
 
-let injectedTemporal: TemporalNamespace | undefined;
+interface TemporalProviderState {
+  injectedTemporal?: TemporalNamespace;
+  onTemporalChanged: Array<() => void>;
+}
+
+const TEMPORAL_PROVIDER_STATE = Symbol.for('temporal-fmt.temporal-provider');
+const globalState = globalThis as unknown as Record<symbol, unknown>;
+const providerState = (globalState[TEMPORAL_PROVIDER_STATE] ??= {
+  onTemporalChanged: [],
+}) as TemporalProviderState;
 
 // anything caching something tied to WHICH Temporal impl is active
 // (right now just tokens.ts's native-Intl probe) registers a listener
@@ -66,10 +75,8 @@ let injectedTemporal: TemporalNamespace | undefined;
 // see setTemporal() below for why that matters. kept this as a plain
 // array instead of a full event emitter since all we need is "call
 // everyone back, in order, no payload" — didn't need unsubscribe either
-const onTemporalChanged: Array<() => void> = [];
-
 export function subscribeToTemporalChanges(listener: () => void): void {
-  onTemporalChanged.push(listener);
+  providerState.onTemporalChanged.push(listener);
 }
 
 /**
@@ -86,17 +93,17 @@ export function subscribeToTemporalChanges(listener: () => void): void {
  * setTemporal(Temporal);
  */
 export function setTemporal(temporal?: TemporalNamespace): void {
-  injectedTemporal = temporal;
+  providerState.injectedTemporal = temporal;
   // tokens.ts caches its native-Intl probe result based on whatever
   // Temporal was active the first time it ran. if that changes later
   // (native -> polyfill, say) the cached result goes stale. so just reset
   // everyone on any setTemporal() call — costs one extra probe re-run,
   // worth it to not silently use a stale answer
-  for (const listener of onTemporalChanged) listener();
+  for (const listener of providerState.onTemporalChanged) listener();
 }
 
 function resolveTemporal(): TemporalNamespace | undefined {
-  return injectedTemporal ?? (globalThis as unknown as { Temporal?: TemporalNamespace }).Temporal;
+  return providerState.injectedTemporal ?? (globalThis as unknown as { Temporal?: TemporalNamespace }).Temporal;
 }
 
 export function getTemporal(): TemporalNamespace {

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse, format, setTemporal } from '../dist/index.js';
+import { parse as legacyParse } from '../dist/legacy.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
 // setTemporal() is the only exported piece of temporalProvider.ts —
@@ -27,6 +28,19 @@ test('setTemporal() override takes priority even when globalThis.Temporal is als
     assert.equal(result.toString(), '2026-08-04');
   } finally {
     globalThis.Temporal = savedGlobal;
+    setTemporal(Temporal);
+  }
+});
+
+test('setTemporal() is shared across separately bundled package entry points', () => {
+  const savedGlobal = globalThis.Temporal;
+  delete globalThis.Temporal;
+  setTemporal(Temporal);
+  try {
+    const result = legacyParse('yyyy-MM-dd', '2026-08-04');
+    assert.equal(result.toString(), '2026-08-04');
+  } finally {
+    if (savedGlobal !== undefined) globalThis.Temporal = savedGlobal;
     setTemporal(Temporal);
   }
 });
