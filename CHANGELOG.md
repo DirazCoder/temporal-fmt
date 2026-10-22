@@ -4,6 +4,39 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.82 — 2026-10-22 (`f6d5d71`)
+
+> **0.9.80 and 0.9.81 were deprecated shortly after release.** This entry covers everything from those two versions plus 0.9.82's own fix — 0.9.82 is the correct release to use.
+
+### Restored
+
+- `matchesFormat(formatStr, input, options?)` — removed in an earlier pass, now back. Available from the package root and from `temporal-fmt/legacy` (also exported as `legacyMatchesFormat` from the root for symmetry with the other legacy re-exports). Checks whether `input` could plausibly be output from `format()` for the given format string — it checks token shape and locale vocabulary, not date validity. Kept for compatibility with existing scripts; new code should use `parse()` instead. The function is cache-backed (up to 500 compiled patterns, LRU-evicted) so repeated calls against the same format string don't recompile.
+
+### Added
+
+- `temporal-fmt/legacy` subpath — re-exports `formatToParts`, `compileFormat`, `safeParse`, `tryParse`, `parseToParts`, `compileParser`, and `matchesFormat` with plain-`Error` behavior instead of typed `TemporalFmtError`. Exists for code that still depends on `err.constructor === Error` or `err.name === 'Error'` after the 0.9.0 error-type change. These functions aren't going away, but new code that doesn't need the plain-Error contract should import from the main entry point — the typed errors carry more information and compose better with `instanceof` checks.
+- The root entry point now also re-exports the full legacy surface as `legacyFormat`, `legacyFormatToParts`, `legacyCompileFormat`, `legacyParse`, `legacySafeParse`, `legacyTryParse`, `legacyParseToParts`, `legacyCompileParser`, and `legacyMatchesFormat` — so code that only needs one or two legacy-error functions can import them without pulling in the whole `/legacy` subpath.
+
+### Removed
+
+- **Mod support** — the mod loader, sandbox, permission system, packaging tools, and mod-only runtime overrides are gone. Mods loaded and executed code from project-local files (`.tfmod` archives, `main.mjs` inside them), which was an unnecessary attack surface for a date-formatting library. Nothing the package actually does required it, and no load-time isolation made it safe. Removing it also cuts the loader, sandbox worker, wire protocol, permission manager, and mod config resolver — around 2,600 lines that had no business being here.
+- **Package CLI** (`scripts/cli.mjs`) — removed alongside mod support, which it was built around. All formatting, parsing, and other APIs are still available through the package exports as before; the CLI just isn't one of them.
+- **Release workflow** (`.github/workflows/release.yml`) — removed with the CLI, which it was publishing.
+
+### Fixed
+
+- `setTemporal()` is now shared across separately-bundled entry points (e.g. the main entry and `temporal-fmt/legacy` loaded as distinct modules in the same process). Previously, each entry point held its own `injectedTemporal` variable in module scope, so a `setTemporal()` call through one entry didn't reach the other. Fixed by hoisting the provider state onto `globalThis` under a `Symbol.for('temporal-fmt.temporal-provider')` key — all entry points share the same slot regardless of how many times the module graph instantiates them. The change also moves the change-listener array onto the same shared object, so subscribers registered through any entry point fire correctly when `setTemporal()` is called through any other. This mostly bit environments that load multiple entry points in the same process (certain test runners, some bundler configurations, and the `temporal-fmt/legacy` + main import combination) — if `setTemporal()` was working for you before, nothing changes.
+
+### Docs
+
+- Moved previous mod guides (`API_DOCS/LEVEL_1.md`, `LEVEL_2.md`, `LEVEL_3.md`, `MODS.md`) to `LEGACY_VERSION_MODS/` for historical reference. Those docs describe APIs that no longer exist in 0.9.80 and later — don't use them as current guidance. The folder will be dropped from `main` once 0.10.x ships, but stays on the `0.9.x` branch after it's cut.
+- README trimmed: removed the long rationale section, the `temporal-fmt-lite` pitch block, and several paragraphs that repeated information already in the subpath and API sections. The short description and quick-start example are unchanged; the content that was removed was background explanation that didn't help someone using the library day-to-day.
+- VERSIONS.md updated to document the mod/CLI removal and the plain-`Error` compat note for `temporal-fmt/legacy`.
+
+### Tests
+
+- `temporalProvider.test.js` gains a cross-entry-point test: `setTemporal()` called through the main entry, then `legacyParse` imported from `temporal-fmt/legacy` — verifies both use the same provider state after the globalThis fix.
+
 ## 0.9.71 — 2026-09-16 (`e3ed2af`)
 
 ### Added
