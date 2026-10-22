@@ -4,6 +4,168 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.82 — 2026-10-22 (`f6d5d71`)
+
+> **0.9.80 and 0.9.81 were deprecated shortly after release.** This entry covers everything from those two versions plus 0.9.82's own fix — 0.9.82 is the correct release to use.
+
+### Restored
+
+- `matchesFormat(formatStr, input, options?)` — removed in an earlier pass, now back. Available from the package root and from `temporal-fmt/legacy` (also exported as `legacyMatchesFormat` from the root for symmetry with the other legacy re-exports). Checks whether `input` could plausibly be output from `format()` for the given format string — it checks token shape and locale vocabulary, not date validity. Kept for compatibility with existing scripts; new code should use `parse()` instead. The function is cache-backed (up to 500 compiled patterns, LRU-evicted) so repeated calls against the same format string don't recompile.
+
+### Added
+
+- `temporal-fmt/legacy` subpath — re-exports `formatToParts`, `compileFormat`, `safeParse`, `tryParse`, `parseToParts`, `compileParser`, and `matchesFormat` with plain-`Error` behavior instead of typed `TemporalFmtError`. Exists for code that still depends on `err.constructor === Error` or `err.name === 'Error'` after the 0.9.0 error-type change. These functions aren't going away, but new code that doesn't need the plain-Error contract should import from the main entry point — the typed errors carry more information and compose better with `instanceof` checks.
+- The root entry point now also re-exports the full legacy surface as `legacyFormat`, `legacyFormatToParts`, `legacyCompileFormat`, `legacyParse`, `legacySafeParse`, `legacyTryParse`, `legacyParseToParts`, `legacyCompileParser`, and `legacyMatchesFormat` — so code that only needs one or two legacy-error functions can import them without pulling in the whole `/legacy` subpath.
+
+### Removed
+
+- **Mod support** — the mod loader, sandbox, permission system, packaging tools, and mod-only runtime overrides are gone. Mods loaded and executed code from project-local files (`.tfmod` archives, `main.mjs` inside them), which was an unnecessary attack surface for a date-formatting library. Nothing the package actually does required it, and no load-time isolation made it safe. Removing it also cuts the loader, sandbox worker, wire protocol, permission manager, and mod config resolver — around 2,600 lines that had no business being here.
+- **Package CLI** (`scripts/cli.mjs`) — removed alongside mod support, which it was built around. All formatting, parsing, and other APIs are still available through the package exports as before; the CLI just isn't one of them.
+- **Release workflow** (`.github/workflows/release.yml`) — removed with the CLI, which it was publishing.
+
+### Fixed
+
+- `setTemporal()` is now shared across separately-bundled entry points (e.g. the main entry and `temporal-fmt/legacy` loaded as distinct modules in the same process). Previously, each entry point held its own `injectedTemporal` variable in module scope, so a `setTemporal()` call through one entry didn't reach the other. Fixed by hoisting the provider state onto `globalThis` under a `Symbol.for('temporal-fmt.temporal-provider')` key — all entry points share the same slot regardless of how many times the module graph instantiates them. The change also moves the change-listener array onto the same shared object, so subscribers registered through any entry point fire correctly when `setTemporal()` is called through any other. This mostly bit environments that load multiple entry points in the same process (certain test runners, some bundler configurations, and the `temporal-fmt/legacy` + main import combination) — if `setTemporal()` was working for you before, nothing changes.
+
+### Docs
+
+- Moved previous mod guides (`API_DOCS/LEVEL_1.md`, `LEVEL_2.md`, `LEVEL_3.md`, `MODS.md`) to `LEGACY_VERSION_MODS/` for historical reference. Those docs describe APIs that no longer exist in 0.9.80 and later — don't use them as current guidance. The folder will be dropped from `main` once 0.10.x ships, but stays on the `0.9.x` branch after it's cut.
+- README trimmed: removed the long rationale section, the `temporal-fmt-lite` pitch block, and several paragraphs that repeated information already in the subpath and API sections. The short description and quick-start example are unchanged; the content that was removed was background explanation that didn't help someone using the library day-to-day.
+- VERSIONS.md updated to document the mod/CLI removal and the plain-`Error` compat note for `temporal-fmt/legacy`.
+
+### Tests
+
+- `temporalProvider.test.js` gains a cross-entry-point test: `setTemporal()` called through the main entry, then `legacyParse` imported from `temporal-fmt/legacy` — verifies both use the same provider state after the globalThis fix.
+
+## 0.9.71 — 2026-09-16 (`e3ed2af`)
+
+### Added
+- `numberingSystem` / `parseNumberingSystem` accept `'auto'` — instead of
+  hardcoding a numbering-system code, resolve whichever one the call's
+  own locale actually uses, via
+  `Intl.NumberFormat(locale).resolvedOptions().numberingSystem`. `ar-EG`
+  gets Arabic-Indic digits, `bn-BD` gets Bengali, `en-US` stays ASCII,
+  all from the same `{ numberingSystem: 'auto' }` — no per-locale
+  branching in caller code. Works identically on the parse side, and
+  through `createConfig()`: a config's `numberingSystem: 'auto'`
+  resolves per call against whichever locale that call ends up using,
+  so one config can drive different digits for different callers
+  instead of pinning a single system. When a locale's native system
+  isn't one this library can transliterate (Thai, Lao, Myanmar, ...),
+  `'auto'` falls back to `'latn'` rather than throwing — only a
+  malformed locale tag throws. Unset still means `'latn'` everywhere;
+  this is purely opt-in, existing calls are unaffected.
+- Locale-aware month/weekday tokens (`MMMM`/`MMM`/`EEEE`/`EEE`/stand-alone
+  `LLLL`/`cccc`) now render correctly for dates before the Gregorian
+  calendar's adoption. The bug: ICU's `gregory` calendar applies a
+  Julian cutover at October 15, 1582, so handing `Intl.DateTimeFormat` a
+  pre-cutover date got it silently reinterpreted under Julian rules —
+  `1500-07-05` (proleptic Gregorian, which is what `Temporal` actually
+  uses) would come back as Julian `1500-06-25`, landing on the wrong
+  month and a weekday shifted by 10 days. Numeric tokens were never
+  touched by this, since they don't go through `Intl` at all — only the
+  name lookups did. Fixed by never handing Intl the historical date in
+  the first place: the month/weekday number comes straight off
+  `Temporal`'s own proleptic-Gregorian fields, then that number gets
+  looked up against a safe modern reference date (the same reference
+  dates the locale vocab is already built from, so format output still
+  round-trips through parse). Non-Gregorian-calendar objects (Hebrew,
+  Islamic, ...) are untouched — ICU doesn't apply this cutover to them,
+  so the existing path was already correct.
+
+### Docs
+- README's old "Known limitations" section is gone — each item turned
+  out to already have a fuller writeup living elsewhere (ambiguous glued
+  tokens under Parsing, offset tokens under Offset tokens, numbering
+  systems under its own section), so the summary list was just a stale
+  duplicate. Folded a couple of gaps into those existing sections
+  instead: unpadded/separated tokens as the actual fix for parse
+  ambiguity, and why `xxx` is the one offset token that can carry a
+  sub-minute historical offset (`Europe/London` pre-1847) through
+  verbatim instead of throwing.
+
+### Tests
+- New `pre1582.test.js` pins the cutover fix — the 1582-10-04/10-14/10-15
+  boundary, BCE dates, `ZonedDateTime`, a non-Gregorian calendar object
+  left alone, and a full format/parse round-trip.
+- `numberingSystem.wiring.test.js` and the Vitest unit suite gain
+  `'auto'` coverage: `ar-EG`/`bn-BD` resolution, the `latn` fallback for
+  unsupported native systems, underscore-locale normalization, and the
+  malformed-locale error path.
+- `caches.test.js` extends its eviction stress test to a fourth cache
+  (`autoNumberingCache`), confirming `'auto'` resolution survives past
+  500 entries.
+
+## 0.9.70 — 2026-09-14 (`a91510d`)
+
+Temporal-Fmt Mod API Level 3.
+
+### Added
+- `ctx.registerFormatToken(token)` — adds a custom token into the real,
+  shared token table `format()`/`parse()` both read from, everywhere in
+  the process. `createFormatter()`'s own `options.tokens` only ever
+  affected the standalone `Formatter` object it returned; this is the
+  fix for the common case that couldn't cover — one new token (say
+  `PIRATE`) available to every `format()` call, not just callers who
+  specifically ask for one mod's own formatter. Last-write-wins by name
+  (same rule as `registerLocale`), including against a built-in token
+  name — `Mod.priority` is the tiebreak, same as every other
+  registration kind. Runs host-side like `createFormatter`'s tokens do:
+  the handler crosses the sandbox boundary as source text, gets revived
+  with `new Function`, and is checked against the original by calling
+  both with the same probe value before the mod's load is accepted.
+- `ctx.log(level, message, meta?)` — structured logging shown in the
+  load report instead of vanishing into a sandboxed mod's own stderr
+  (which isn't the terminal's — see `MODS.md`'s sandbox section). Falls
+  back to the matching `console` method when there's no load report to
+  attach to.
+- `ctx.reportIssue(issue)` — non-fatal problem reporting for a mod
+  that's degrading gracefully rather than crashing, shown next to
+  permission grants in the load report. `severity` defaults to
+  `'warning'`.
+- `"minApiLevel"` in `mod.json` — the lowest mod API level a `.tfmod`
+  needs. A mod declaring a level higher than the host provides now
+  fails cleanly at load time, before `register()` runs, naming both
+  numbers — previously this would run right up to the first missing
+  `ctx` function and fail with a raw "is not a function." A mod
+  declaring a level the host meets or exceeds loads normally; the
+  level system stays additive, same as it's always been.
+- `API_DOCS/LEVEL_3.md` — a fully self-contained guide to this level
+  (same self-contained treatment `LEVEL_1.md`/`LEVEL_2.md` already got),
+  covering everything above plus a full restatement of the sandbox,
+  permissions, load order, packaging, config, and override mechanics
+  from earlier levels, so there's no level-to-level hopping required to
+  write a Level 3 mod.
+
+### Changed
+- `ctx.hasPermission(capability)` is now typed as the literal union
+  `'fs:read' | 'fs:write' | 'child-process' | 'worker'` instead of a
+  bare `string`. A typo like `hasPermission('fs:reed')` is now a
+  compile-time error in a TypeScript-authored mod, instead of a
+  capability that silently and permanently read `false`. No runtime
+  behavior change — the check underneath still accepts (and still
+  correctly returns `false` for) anything outside the union, since a
+  loose `.mjs` mod has no compiler to catch the same mistake.
+- `createFormatter()`'s doc comments (JSDoc and `ModContext`) now
+  explicitly point at `registerFormatToken` for the "I want this token
+  everywhere" case, since that's never been something `createFormatter`
+  itself could do.
+
+### Fixed
+- `registerFormatToken` didn't actually do anything. `tokens.ts` had a
+  full mod-registration/rebuild-listener mechanism
+  (`onTokenTableChange`, `getEffectiveTokens`, `registerToken`), but
+  neither `tokenize.ts`'s token-matching table nor `format.ts`'s
+  handler lookup table ever subscribed to it — both were built once
+  from the static built-in token list at module load time and never
+  updated. A mod calling `ctx.registerFormatToken(...)` had its
+  registration silently accepted and then ignored by every `format()`
+  call. Both modules now rebuild from the live, mod-aware token table
+  whenever a registration happens; `format.ts`'s tokenize cache is also
+  cleared on rebuild, since a format string already tokenized (and
+  cached) as literal text before a token was registered would otherwise
+  never re-tokenize for the rest of the process.
+
 ## 0.9.61 — 2026-09-12 (`e8ab517`)
 
 Fixes `checkVersionRange` in `scripts/semverRange.mjs` comparing host and range versions by raw patch-number arithmetic, which misordered releases like `0.9.41` and `0.9.5` (patch 41 > patch 5 numerically, despite 0.9.5 shipping later). Comparisons are now resolved against `scripts/versions.json`, a table generated from this changelog's actual release order via `scripts/generateVersionTable.mjs`. Also adds `scripts/versions.json` to the package's published `files`, which had been omitted — installs were hitting `MODULE_NOT_FOUND` on it since `semverRange.mjs` requires it at load time.
