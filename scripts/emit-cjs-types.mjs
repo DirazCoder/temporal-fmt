@@ -16,9 +16,21 @@ const DIST_DIR = fileURLToPath(new URL('../dist/', import.meta.url));
 
 const RELATIVE_JS_IMPORT = /(from\s+['"])(\.\.?\/[^'"]+)\.js(['"])/g;
 
+async function findDeclarationFiles(directory, prefix = '') {
+  const files = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const relativePath = join(prefix, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await findDeclarationFiles(join(directory, entry.name), relativePath));
+    } else if (entry.isFile() && entry.name.endsWith('.d.ts')) {
+      files.push(relativePath);
+    }
+  }
+  return files;
+}
+
 async function main() {
-  const entries = await readdir(DIST_DIR);
-  const declarationFiles = entries.filter((name) => name.endsWith('.d.ts'));
+  const declarationFiles = await findDeclarationFiles(DIST_DIR);
 
   if (declarationFiles.length === 0) {
     throw new Error(`emit-cjs-types: no .d.ts files found in ${DIST_DIR} — did the tsc build step run first?`);

@@ -37,6 +37,16 @@
         "default": "./dist/parse.cjs"
       }
     },
+    "./legacy": {
+      "import": {
+        "types": "./dist/legacy.d.ts",
+        "default": "./dist/legacy.js"
+      },
+      "require": {
+        "types": "./dist/legacy.d.cts",
+        "default": "./dist/legacy.cjs"
+      }
+    },
     "./duration": {
       "import": {
         "types": "./dist/duration.d.ts",
@@ -114,6 +124,8 @@
     "format.d.cts",
     "parse.d.ts",
     "parse.d.cts",
+    "legacy.d.ts",
+    "legacy.d.cts",
     "duration.d.ts",
     "duration.d.cts",
     "relative.d.ts",

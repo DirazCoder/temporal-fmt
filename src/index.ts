@@ -16,6 +16,7 @@
 
 export { format, formatToParts, compileFormat, type FormattedPart, type CompiledFormat } from './format.js';
 export { parse, safeParse, tryParse, parseToParts, compileParser, type SafeParseResult, type ParsedPart, type CompiledParser } from './parse.js';
+export { format as legacyFormat, formatToParts as legacyFormatToParts, compileFormat as legacyCompileFormat, parse as legacyParse, safeParse as legacySafeParse, tryParse as legacyTryParse, parseToParts as legacyParseToParts, compileParser as legacyCompileParser, matchesFormat, matchesFormat as legacyMatchesFormat, type LegacySafeParseResult, type LegacyCompiledParser } from './legacy.js';
 export { setTemporal } from './temporalProvider.js';
 export { formatDuration } from './formatDuration.js';
 export { formatDistance, formatDistanceToNow } from './formatDistance.js';

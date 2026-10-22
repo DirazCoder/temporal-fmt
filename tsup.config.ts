@@ -9,6 +9,7 @@ export default defineConfig({
     'src/index.ts',
     'src/format.ts',
     'src/parse.ts',
+    'src/legacy.ts',
     'src/duration.ts',
     'src/relativeTime.ts',
     'src/interval.ts',

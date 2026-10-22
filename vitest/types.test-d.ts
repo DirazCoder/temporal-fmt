@@ -1,6 +1,7 @@
 import { describe, expectTypeOf, it } from 'vitest';
-import { format, parse, setTemporal } from '../src/index.js';
+import { format, matchesFormat, parse, setTemporal } from '../src/index.js';
 import type { FormatOptions, TemporalLike } from '../src/index.js';
+import * as legacy from '../src/legacy.js';
 
 // Runtime tests prove format()/parse() return the right *values*, not
 // that the exported *types* are right — a param accidentally typed
@@ -22,6 +23,27 @@ describe('format', () => {
 describe('parse', () => {
   it('returns a string, not `any` — callers should get real inference', () => {
     expectTypeOf(parse).returns.not.toBeAny();
+  });
+});
+
+describe('matchesFormat', () => {
+  it('returns a boolean for a format and input string', () => {
+    expectTypeOf(matchesFormat).parameter(0).toBeString();
+    expectTypeOf(matchesFormat).parameter(1).toBeString();
+    expectTypeOf(matchesFormat).returns.toBeBoolean();
+  });
+});
+
+describe('legacy API', () => {
+  it('keeps the same call signatures while exposing plain Error results', () => {
+    expectTypeOf(legacy.format).parameter(0).toMatchTypeOf<TemporalLike>();
+    expectTypeOf(legacy.format).returns.toBeString();
+    expectTypeOf(legacy.parse).parameter(0).toBeString();
+    expectTypeOf(legacy.matchesFormat).parameter(0).toBeString();
+    expectTypeOf(legacy.matchesFormat).returns.toBeBoolean();
+    expectTypeOf(legacy.safeParse).returns.toMatchTypeOf<
+      { ok: true; value: unknown } | { ok: false; error: Error }
+    >();
   });
 });
 

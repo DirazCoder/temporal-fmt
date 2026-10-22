@@ -6,7 +6,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { format, parse, setTemporal } = require('temporal-fmt');
+const { format, legacyMatchesFormat, matchesFormat, parse, setTemporal } = require('temporal-fmt');
+const { format: legacyFormat, parse: legacyParse } = require('temporal-fmt/legacy');
 const { Temporal } = require('temporal-polyfill/full');
 
 setTemporal(Temporal);
@@ -16,5 +17,9 @@ assert.equal(format(date, 'yyyy-MM-dd'), '2026-08-04');
 
 const parsed = parse('yyyy-MM-dd', '2026-08-04');
 assert.equal(parsed.toString(), '2026-08-04');
+assert.equal(legacyFormat(date, 'yyyy-MM-dd'), '2026-08-04');
+assert.equal(legacyParse('yyyy-MM-dd', '2026-08-04').toString(), '2026-08-04');
+assert.equal(legacyMatchesFormat('yyyy-MM-dd', '2026-08-04'), true);
+assert.equal(matchesFormat('yyyy-MM-dd', '2026-08-04'), true);
 
 console.log('smoke-require.cjs: ok');
