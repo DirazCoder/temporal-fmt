@@ -1,4 +1,8 @@
-# Mods (advanced, optional)
+# Mods (advanced, optional) — legacy documentation
+
+> Historical documentation only. Mod support was removed starting with
+> temporal-fmt 0.9.80. The interfaces and commands below are not available in
+> current versions.
 
 Most people don't need this. Mods are a feature for when you want to fix or
 tweak something in this library without forking the whole thing — not
@@ -6,10 +10,10 @@ something you're expected to reach for day to day. If you never touch
 `mods/`, nothing about normal usage changes for you.
 
 `registerLocale`, `createHolidayCalendar`, and `createFormatter` are already
-how you extend this library without forking it — the [README](./README.md)
-covers them under [Locales](./README.md#locales), [Business calendars and
-holidays](./README.md#business-calendars-and-holidays), and [Extending with
-custom tokens](./README.md#extending-with-custom-tokens). Mods are a delivery
+how you extend this library without forking it — the [README](../README.md)
+covers them under [Locales](../README.md#locales), [Business calendars and
+holidays](../README.md#business-calendars-and-holidays), and [Extending with
+custom tokens](../README.md#extending-with-custom-tokens). Mods are a delivery
 mechanism on top of those same functions: drop a file in a `mods/` folder,
 the CLI picks it up on startup and runs it. No publishing to npm, no build
 step in this repo, no manifest to register anywhere. If you've used a
@@ -25,9 +29,9 @@ can express, that's a sign to open an issue or PR the feature into the
 library itself, not to keep stretching a mod to cover it.
 
 **Building a mod isn't covered here.** For the actual API, the sandbox, and
-how to package one, see [API_DOCS/LEVEL_1.md](./API_DOCS/LEVEL_1.md),
-[API_DOCS/LEVEL_2.md](./API_DOCS/LEVEL_2.md), and
-[API_DOCS/LEVEL_3.md](./API_DOCS/LEVEL_3.md). This document is about running
+how to package one, see [LEVEL_1.md](./LEVEL_1.md),
+[LEVEL_2.md](./LEVEL_2.md), and
+[LEVEL_3.md](./LEVEL_3.md). This document is about running
 mods someone else already wrote.
 
 ## Mod API levels
@@ -36,7 +40,7 @@ Tracks the surface a mod talks to — `ModContext`, permissions, the
 subprocess boundary. Bumps independently of the package version; check
 which level a mod was built against before assuming it still works. A
 `.tfmod` can declare the lowest level it needs via `mod.json`'s
-`minApiLevel` — see [API_DOCS/LEVEL_3.md](./API_DOCS/LEVEL_3.md#declaring-the-api-level-your-mod-needs).
+`minApiLevel` — see [LEVEL_3.md](./LEVEL_3.md#declaring-the-api-level-your-mod-needs).
 
 | Level | Version | What it added |
 |---|---|---|
@@ -44,9 +48,9 @@ which level a mod was built against before assuming it still works. A
 | 2 | 0.9.6+ | Subprocess sandbox, permissions, `hasPermission`, `overrideXxx` |
 | 3 | unreleased | `registerFormatToken`, `ctx.log`, `ctx.reportIssue`, `minApiLevel` |
 
-Full details for each are in [API_DOCS/LEVEL_1.md](./API_DOCS/LEVEL_1.md),
-[API_DOCS/LEVEL_2.md](./API_DOCS/LEVEL_2.md), and
-[API_DOCS/LEVEL_3.md](./API_DOCS/LEVEL_3.md).
+Full details for each are in [LEVEL_1.md](./LEVEL_1.md),
+[LEVEL_2.md](./LEVEL_2.md), and
+[LEVEL_3.md](./LEVEL_3.md).
 
 ## Installing a mod
 
@@ -106,7 +110,7 @@ node scripts/managePermissions.mjs reset data-reader@1.0.0
 
 What each capability actually grants, and the difference between a required
 and an optional ask, is in
-[API_DOCS/LEVEL_2.md](./API_DOCS/LEVEL_2.md#permissions).
+[LEVEL_2.md](./LEVEL_2.md#permissions).
 
 ## Giving a mod settings
 

@@ -23,7 +23,7 @@ on 26+, or falling back to the Temporal implementation's own
 > **Just want `format`/`parse`, nothing else, ever?** Check out
 > [`temporal-fmt-lite`](https://github.com/DirazCoder/temporal-fmt-lite) —
 > a frozen snapshot of this library's original v0.8.2 surface: the same two
-> functions, the same locale support, no CLI/mods/recurrence/business-calendar
+> functions, the same locale support, no recurrence/business-calendar
 > weight to opt out of via subpaths, and no new tokens or exports getting
 > added later. Security and correctness fixes only, no LTS promise. If you
 > outgrow it, migrating to the full `temporal-fmt` is additive, not a rewrite.
@@ -50,7 +50,7 @@ That's the whole library for most use cases — `format(temporal, formatStr)` in
 
 Below Node 26, `Temporal` isn't global yet, so you'll need a polyfill first — see [Providing `Temporal`](#providing-temporal). On Node 26+ the snippet above just works.
 
-The package looks large on npm — locales, recurrence, business calendars, timezone disambiguation, an analyzer, config layers, a CLI — but none of that is required reading or required bundle weight. It's there behind its own subpaths for when you need it; see [Subpath imports](#subpath-imports) for the full list and [Formatting](#formatting)/[Parsing](#parsing) for the details on the two functions above.
+The package looks large on npm — locales, recurrence, business calendars, timezone disambiguation, an analyzer, config layers — but none of that is required reading or required bundle weight. It's there behind its own subpaths for when you need it; see [Subpath imports](#subpath-imports) for the full list and [Formatting](#formatting)/[Parsing](#parsing) for the details on the two functions above.
 
 ## Contents
 
@@ -75,8 +75,7 @@ The package looks large on npm — locales, recurrence, business calendars, time
 - [Config](#config)
 - [Extending with custom tokens](#extending-with-custom-tokens)
 - [IDE tooling data](#ide-tooling-data)
-- [CLI](#cli)
-- [Mods (advanced, optional)](#mods-advanced-optional) — full guide in [MODS.md](./MODS.md)
+- [Legacy mod documentation](#legacy-mod-documentation)
 - [Subpath imports](#subpath-imports)
 - [Migrating from Day.js or date-fns](#migrating-from-dayjs-or-date-fns)
 - [Related tools](#related-tools)
@@ -873,51 +872,18 @@ A handful of functions exist specifically to feed editor tooling — autocomplet
 - `getInlineDiagnostics(formatStr)` — diagnostics with position and suggested fixes for a given format string.
 - `previewFormat(formatStr, sample?)` — a live preview string for a format, given an optional sample value.
 - `getDocUrl(tokenName)` — a documentation URL for a token, currently pointing at this README's [Tokens](#tokens) section.
-- `DAYJS_TO_TEMPORAL_FMT` / `DATE_FNS_TO_TEMPORAL_FMT` — token conversion hint tables, the same ones the CLI's `translate` subcommand and any migration tooling draw from.
+`DAYJS_TO_TEMPORAL_FMT` / `DATE_FNS_TO_TEMPORAL_FMT` expose token conversion hints for migration tooling.
 
-## CLI
+## Legacy mod documentation
 
-The CLI ships in this package (`scripts/cli.mjs`) and reads/writes stdin/stdout. Run it via `npm run cli` inside a checkout of this repo, or `node scripts/cli.mjs` directly. Called with a subcommand it runs once and exits, same as any Unix tool — fine for scripts and CI:
+Starting with version **0.9.80**, mod support is entirely removed. The package
+does not discover, load, sandbox, or execute mods, and no mod loader or
+permission-management CLI is included. This also removes the package CLI.
 
-On Node 26+ the CLI uses native `Temporal` and needs nothing extra. Below that, it looks for a globally-installed [`temporal-polyfill`](https://github.com/fullcalendar/temporal-polyfill) and exits with an install hint if it can't find one — `temporal-fmt` itself ships with zero dependencies, so this one's on you: `npm install temporal-polyfill`.
-
-```sh
-temporal-fmt format "2026-08-04T15:45:30" "yyyy-MM-dd HH:mm:ss"
-temporal-fmt parse "yyyy-MM-dd" "2026-08-04"
-temporal-fmt inspect "MMMM d, yyyy 'at' h:mm a"
-temporal-fmt validate "yyyy-MM-dd HH:mm:ss"
-temporal-fmt translate dayjs "YYYY-MM-DD HH:mm:ss"
-```
-
-| Subcommand | What it does |
-|------------|---------------|
-| `format <iso-input> <format-string> [--locale=LOCALE]` | Formats an ISO date/time input against the given format string. |
-| `parse <format-string> <input> [--locale=LOCALE] [--lenient]` | Parses input against a format string, prints the resulting ISO value. |
-| `inspect <format-string>` | Prints `explainFormat`'s report on a format string. |
-| `validate <format-string>` | Prints `valid` or `invalid`. |
-| `translate <source-lib> <format-string>` | Translates a Day.js or date-fns format string to `temporal-fmt` tokens. |
-
-`translate` is implemented in-repo (`src/codemod.ts`) against the same token tables the IDE tooling data uses — no external package, no runtime dependency beyond this library itself. It throws on tokens with no `temporal-fmt` equivalent (`Do`/`P`/etc. — see the [migration table](#token-mapping)) rather than guessing.
-
-### Interactive mode
-
-Run `temporal-fmt` with no arguments to start a REPL:
-
-```
-$ temporal-fmt
-temporal-fmt interactive mode. Type a subcommand, "help", or "exit".
-temporal-fmt> format
-ISO input: 2026-08-04T15:45:30
-Format string: yyyy-MM-dd HH:mm:ss
-2026-08-04 15:45:30
-temporal-fmt> exit
-```
-
-Type a subcommand with all its arguments inline (`validate yyyy-MM-dd`) or just the subcommand name — the REPL prompts for whatever's missing, one field at a time. Errors print and the session keeps going; `exit`, `quit`, or Ctrl+D ends it. This is the same subcommand logic as one-shot mode, just wrapped in a loop that asks instead of exiting on a missing argument — one-shot stays there for scripting, and doesn't touch the REPL machinery.
-
-## Mods (advanced, optional)
-
-Mod support (0.9.4+) lets you extend or patch behavior without forking. MODS.md covers installing and running mods someone else wrote — the sandbox from the user side, permissions, load order, and what happens when a mod is broken. Writing your own mod is a separate guide, split by API level: API_DOCS/LEVEL_1.md (0.9.4–0.9.5), API_DOCS/LEVEL_2.md (0.9.6-0.9.61), and API_DOCS/LEVEL_3.md (0.9.70+).
+Historical documentation for prior versions is retained under
+[`LEGACY_VERSION_MODS/`](./LEGACY_VERSION_MODS/). It describes interfaces and
+behavior that are not available in 0.9.80 and later; do not use it as current
+usage guidance.
 
 ## Subpath imports
 
@@ -936,8 +902,6 @@ import { registerLocale } from 'temporal-fmt/locale';
 ```
 
 The rest of the API (arithmetic, comparison, rounding, intervals-adjacent helpers not listed above, business calendars, holidays, serialization, config, type guards, typed errors, the analyzer, and IDE tooling data) is only available from the main `temporal-fmt` entry point — there's no dedicated subpath for those yet.
-
-Two Node-only script subpaths exist outside the library API proper: `scripts/loadMods.mjs` (the mod loader, with its sandbox) and `scripts/modSandbox.mjs` (subprocess lifecycle for mods that installed runtime overrides). They ship in the package but aren't in the `exports` map — the loader is ESM-only and has no honest CommonJS twin, so you import them by path rather than by bare specifier. See [MODS.md](./MODS.md); most installs will never touch either.
 
 `sideEffects: false` is set in `package.json`, so a bundler with tree-shaking enabled genuinely drops what you don't import. Measured with esbuild: `import { format } from 'temporal-fmt/format'` bundles to ~27KB, versus ~68KB for the same single function pulled from the bare `temporal-fmt` entry — the main entry point re-exports everything, so anything imported from it drags the whole graph along regardless of what you actually call. If bundle size matters for your use case, import from the subpath, not the package root.
 
@@ -1037,7 +1001,7 @@ Migrate file by file, dropping the wrapper once nothing calls the old path anymo
 Neither of these ships as part of this repository — separate packages. **Both are now deprecated and archived** — single-maintainer bandwidth, no further updates — but the last published versions still work if you want them:
 
 - [`eslint-plugin-temporal-fmt`](https://www.npmjs.com/package/eslint-plugin-temporal-fmt) *(deprecated, archived)* — lints format strings for common mistakes (e.g. `hh` without `a`). This is what backed the `analyzeFormat(formatStr).warnings` check mentioned in [Introspection and the analyzer](#introspection-and-the-analyzer) — same underlying metadata, surfaced as a lint diagnostic instead of a runtime call.
-- [`temporal-fmt-codemod`](https://github.com/DirazCoder/temporal-fmt-codemod) *(deprecated, archived)* — a jscodeshift AST codemod that rewrote `dayjs(x).format(...)`/date-fns `format(...)` *call sites* across a codebase, not just format-string literals. A different job from the CLI's `translate` subcommand (see [CLI](#cli)), which only translates a format string you hand it and doesn't touch call sites; this was the option for migrating an entire codebase and rewriting the calls themselves.
+- [`temporal-fmt-codemod`](https://github.com/DirazCoder/temporal-fmt-codemod) *(deprecated, archived)* — a jscodeshift AST codemod that rewrote `dayjs(x).format(...)`/date-fns `format(...)` *call sites* across a codebase, not just format-string literals. It migrated an entire codebase and rewrote call sites rather than only translating format strings.
 
 ## Testing
 

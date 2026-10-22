@@ -119,9 +119,8 @@ export function mergeWithConfig<T extends Record<string, unknown>>(
   // & {...}` cast here previously claimed a freshly spread object was
   // still exactly T, which isn't something a spread can guarantee for an
   // arbitrary caller-supplied T — tsc rightly rejected that once this
-  // generic got exercised through a real call site (mergeWithConfig's
-  // override wrapper in modApi.ts). Nothing in this codebase currently
-  // calls mergeWithConfig and relies on getting T back rather than this
+  // generic got exercised through a real call site. Nothing in this codebase
+  // currently calls mergeWithConfig and relies on getting T back rather than this
   // wider shape, so there's no correctness cost to being honest about
   // what's actually returned.
   const extras: ConfigOverrides = {};

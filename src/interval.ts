@@ -27,7 +27,6 @@
 
 import { compare } from './comparison.js';
 import { formatToParts, format as baseFormat, type FormattedPart } from './format.js';
-import { callFormatImplBatch } from './runtime.js';
 import { asDateFieldView, type DateFieldView } from './calendarUtils.js';
 import { normalizeLocaleTag } from './localeVocab.js';
 import { daysFromCivil } from './isoWeek.js';
@@ -392,11 +391,8 @@ export function formatRange(
   // instead of "2026-08-04 – 2026-08-06".) Intl's range collapsing is
   // kept as a fallback for inputs the token path can't render.
   try {
-    // Both endpoints in one call: with a mod's format() override bridged
-    // to a subprocess, each format() is a pipe round trip, and the batch
-    // form halves that. With no override it's just the two calls this
-    // used to make.
-    const [startStr, endStr] = callFormatImplBatch([iv.start, iv.end] as Array<Parameters<typeof baseFormat>[0]>, formatStr, options);
+    const startStr = baseFormat(iv.start as Parameters<typeof baseFormat>[0], formatStr, options);
+    const endStr = baseFormat(iv.end as Parameters<typeof baseFormat>[0], formatStr, options);
     return `${startStr} – ${endStr}`;
   } catch (err) {
     // Fallback: Intl.DateTimeFormat.formatRange is the standard

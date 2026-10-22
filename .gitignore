@@ -45,7 +45,3 @@ Thumbs.db
 # Env
 .env
 .env.local
-
-# Mod tmps
-.tmp-mods-test-*
-.tmp-sandbox-test-*

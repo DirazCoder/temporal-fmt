@@ -6,9 +6,6 @@
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "temporal-fmt": "./scripts/cli.mjs"
-  },
   "exports": {
     ".": {
       "import": {
@@ -113,18 +110,6 @@
   },
   "files": [
     "dist",
-    "MODS.md",
-    "scripts/cli.mjs",
-    "scripts/loadMods.mjs",
-    "scripts/loadMods.d.mts",
-    "scripts/modConfig.mjs",
-    "scripts/semverRange.mjs",
-    "scripts/versions.json",
-    "scripts/modSandbox.mjs",
-    "scripts/modSandbox.d.mts",
-    "scripts/modWorker.mjs",
-    "scripts/modWire.mjs",
-    "scripts/managePermissions.mjs",
     "format.d.ts",
     "format.d.cts",
     "parse.d.ts",
@@ -157,7 +142,6 @@
     "test:pack": "attw --pack . && publint .",
     "test:smoke": "node smoke-test/run.mjs",
     "test:all": "npm run build && npm test && npm run test:coverage && npm run test:unit && npm run test:types && npm run test:pack && npm run test:smoke",
-    "cli": "node scripts/cli.mjs",
     "prepublishOnly": "npm run build && npm test"
   },
   "keywords": [
@@ -184,11 +168,11 @@
     "@arethetypeswrong/cli": "^0.18.5",
     "c8": "^12.0.0",
     "cross-env": "^10.1.0",
-    "publint": "^0.3.24",
-    "temporal-polyfill": "^1.0.5",
-    "tsup": "^8.5.1",
+    "publint": "^0.3.25",
+    "temporal-polyfill": "^1.0.6",
+    "tsup": "^9.0.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.5"
   },
   "overrides": {
     "esbuild": "0.28.2"
