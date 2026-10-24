@@ -4,6 +4,14 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.8.986 — 2026-10-24 (`eb23959`)
+
+### Changed
+- Dev dependency bumps: `publint` 0.3.24 → 0.3.25, `tsup` 8.5.1 → 9.0.0
+  (major — no config changes needed for this package), `vitest` 5.0.0 → 5.0.5,
+  and optional dep `temporal-polyfill` 1.0.5 → 1.0.6. No public API changes;
+  nothing about what the package exports or how it behaves at runtime is affected.
+
 ## 0.9.82 — 2026-10-22 (`f6d5d71`)
 
 > **0.9.80 and 0.9.81 were deprecated shortly after release.** This entry covers everything from those two versions plus 0.9.82's own fix — 0.9.82 is the correct release to use.
