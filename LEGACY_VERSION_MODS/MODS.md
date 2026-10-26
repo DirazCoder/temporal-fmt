@@ -1,7 +1,7 @@
 # Mods (advanced, optional) — legacy documentation
 
 > Historical documentation only. Mod support was removed starting with
-> temporal-fmt 0.9.80. The interfaces and commands below are not available in
+> temporal-fmt 0.9.82. The interfaces and commands below are not available in
 > current versions.
 
 Most people don't need this. Mods are a feature for when you want to fix or

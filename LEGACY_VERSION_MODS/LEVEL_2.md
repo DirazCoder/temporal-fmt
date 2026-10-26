@@ -1,7 +1,7 @@
 # Mod API — Level 2 (0.9.6, 0.9.61)
 
 > Historical documentation only. Mod support was removed starting with
-> temporal-fmt 0.9.80; this API is not available in current versions.
+> temporal-fmt 0.9.82; this API is not available in current versions.
 
 A mod is a file that runs `register(ctx, config)` once at load time. As of this level, that no longer means direct access to the host process — every mod runs in its own subprocess under a permission sandbox, and the only way it affects the host is through `ModContext`, serialized across the subprocess boundary. This level also adds the ability to change existing library behavior (not just add new data), per-mod user settings, and version pinning.
 

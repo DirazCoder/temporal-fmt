@@ -1,7 +1,7 @@
 # Mod API — Level 1 (0.9.4, 0.9.41, 0.9.5)
 
 > Historical documentation only. Mod support was removed starting with
-> temporal-fmt 0.9.80; this API is not available in current versions.
+> temporal-fmt 0.9.82; this API is not available in current versions.
 
 A mod is a file that runs `register(ctx, config)` once at load time. At this level, that means direct `import()` access to the host process — no sandbox, no permission checks, no subprocess boundary. A mod at this level can do anything the process running `temporal-fmt` can do.
 
