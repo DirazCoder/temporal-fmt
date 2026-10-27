@@ -18,7 +18,7 @@ For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
 ### Restored
 
-- `matchesFormat(formatStr, input, options?)` — removed in an earlier pass, now back. Available from the package root and from `temporal-fmt/legacy` (also exported as `legacyMatchesFormat` from the root for symmetry with the other legacy re-exports). Checks whether `input` could plausibly be output from `format()` for the given format string — it checks token shape and locale vocabulary, not date validity. Kept for compatibility with existing scripts; new code should use `parse()` instead. The function is cache-backed (up to 500 compiled patterns, LRU-evicted) so repeated calls against the same format string don't recompile.
+- `matchesFormat(formatStr, input, options?)` — back, same function as before 0.6.0 dropped it, not a reversal of that decision. It's a pure compatibility restore, for the same reason as the `/legacy` subpath below: the 0.9.0 error-type change broke code that checked `err.constructor === Error`, and `matchesFormat` is part of what that code needs to keep working. Its behavior isn't a byte-for-byte match of the pre-0.6.0 version — it now builds its pattern through the same `buildCapturingPattern` path `parse()` uses, so whatever's landed there since (ReDoS hardening included) applies here too. Still checks shape and locale vocabulary, not date validity, and new code should use `parse()` instead. Available from the package root and from `temporal-fmt/legacy` (also exported as `legacyMatchesFormat` from the root for symmetry with the other legacy re-exports). Cache-backed (up to 500 compiled patterns, LRU-evicted) so repeated calls against the same format string don't recompile.
 
 ### Added
 
@@ -1460,6 +1460,13 @@ Large feature pass — biggest release since 0.8.82. Highlights:
   reference-date approach — deterministic and independent of the current
   date, at the cost of being a fixed, opinionated window rather than a
   sliding one.
+
+### Removed
+- `matchesFormat()` — dropped entirely, replaced by `parse()` above. It
+  only ever checked plausibility (does this string look like it came
+  from `format()`), never validity, so it couldn't be fixed into a real
+  parser without becoming one. Anyone still on `matchesFormat()` needs
+  `parse()` and a try/catch instead of a boolean check.
 
 ## 0.5.4 — 2026-08-06 (`582536d`)
 ### Changed
