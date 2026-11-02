@@ -29,7 +29,6 @@ For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
 - **Mod support** — the mod loader, sandbox, permission system, packaging tools, and mod-only runtime overrides are gone. Mods loaded and executed code from project-local files (`.tfmod` archives, `main.mjs` inside them), which was an unnecessary attack surface for a date-formatting library. Nothing the package actually does required it, and no load-time isolation made it safe. Removing it also cuts the loader, sandbox worker, wire protocol, permission manager, and mod config resolver — around 2,600 lines that had no business being here.
 - **Package CLI** (`scripts/cli.mjs`) — removed alongside mod support, which it was built around. All formatting, parsing, and other APIs are still available through the package exports as before; the CLI just isn't one of them.
-- **Release workflow** (`.github/workflows/release.yml`) — removed with the CLI, which it was publishing.
 
 ### Fixed
 
