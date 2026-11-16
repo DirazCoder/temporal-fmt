@@ -250,21 +250,73 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
         ? [...rule.byMonth].sort((a, b) => a - b)
         : [anchor.month!];
     }
+    // For yearly rules with ordinal BYDAY but no byMonth, the ordinal
+    // counts across the whole year (RFC 5545 §3.3.10: "20MO" = the 20th
+    // Monday of the year). Search all 12 months in that case rather than
+    // only anchor.month.
+    const yearlyOrdinalAllMonths =
+      rule.frequency === 'yearly' &&
+      rule.byWeekdayOrdinal && rule.byWeekdayOrdinal.length > 0 &&
+      !(rule.byMonth && rule.byMonth.length > 0);
+
+    const searchMonths = yearlyOrdinalAllMonths
+      ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+      : months;
+
     const days: Array<{ month: number; day: number }> = [];
-    for (const m of months) {
-      const last = daysInMonthOf(year, m);
-      if (rule.byMonthDay && rule.byMonthDay.length > 0) {
-        for (const d of rule.byMonthDay) {
-          const real = d > 0 ? d : last + 1 + d;
-          if (real >= 1 && real <= last) days.push({ month: m, day: real });
+
+    if (yearlyOrdinalAllMonths) {
+      // Collect every matching weekday across the whole year, then
+      // apply the ordinal as a rank into that flat list.
+      for (const o of rule.byWeekdayOrdinal!) {
+        // Build a sorted list of all days in the year with this weekday.
+        const allMatchingDays: Array<{ month: number; day: number }> = [];
+        for (const m of searchMonths) {
+          const last = daysInMonthOf(year, m);
+          for (let d = 1; d <= last; d++) {
+            if (weekdayOf(year, m, d) === o.weekday) {
+              allMatchingDays.push({ month: m, day: d });
+            }
+          }
         }
-      } else if (rule.byWeekdayOrdinal && rule.byWeekdayOrdinal.length > 0) {
-        for (const o of rule.byWeekdayOrdinal) {
-          const real = nthWeekdayDay(year, m, o.weekday, o.ordinal);
-          if (real !== null) days.push({ month: m, day: real });
+        // Resolve the ordinal: positive counts from the front (1-based),
+        // negative from the back (-1 = last).
+        const idx = o.ordinal > 0
+          ? o.ordinal - 1
+          : allMatchingDays.length + o.ordinal;
+        const hit = allMatchingDays[idx];
+        if (hit !== undefined) days.push(hit);
+      }
+    } else {
+      for (const m of months) {
+        const last = daysInMonthOf(year, m);
+        if (rule.byMonthDay && rule.byMonthDay.length > 0) {
+          for (const d of rule.byMonthDay) {
+            const real = d > 0 ? d : last + 1 + d;
+            if (real >= 1 && real <= last) days.push({ month: m, day: real });
+          }
+        } else if (rule.byWeekdayOrdinal && rule.byWeekdayOrdinal.length > 0) {
+          // Ordinal BYDAY within a specific month (monthly freq, or yearly
+          // with byMonth constraining which months to search).
+          for (const o of rule.byWeekdayOrdinal) {
+            const real = nthWeekdayDay(year, m, o.weekday, o.ordinal);
+            if (real !== null) days.push({ month: m, day: real });
+          }
+        } else if (rule.byWeekday && rule.byWeekday.length > 0) {
+          // Plain BYDAY in monthly/yearly context: expand to every day in
+          // the period that falls on one of the named weekdays. The old
+          // code fell through to anchor.day here, which only ever emitted
+          // one candidate and left matches() to filter it — so only the
+          // anchor weekday ever appeared (every other weekday silently
+          // produced nothing).
+          for (let d = 1; d <= last; d++) {
+            if (rule.byWeekday.includes(weekdayOf(year, m, d))) {
+              days.push({ month: m, day: d });
+            }
+          }
+        } else {
+          if (anchor.day! <= last) days.push({ month: m, day: anchor.day! });
         }
-      } else {
-        if (anchor.day! <= last) days.push({ month: m, day: anchor.day! });
       }
     }
     days.sort((a, b) => a.month - b.month || a.day - b.day);

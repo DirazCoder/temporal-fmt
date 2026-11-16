@@ -434,3 +434,33 @@ test('formatRRule: round-trips through parseRRule', () => {
   assert.equal(reparsed.interval, rule.interval);
   assert.equal(reparsed.count, rule.count);
 });
+
+test('recurrence: MONTHLY plain BYDAY expands all matching weekdays in the period (issue #11)', () => {
+  // FREQ=MONTHLY;INTERVAL=2;BYDAY=TU from 1997-09-02 — RFC 5545 §3.8.5.3 example.
+  // Old code fell through to anchor.day and only ever emitted one candidate per
+  // month, so the filter saw only Tue 1997-09-02 and skipped everything else.
+  const start = Temporal.PlainDate.from('1997-09-02');
+  const rule = parseRRule('FREQ=MONTHLY;INTERVAL=2;BYDAY=TU;COUNT=10');
+  const result = take(recurrence(start, rule), 6).map(iso);
+  assert.deepEqual(result, [
+    '1997-09-02', '1997-09-09', '1997-09-16', '1997-09-23', '1997-09-30', '1997-11-04',
+  ]);
+});
+
+test('recurrence: YEARLY BYDAY with negative ordinal (-1MO = last Monday of the year)', () => {
+  // Covers the negative-ordinal branch in the yearly-ordinal-all-months path.
+  const start = Temporal.PlainDate.from('2024-01-01');
+  const rule = parseRRule('FREQ=YEARLY;BYDAY=-1MO;COUNT=3');
+  const result = take(recurrence(start, rule), 3).map(iso);
+  // Last Monday of 2024 = 2024-12-30, 2025 = 2025-12-29, 2026 = 2026-12-28.
+  assert.deepEqual(result, ['2024-12-30', '2025-12-29', '2026-12-28']);
+});
+
+test('recurrence: YEARLY ordinal BYDAY with BYMONTH uses per-month nthWeekday (not year-wide rank)', () => {
+  // BYMONTH present alongside an ordinal BYDAY → yearlyOrdinalAllMonths is false,
+  // hits the nthWeekdayDay per-month path. US Thanksgiving: 4th Thursday of November.
+  const start = Temporal.PlainDate.from('2024-01-01');
+  const rule = parseRRule('FREQ=YEARLY;BYMONTH=11;BYDAY=4TH;COUNT=3');
+  const result = take(recurrence(start, rule), 3).map(iso);
+  assert.deepEqual(result, ['2024-11-28', '2025-11-27', '2026-11-26']);
+});
