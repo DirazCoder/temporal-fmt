@@ -4,6 +4,39 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.83 — 2026-11-16 (`81fc177`)
+
+### Fixed
+
+- `recurrence()` now correctly expands `BYDAY` in `MONTHLY` and `YEARLY` rules. Two
+  separate root causes:
+  - **Plain weekdays in monthly/yearly context** (`BYDAY=TU` on a `FREQ=MONTHLY` rule):
+    `fillNextPeriod()` fell through to `anchor.day` when `byWeekday` was set but
+    `byWeekdayOrdinal` wasn't, so only the anchor date was ever emitted as a candidate.
+    `matches()` then filtered it by weekday — meaning only the anchor's own weekday
+    ever produced occurrences. Fixed by expanding every day in the period that falls on
+    a named weekday, same as `byWeekdayOrdinal` already did for ordinal entries.
+  - **Ordinal BYDAY without BYMONTH on a yearly rule** (`BYDAY=20MO` on `FREQ=YEARLY`):
+    RFC 5545 §3.3.10 says the ordinal counts across the whole year when no BYMONTH is
+    present — the 20th Monday of the year, not of a specific month. The old code searched
+    only `anchor.month`, so `nthWeekdayDay()` was looking for the 20th Monday of
+    September, which never exists, and the period came back empty every time. Fixed by
+    collecting all occurrences of the target weekday across all 12 months and resolving
+    the ordinal as a rank into that flat list.
+  - Both fixes covered by new tests: `FREQ=MONTHLY;INTERVAL=2;BYDAY=TU` and
+    `FREQ=YEARLY;BYDAY=20MO` now match the RFC 5545 §3.8.5.3 examples exactly.
+
+### Changed
+
+- Dev dependency bumps: `temporal-polyfill` 1.0.6 → 1.0.8, `vitest` 5.0.5 → 5.1.0.
+  No public API changes.
+
+## 0.8.987 — 2026-11-16 (`bbb9c09`)
+
+### Changed
+- Dev dependency bumps: `temporal-polyfill` 1.0.6 → 1.0.8, `vitest` 5.0.5 → 5.1.0.
+  No public API changes.
+
 ## 0.8.986 — 2026-10-24 (`eb23959`)
 
 ### Changed
