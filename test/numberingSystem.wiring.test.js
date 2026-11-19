@@ -758,13 +758,16 @@ test('format(): numberingSystem "auto" resolves bn-BD -> beng, not just arabic',
 });
 
 test('format(): numberingSystem "auto" falls back to latn when the locale\'s native system is unsupported', () => {
-  // zh-CN-u-nu-hans explicitly opts the locale into Simplified Chinese
-  // numerals (an algorithmic system), which this library doesn't
-  // transliterate — 'auto' must fall back to latn rather than throw
-  // (falling back is the documented contract; only a malformed locale
-  // tag throws).
-  const result = format(date, 'yyyy', { numberingSystem: 'auto', locale: 'zh-CN-u-nu-hans' });
+  // Guard against ICU changing behavior and silently skipping the
+  // unsupported-system fallback branch.
+  assert.equal(new Intl.NumberFormat('en-US-u-nu-tnsa').resolvedOptions().numberingSystem, 'tnsa');
+  const result = format(date, 'yyyy', { numberingSystem: 'auto', locale: 'en-US-u-nu-tnsa' });
   assert.equal(result, '2026');
+});
+
+test('Intl falls back to latn for zh-CN-u-nu-hans before numberingSystem "auto" resolves it', () => {
+  assert.equal(new Intl.NumberFormat('zh-CN-u-nu-hans').resolvedOptions().numberingSystem, 'latn');
+  assert.equal(format(date, 'yyyy', { numberingSystem: 'auto', locale: 'zh-CN-u-nu-hans' }), '2026');
 });
 
 test('format(): numberingSystem "auto" normalizes underscore locale tags like every other locale path', () => {
@@ -814,4 +817,3 @@ test('explicit systems still work unchanged alongside auto (no default drift)', 
   assert.equal(format(date, 'yyyy', { numberingSystem: 'latn', locale: 'ar-EG' }), '2026');
   assert.equal(format(date, 'yyyy', { locale: 'ar-EG' }), '2026');
 });
-
