@@ -148,11 +148,12 @@ test('format(): numberingSystem "auto" resolves bn-BD -> beng, not just arabic',
 });
 
 test('format(): numberingSystem "auto" falls back to latn when the locale\'s native system is unsupported', () => {
-  // th-TH-u-nu-thai explicitly opts the locale into Thai digits, which
-  // this library doesn't transliterate — 'auto' must fall back to latn
-  // rather than throw (falling back is the documented contract; only a
-  // malformed locale tag throws).
-  const result = format(date, 'yyyy', { numberingSystem: 'auto', locale: 'th-TH-u-nu-thai' });
+  // zh-CN-u-nu-hans explicitly opts the locale into Simplified Chinese
+  // numerals (an algorithmic system), which this library doesn't
+  // transliterate — 'auto' must fall back to latn rather than throw
+  // (falling back is the documented contract; only a malformed locale
+  // tag throws).
+  const result = format(date, 'yyyy', { numberingSystem: 'auto', locale: 'zh-CN-u-nu-hans' });
   assert.equal(result, '2026');
 });
 
