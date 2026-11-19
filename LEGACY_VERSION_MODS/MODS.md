@@ -46,7 +46,7 @@ which level a mod was built against before assuming it still works. A
 |---|---|---|
 | 1 | 0.9.4, 0.9.41, 0.9.5 | `register(ctx, config)`, direct process access, no sandbox |
 | 2 | 0.9.6, 0.9.61 | Subprocess sandbox, permissions, `hasPermission`, `overrideXxx` |
-| 3 | 0.9.70, 0.9.71, 0.9.82 | `registerFormatToken`, `ctx.log`, `ctx.reportIssue`, `minApiLevel` |
+| 3 | 0.9.70, 0.9.71 | `registerFormatToken`, `ctx.log`, `ctx.reportIssue`, `minApiLevel` |
 
 Full details for each are in [LEVEL_1.md](./LEVEL_1.md),
 [LEVEL_2.md](./LEVEL_2.md), and
