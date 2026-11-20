@@ -30,3 +30,34 @@ jobs:
 
       - run: npm ci
       - run: npm run test:all
+
+  browser-smoke:
+    name: Playwright ${{ matrix.browser }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      max-parallel: 9
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26
+          cache: npm
+
+      - run: npm ci
+      - run: npm install --no-save @playwright/test@latest
+      - run: npm run build
+
+      - name: Install Playwright browser and system dependencies
+        if: runner.os == 'Linux'
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Install Playwright browser
+        if: runner.os != 'Linux'
+        run: npx playwright install ${{ matrix.browser }}
+
+      - run: npm run test:browser -- --project=${{ matrix.browser }}

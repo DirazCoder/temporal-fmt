@@ -29,6 +29,10 @@ dist/
 # Test/coverage output
 coverage/
 *.tsbuildinfo
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
 
 # Package artifacts
 *.tgz
