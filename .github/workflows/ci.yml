@@ -60,4 +60,9 @@ jobs:
         if: runner.os != 'Linux'
         run: npx playwright install ${{ matrix.browser }}
 
+      - name: Run full Vitest suite in browser
+        env:
+          VITEST_BROWSER: ${{ matrix.browser }}
+        run: npm run test:browser:unit
+
       - run: npm run test:browser -- --project=${{ matrix.browser }}

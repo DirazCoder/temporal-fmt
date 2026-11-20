@@ -933,9 +933,11 @@ Both are deprecated and archived — single-maintainer bandwidth, no further upd
 
 ## Testing
 
-The suites run 3,000+ test and smoke checks across `test/`, `vitest/`, and a consumer suite. The smoke runner packs and installs the package, checks public subpaths in CJS and ESM, and runs consumer type probes with both `bundler` and `nodenext` resolution. If it's in this README, it has a test.
+The suites run 3,000+ test and smoke checks across `test/`, `vitest/`, and a consumer suite. The smoke runner packs and installs the package, checks public subpaths in CJS and ESM, and runs consumer type probes with both `bundler` and `nodenext` resolution. If it's in this README, it has a test. CI also runs the full `vitest/` suite in real browsers and a separate Playwright suite against the built package in Chromium, Firefox (Gecko), and WebKit across Linux, Windows, and macOS.
 
-Run the suites independently with `npm test` (`test/`), `npm run test:unit` (`vitest/`), and `npm run test:smoke` (`smoke-test/`). `npm run test:all` runs the full sequence used by CI, including build, type, package, and runtime checks.
+Run the suites independently with `npm test` (`test/`), `npm run test:unit` (`vitest/`), `npm run test:smoke` (`smoke-test/`), `npm run test:browser:unit` (the full Vitest suite in a browser), and `npm run test:browser` (Playwright against the built package). For browser tests locally, install the Playwright browsers first with `npx playwright install` (Linux also needs `npx playwright install-deps`). `npm run test:all` runs the Node, Vitest, type, package, and consumer smoke checks; CI additionally runs the browser matrix.
+
+CI runs the Node and package tests on Node 20, 22, 24, and 26 across Ubuntu, Windows, and macOS. The full `vitest/` suite runs in each browser/platform combination using Chromium, Firefox (Gecko), or WebKit; a separate Playwright suite tests the built `dist/` package with the latest Playwright release. Browser tests run separately from `npm run test:all`. GitHub also runs CodeQL for GitHub Actions and JavaScript/TypeScript, along with repository dependency checks.
 
 ## Conformance fixtures
 
