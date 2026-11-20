@@ -389,7 +389,13 @@ describe('TOKENS handlers: zone-name tokens (zzz / z / zzzz)', () => {
   });
 
   it('zzzz renders the generic long zone name (same string in and out of DST)', () => {
-    expect(format(utcZdt, 'zzzz')).toContain('GMT+00:00');
+    const expectedUtcName = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'UTC',
+      timeZoneName: 'longGeneric' as Intl.DateTimeFormatOptions['timeZoneName'],
+    })
+      .formatToParts(new Date('2026-08-04T12:00:00Z'))
+      .find(({ type }) => type === 'timeZoneName')?.value;
+    expect(format(utcZdt, 'zzzz')).toBe(expectedUtcName);
     expect(format(nyAugZdt, 'zzzz')).toContain('Eastern Time');
     expect(format(nyJanZdt, 'zzzz')).toContain('Eastern Time');
     expect(format(kolkataZdt, 'zzzz')).toContain('India Standard Time');
