@@ -1,5 +1,5 @@
 # Security Policy
-
+x
 ## Supported versions
 
 `temporal-fmt` doesn't have multiple major versions in active use yet — only
