@@ -4,6 +4,86 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.84 — 2026-11-20 (`8ffbfbf`)
+
+### Added
+
+- 51 more numbering systems for `numberingSystem` and `parseNumberingSystem`, 13 → 64 in
+  total (`SUPPORTED_NUMBERING_SYSTEMS` and the `NumberingSystem` type grew to match). New
+  ones include `adlm`, `thai`, `laoo`, `khmr`, `mymr`, `tibt`, `java`, `bali`, `nkoo`, `sinh` and the
+  Unicode math digit sets; the README lists all of
+  them. Contributed by @pmwmedia in #13.
+  - No digit tables were added. Digits still come from `Intl.NumberFormat` at runtime, so
+    only the allowlist got longer, and the new tests check literal digit strings
+    (`convertDigits('2026', 'adlm')` → `"𞥒𞥐𞥒𞥖"`) rather than asking Intl what it thinks.
+  - Still unsupported, on purpose: algorithmic systems (roman, hebrew, ...), which need
+    their own logic rather than a digit swap, and the newest decimal sets Intl already
+    reports (`tnsa`, `kawi`, `nagm` and 11 more). The list follows MDN's table, which
+    lags newer ICU. Locales that default to one of those still fall back to `'latn'` under
+    `'auto'`, same as before.
+
+### Changed
+
+- `numberingSystem: 'auto'` now gives native digits for locales whose default system was
+  newly added. The two you'll actually notice are Burmese and Dzongkha:
+
+  ```js
+  format(date, 'yyyy-MM-dd', { numberingSystem: 'auto', locale: 'my-MM' });
+  // 0.9.83: "2026-08-04"
+  // 0.9.84: "၂၀၂၆-၀၈-၀၄"
+  ```
+
+  Nothing changes if you don't pass `numberingSystem` (still `'latn'`), if you pass an
+  explicit system, or if the locale already resolved to a supported one (`ar-EG`, `bn-BD`,
+  `mr-IN`, ...). `th-TH`, `lo-LA` and `km-KH` also stay ASCII, because current ICU gives
+  them `latn` as their default. The README's old "Thai, Lao, Myanmar fall back to latn"
+  note is updated to match.
+
+### Fixed
+
+- `format()` threw `RangeError: Mismatched calendars` for a `PlainYearMonth` with
+  locale-aware month tokens, e.g. `format(ym, 'MMMM yyyy', { locale: 'de-DE' })` (#12).
+  Root cause: for iso8601 objects we force `calendar: 'gregory'` on the formatter so the
+  output stays anchored to ISO. `PlainDate` tolerates that, but Intl only accepts a
+  `PlainYearMonth` when the formatter's calendar equals its own exactly, and iso8601 never
+  equals gregory. An iso8601 `PlainYearMonth` is now formatted as the first of its month,
+  which has the same month and year names:
+
+  ```js
+  format(new Temporal.PlainYearMonth(1999, 12), 'MMMM yyyy', { locale: 'de-DE' });
+  // "Dezember 1999"
+  ```
+
+  Pre-1582 year-months keep going through the existing Julian-cutover lookup.
+- Every month token (`M`, `MM`, `MMM`, `MMMM`, `L`/`LLL`/`LLLL`, `Q`, `QQQ`) threw
+  `requires "month"` for a `PlainMonthDay`, even though the token metadata already listed
+  it as supported. Root cause: a `PlainMonthDay` has `monthCode` (`"M12"`) but no numeric
+  `month`, so the field check failed before any handler ran. For iso8601 and gregory the
+  month is now read from `monthCode`, and names are looked up by month number rather than
+  by handing the object to Intl, so no year is needed (Feb 29 works):
+
+  ```js
+  format(new Temporal.PlainMonthDay(12, 25), 'MMMM d', { locale: 'de-DE' }); // "Dezember 25"
+  format(new Temporal.PlainMonthDay(2, 29), 'MMMM d', { locale: 'fr-FR' });  // "février 29"
+  ```
+
+  - Still throws, by design: year tokens (a month-day has no year), and calendars whose
+    `monthCode` isn't a plain number, like hebrew `M05L`, where there's no month number
+    to show without a year.
+  - `createFormatter` with custom tokens keeps its stricter field check, so `MMMM` on a
+    `PlainMonthDay` still throws there. A custom token that reads `t.month` would otherwise
+    get `undefined`.
+- A `RangeError` from `toLocaleString` was always reported as
+  `InvalidLocaleError: "xx" is not a valid BCP-47 tag`, whatever the real cause. That's why
+  the `PlainYearMonth` bug above looked like a locale problem. `InvalidLocaleError` is now
+  thrown only when the locale really is malformed; anything else rethrows the original
+  error. This only affects runtimes without native Temporal support in Intl, since the
+  native path never mapped formatting errors to `InvalidLocaleError` in the first place.
+
+Tests: 1,532 passing with coverage still at 100%, and CI is green on Node 20, 22, 24 and 26
+across Ubuntu, Windows and macOS. 10 of the new tests cover the three fixes; the rest are
+the numbering-system tests from #13.
+
 ## 0.9.83 — 2026-11-16 (`81fc177`)
 
 ### Fixed
