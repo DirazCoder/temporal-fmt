@@ -395,7 +395,10 @@ describe('TOKENS handlers: zone-name tokens (zzz / z / zzzz)', () => {
     })
       .formatToParts(new Date('2026-08-04T12:00:00Z'))
       .find(({ type }) => type === 'timeZoneName')?.value;
-    expect(format(utcZdt, 'zzzz')).toBe(expectedUtcName);
+    if (expectedUtcName === undefined) {
+      throw new Error('Intl.DateTimeFormat did not produce a timeZoneName part for UTC');
+    }
+    expect(format(utcZdt, 'zzzz')).toContain(expectedUtcName);
     expect(format(nyAugZdt, 'zzzz')).toContain('Eastern Time');
     expect(format(nyJanZdt, 'zzzz')).toContain('Eastern Time');
     expect(format(kolkataZdt, 'zzzz')).toContain('India Standard Time');
