@@ -38,6 +38,7 @@ For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
   `mr-IN`, ...). `th-TH`, `lo-LA` and `km-KH` also stay ASCII, because current ICU gives
   them `latn` as their default. The README's old "Thai, Lao, Myanmar fall back to latn"
   note is updated to match.
+- Dev dependency bump: `vitest` 5.1.0 → 5.1.1. No public API changes.
 
 ### Fixed
 
