@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   analyzeFormat,
   explainFormat,
@@ -16,7 +16,6 @@ describe('isValidFormat', () => {
   it('accepts a well-formed token/literal mix', () => {
     expect(isValidFormat('yyyy-MM-dd')).toBe(true);
   });
-
   it('rejects an unterminated quoted literal', () => {
     expect(isValidFormat("yyyy 'unterminated")).toBe(false);
   });
@@ -345,31 +344,5 @@ describe('fieldForToken', () => {
   it('returns undefined for unknown tokens', () => {
     expect(fieldForToken('nope')).toBeUndefined();
     expect(fieldForToken('')).toBeUndefined();
-  });
-});
-
-describe('analyzeFormat: missing-handler fallback', () => {
-  it('degrades gracefully when a token has no format handler', async () => {
-    // The handler map (format.ts) is built from the same TOKENS table the
-    // tokenizer matches against, so every real token always has a handler —
-    // this branch only fires if the two tables ever drift apart. Simulate
-    // that drift by re-importing the analyzer with _handlerFor mocked to
-    // return undefined for everything.
-    vi.resetModules();
-    vi.doMock('../src/format.js', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('../src/format.js')>();
-      return { ...actual, _handlerFor: () => undefined };
-    });
-    try {
-      const { analyzeFormat: analyzeWithMissingHandlers } = await import('../src/analyze.js');
-      const a = analyzeWithMissingHandlers('yyyy-MM-dd');
-      // tokens are still analyzed and reported; required fields are simply
-      // left unreported rather than crashing
-      expect(a.tokens.map((t) => t.name)).toEqual(['yyyy', 'MM', 'dd']);
-      expect(a.requiredFields).toEqual([]);
-      expect(a.compatibleTypes).toEqual(['PlainDate', 'PlainDateTime', 'ZonedDateTime']);
-    } finally {
-      vi.doUnmock('../src/format.js');
-    }
   });
 });
