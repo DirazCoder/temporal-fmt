@@ -933,7 +933,7 @@ Both are deprecated and archived — single-maintainer bandwidth, no further upd
 
 ## Testing
 
-1400+ test cases across hand-picked scenarios, fuzzing, and adversarial input in the `node:test` suite (`test/*.test.js`), plus a separate `vitest/` suite for internals, a conformance suite, smoke tests (CJS/ESM/bundler/nodenext), and type tests. If it's in this README, it has a test.
+1500+ test cases across hand-picked scenarios, fuzzing, and adversarial input in the `node:test` suite (`test/*.test.js`), plus a separate `vitest/` suite for internals, a conformance suite, smoke tests (CJS/ESM/bundler/nodenext), and type tests. If it's in this README, it has a test.
 
 ## Conformance fixtures
 
