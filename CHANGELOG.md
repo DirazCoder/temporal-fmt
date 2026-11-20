@@ -4,6 +4,55 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.85 — 2026-11-20 (`277715a`)
+
+### Added
+
+- **Browser test suite via Playwright.** The CI matrix now runs `format.spec.mjs` in
+  Chromium, Firefox, and WebKit across Ubuntu, Windows, and macOS — 23 browsers in total.
+  Tests bundle the library with esbuild, inject it into a real page, and verify that
+  `format()` and `parse()` work end-to-end against an actual DOM runtime, not just Node.
+  New scripts: `test:browser` (Playwright) and `test:browser:unit` (Vitest browser mode).
+
+- **Expanded smoke-test suite.** The Node smoke-test runner now has a full Vitest-based
+  suite covering core formatting, duration/relative, intervals, timezone/recurrence,
+  locale output, subpath exports, and CJS require — 7 new test files alongside the
+  existing probe scripts.
+
+### Fixed
+
+- **Duck-typed Temporal values no longer crash in environments with native Intl support.**
+  `intlPart()` in `tokens.ts` was forwarding values directly to `formatToParts()` whenever
+  native Temporal support was detected, which rejects objects that have a `toLocaleString`
+  method but aren't genuine Temporal instances (the polyfill's objects, most notably). It
+  now falls back to the polyfill path for any value that carries its own `toLocaleString`,
+  which is the check that was always correct here (`Object.hasOwn(temporal, 'toLocaleString')`).
+  This was caught by the new browser suite — it only surfaces with the polyfill in
+  browser environments where native Intl Temporal support is active.
+
+- **`zzzz` token test no longer assumes a fixed UTC zone-name string.** WebKit on Windows
+  returns `"Coordinated Universal Time"` for the `longGeneric` zone name of UTC where
+  Chrome and Firefox return `"GMT+00:00"`. The test now queries `Intl.DateTimeFormat`
+  for the platform's actual string and asserts against that, rather than hardcoding the
+  Chrome/Firefox output. No library code changed — this was a test-only assumption.
+
+### Internal
+
+- **Vitest unit suite brought to 100% coverage.** 9,286 lines of new tests across 40
+  files and 258 new describe blocks — 10 files added from scratch and every existing file
+  expanded to hit previously-untested branches.
+- Coverage ignore annotations (`/* c8 ignore next @preserve */` and block variants) added
+  to unreachable defensive guards across `format.ts`, `formatDistance.ts`,
+  `formatDuration.ts`, `holidays.ts`, `legacy/matchesFormat.ts`, `localeVocab.ts`,
+  `numbering.ts`, `parse.ts`, `relativeTime.ts`, `rounding.ts`, `serialization.ts`,
+  and `tokens.ts`. All are TypeScript-narrowing guards on `Map.keys().next().value`
+  (can't be `undefined` on a non-empty map) and two dead helper functions with no call
+  sites. No behavior change — stops c8 flagging structurally-unreachable branches.
+
+Tests: CI green across all 23 browser/engine combinations (Chromium, Firefox, WebKit on
+Ubuntu, Windows, macOS) plus the full Node suite (Node 20, 22, 24, 26 × 3 OSes).
+Unit coverage holds at 100%.
+
 ## 0.9.84 — 2026-11-20 (`8ffbfbf`)
 
 ### Added
