@@ -64,6 +64,11 @@ export function createHolidayCalendar(specs: HolidaySpec[]): HolidayCalendar {
     if (list) return list;
     if (cache.size >= MAX_CACHE_YEARS) {
       const oldest = cache.keys().next().value;
+      /* c8 ignore next @preserve -- unreachable else-arm: cache holds
+         >= MAX_CACHE_YEARS entries here, and keys().next().value on a
+         non-empty Map never yields undefined (only an exhausted/empty
+         iterator does). The guard exists for TS's number | undefined
+         narrowing of the iterator result. */
       if (oldest !== undefined) cache.delete(oldest);
     }
     list = specs.map((s) => {

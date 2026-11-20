@@ -226,6 +226,11 @@ export function canonicalCacheKey(locale: string): string {
   }
   if (canonicalKeyCache.size >= MAX_CANONICAL_KEY_CACHE) {
     const oldestKey = canonicalKeyCache.keys().next().value;
+    /* c8 ignore next @preserve -- unreachable else-arm: canonicalKeyCache
+       holds >= MAX_CANONICAL_KEY_CACHE entries here, and keys().next().value
+       on a non-empty Map never yields undefined (only an exhausted/empty
+       iterator does). The guard exists for TS's string | undefined
+       narrowing of the iterator result. */
     if (oldestKey !== undefined) canonicalKeyCache.delete(oldestKey);
   }
   canonicalKeyCache.set(locale, key);

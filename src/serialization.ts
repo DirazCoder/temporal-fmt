@@ -36,6 +36,13 @@ import { FormatSyntaxError, InvalidDateError } from './errors.js';
 // the fields the standard format carries. Throws on construction errors
 // (Feb 30, etc.) wrapped in InvalidDateError so callers get the typed
 // error surface.
+/* c8 ignore start @preserve -- dead code: constructFromFields and
+   buildISOFromFields have no call sites anywhere in src/ (the public
+   parseISO/parseRFC3339/... functions construct their Temporal objects
+   inline) and neither is exported, so no test or consumer can reach
+   them. Verified by repo-wide search: the only references are these two
+   definitions and constructFromFields' internal call to
+   buildISOFromFields. */
 function constructFromFields(fields: Record<string, unknown>, kind: 'PlainDate' | 'PlainDateTime' | 'ZonedDateTime' | 'Instant'): unknown {
   const temporal = getTemporal();
   try {
@@ -74,6 +81,7 @@ function buildISOFromFields(fields: Record<string, unknown>): string {
   const tz = typeof fields.timeZone === 'string' ? fields.timeZone : 'Z';
   return `${y}-${m}-${d}${h}${min}${sec}${frac}${tz}`;
 }
+/* c8 ignore stop @preserve */
 
 // ISO 8601 is the most permissive of the standards here — accepts
 // calendar dates, week dates, ordinal dates, times with optional
@@ -101,6 +109,10 @@ export function parseISO(input: string): unknown {
           iso = iso.slice(0, -1) + '+00:00[UTC]';
         } else {
           const offsetMatch = /([+-]\d{2}:?\d{2})$/.exec(iso);
+          /* c8 ignore next @preserve -- unreachable else-arm: this branch
+             only runs when the offset-suffix test above matched, and `iso`
+             is still the unmutated `input` here, so the identical regex
+             always matches — offsetMatch can't be null. */
           if (offsetMatch) {
             iso = `${iso}[${offsetMatch[1]}]`;
           }

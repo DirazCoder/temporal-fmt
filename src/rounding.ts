@@ -115,6 +115,11 @@ function fromMs(ms: number, base: DateTimeFieldView): DateTimeFieldView {
   return { ...base, year, month: m, day: d, hour, minute, second, millisecond };
 }
 
+/* c8 ignore start @preserve -- dead code: shiftDays has no call sites in
+   this module (round() computes via toMs/fromMs; floor/ceil/truncate
+   delegate to round; the shiftDays callers live in arithmetic.ts, which
+   has its own private copy). Not exported, so no test or consumer can
+   reach it. */
 function shiftDays(v: DateTimeFieldView, days: number): DateTimeFieldView {
   // daysFromCivil (isoWeek.ts): O(1) and correct for negative years —
   // the forward era previously inlined here (Math.floor of Hinnant's
@@ -134,6 +139,7 @@ function shiftDays(v: DateTimeFieldView, days: number): DateTimeFieldView {
   const yOut = m2out <= 2 ? y2out + 1 : y2out;
   return { ...v, year: yOut, month: m2out, day: d2 };
 }
+/* c8 ignore stop @preserve */
 
 export interface RoundOptions {
   unit: RoundingUnit;

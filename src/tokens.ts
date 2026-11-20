@@ -148,6 +148,11 @@ function getFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl
   if (formatterCache.size >= MAX_CACHE_SIZE) {
     // not real LRU, just evicts oldest insertion — fine for this key space
     const oldestKey = formatterCache.keys().next().value;
+    /* c8 ignore next @preserve -- unreachable else-arm: formatterCache holds
+       >= MAX_CACHE_SIZE entries here, and keys().next().value on a non-empty
+       Map never yields undefined (only an exhausted/empty iterator does).
+       The guard exists for TS's string | undefined narrowing of the
+       iterator result. */
     if (oldestKey !== undefined) formatterCache.delete(oldestKey);
   }
   try {
@@ -397,7 +402,10 @@ function intlPart(
   // between Node versions for that reason; that's expected, not a
   // regression.
   /* c8 ignore start */
-  if (!intlSupportsNativeTemporal()) {
+  // Native Intl support only applies to genuine Temporal instances. A
+  // duck-typed value may provide its own toLocaleString implementation but
+  // still be rejected by formatToParts() as an invalid Date value.
+  if (!intlSupportsNativeTemporal() || Object.hasOwn(temporal, 'toLocaleString')) {
     // normalizeLocaleTag: the active Temporal implementation's
     // toLocaleString forwards the locale to Intl.DateTimeFormat, which
     // (unlike this library's cache keys) rejects underscore-separated

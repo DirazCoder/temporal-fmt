@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SUPPORTED_NUMBERING_SYSTEMS, convertDigits, convertDigitsToAscii, applyNumbering, applyParseNumbering } from '../src/numbering.js';
+import { InvalidLocaleError } from '../src/errors.js';
 
 describe('convertDigits / convertDigitsToAscii', () => {
   it('latn to latn is identity', () => {
@@ -387,6 +388,32 @@ describe('convertDigits / convertDigitsToAscii', () => {
   it('throws on an unsupported numbering system', () => {
     expect(() => convertDigits('1', 'madeup')).toThrow(/not supported/);
   });
+
+  it('passes non-digit characters through untouched in both directions', () => {
+    // line 167-168: the else branch of convertDigits' digit test
+    expect(convertDigits('2026-01-15 12:30', 'arab')).toBe('٢٠٢٦-٠١-١٥ ١٢:٣٠');
+    // binary-expr line 194: reverse[ch] ?? ch — the '-', ' ' and ':' aren't in
+    // the reverse map, so the ?? fallback fires on the way back to ASCII
+    expect(convertDigitsToAscii('٢٠٢٦-٠١-١٥ ١٢:٣٠', 'arab')).toBe('2026-01-15 12:30');
+  });
+
+  it('leaves a digit-free string unchanged in either direction', () => {
+    expect(convertDigits('no digits here!', 'thai')).toBe('no digits here!');
+    expect(convertDigitsToAscii('no digits here!', 'thai')).toBe('no digits here!');
+  });
+
+  it('converts every ASCII digit 0-9, plus decimals and minus signs', () => {
+    expect(convertDigits('0123456789', 'deva')).toBe('०१२३४५६७८९');
+    // '-' and '.' aren't digits, so they pass through around the converted ones
+    expect(convertDigits('-3.14', 'beng')).toBe('-৩.১৪');
+    expect(convertDigitsToAscii('-৩.১৪', 'beng')).toBe('-3.14');
+  });
+
+  it('throws on an unsupported numbering system in convertDigitsToAscii too', () => {
+    // line 185-186: the parse-side twin of convertDigits' supported-set guard
+    expect(() => convertDigitsToAscii('1', 'madeup')).toThrow(InvalidLocaleError);
+    expect(() => convertDigitsToAscii('1', 'madeup')).toThrow(/not supported/);
+  });
 });
 
 describe('SUPPORTED_NUMBERING_SYSTEMS', () => {
@@ -428,5 +455,40 @@ describe('applyNumbering / applyParseNumbering', () => {
   it('"auto" resolves on the parse side too', () => {
     expect(applyParseNumbering(convertDigits('2026', 'arab'), { parseNumberingSystem: 'auto', locale: 'ar-EG' })).toBe('2026');
     expect(applyParseNumbering('2026', { parseNumberingSystem: 'auto' })).toBe('2026');
+  });
+
+  it('an undefined system on the parse side stays latn (direct-call safety net)', () => {
+    // resolveRequestedSystem's undefined branch, reached from a direct
+    // applyParseNumbering call that isn't pre-guarded by parse()
+    expect(applyParseNumbering('2026', {})).toBe('2026');
+  });
+
+  it("throws a typed error when 'auto' is asked to resolve from a malformed locale", () => {
+    // line 100: resolveAutoNumberingSystem wraps Intl.NumberFormat's
+    // RangeError in a typed InvalidLocaleError
+    expect(() => applyNumbering('2026', { numberingSystem: 'auto', locale: 'not_a_locale!!' })).toThrow(
+      InvalidLocaleError,
+    );
+    expect(() => applyParseNumbering('2026', { parseNumberingSystem: 'auto', locale: 'not_a_locale!!' })).toThrow(
+      InvalidLocaleError,
+    );
+  });
+
+  it('caches per-locale auto resolutions', () => {
+    // line 95: the second resolution for ar-SA is a cache hit
+    expect(applyNumbering('2026', { numberingSystem: 'auto', locale: 'ar-SA' })).toBe('٢٠٢٦');
+    expect(applyNumbering('2026', { numberingSystem: 'auto', locale: 'ar-SA' })).toBe('٢٠٢٦');
+  });
+
+  it('evicts the oldest auto-resolution entry once 500 locales are cached', () => {
+    // lines 103-106: bounded autoNumberingCache. Push past 500 distinct
+    // locales; every resolution must still be correct afterwards (evicted
+    // entries just get re-derived).
+    for (let i = 0; i < 505; i++) {
+      expect(applyNumbering('2026', { numberingSystem: 'auto', locale: `en-x-n${i}` })).toBe('2026');
+    }
+    // 'ar-EG' was cached by earlier tests in this file and is therefore among
+    // the oldest entries — it got evicted, so this re-resolves from scratch.
+    expect(applyNumbering('2026', { numberingSystem: 'auto', locale: 'ar-EG' })).toBe('٢٠٢٦');
   });
 });

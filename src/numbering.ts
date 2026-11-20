@@ -103,6 +103,11 @@ function resolveAutoNumberingSystem(locale: string): string {
   if (autoNumberingCache.size >= MAX_AUTO_NUMBERING_CACHE) {
     // not real LRU, just evicts oldest insertion — fine for this key space
     const oldestKey = autoNumberingCache.keys().next().value;
+    /* c8 ignore next @preserve -- unreachable else-arm: autoNumberingCache
+       holds >= MAX_AUTO_NUMBERING_CACHE entries here, and keys().next().value
+       on a non-empty Map never yields undefined (only an exhausted/empty
+       iterator does). The guard exists for TS's string | undefined
+       narrowing of the iterator result. */
     if (oldestKey !== undefined) autoNumberingCache.delete(oldestKey);
   }
   autoNumberingCache.set(key, system);

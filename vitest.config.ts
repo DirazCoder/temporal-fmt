@@ -9,14 +9,24 @@ export default defineConfig({
     typecheck: {
       include: ['vitest/**/*.test-d.ts'],
     },
-    // Coverage is measured separately via `npm run test:coverage`, using
-    // c8 directly against `node --test` (see package.json). vitest's own
-    // coverage provider only instruments what vitest itself runs — this
-    // suite's format.ts/parse.ts paths are almost entirely exercised by
-    // node --test against dist/ instead, so vitest coverage numbers here
-    // would report those files as ~0% covered when they're closer to
-    // fully covered; the config block below is left out to avoid that
-    // misleading number showing up if someone runs `vitest --coverage`
-    // directly.
+    // Coverage for THIS suite is its own pipeline, fully independent of
+    // the c8-based `npm run test:coverage` (which measures node --test
+    // against dist/). The vitest suite must cover src/ on its own.
+    // Provider 'v8' resolves to @vitest/coverage-v8 (devDependency);
+    // `npx vitest run --coverage` enforces the 100% thresholds below.
+    // While iterating on one module, scope the run, e.g.:
+    //   npx vitest run vitest/parse.unit.test.ts \
+    //     --coverage --coverage.include='src/parse.ts'
+    coverage: {
+      provider: 'v8',
+      include: ['src/**'],
+      reporter: ['text', 'text-summary'],
+      thresholds: {
+        statements: 100,
+        branches: 100,
+        functions: 100,
+        lines: 100,
+      },
+    },
   },
 });

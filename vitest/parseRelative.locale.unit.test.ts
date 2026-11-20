@@ -167,4 +167,37 @@ describe('parseRelative: locale routing', () => {
     expect(asIso(parseRelative('today', REFERENCE, { locale: 'it-IT' }))).toBe('2026-08-04');
     expect(asIso(parseRelative('today', REFERENCE, { locale: 'pt-BR' }))).toBe('2026-08-04');
   });
+
+  it('falls back to the English grammar when Intl.Locale rejects the tag outright', () => {
+    // Covers both the grammarForLocale and languageOf catch blocks.
+    expect(asIso(parseRelative('today', REFERENCE, { locale: 'not a locale!' }))).toBe('2026-08-04');
+  });
+});
+
+// ---------------------------------------------------------------------
+// Coverage additions: remaining Spanish shapes ("dentro de N X",
+// trailing "hace", tilde-less "manana") and German year units.
+
+describe('parseRelative: Spanish grammar — remaining shapes', () => {
+  it('"dentro de 3 días" resolves as a future unit offset', () => {
+    expect(asIso(parseRelative('dentro de 3 días', REFERENCE, { locale: 'es-ES' }))).toBe('2026-08-07');
+  });
+
+  it('trailing-marker past shape "2 semanas hace" resolves as past', () => {
+    expect(asIso(parseRelative('2 semanas hace', REFERENCE, { locale: 'es-ES' }))).toBe('2026-07-21');
+  });
+
+  it('tilde-less "manana" matches the "mañana" pattern', () => {
+    expect(asIso(parseRelative('manana', REFERENCE, { locale: 'es-ES' }))).toBe('2026-08-05');
+  });
+});
+
+describe('parseRelative: German grammar — year units', () => {
+  it('"in 3 Jahren" resolves as +3 years (Jahr branch of the unit-word mapping)', () => {
+    expect(asIso(parseRelative('in 3 Jahren', REFERENCE, { locale: 'de-DE' }))).toBe('2029-08-04');
+  });
+
+  it('"vor 2 Jahren" resolves as -2 years', () => {
+    expect(asIso(parseRelative('vor 2 Jahren', REFERENCE, { locale: 'de-DE' }))).toBe('2024-08-04');
+  });
 });

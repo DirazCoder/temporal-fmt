@@ -933,7 +933,9 @@ Both are deprecated and archived — single-maintainer bandwidth, no further upd
 
 ## Testing
 
-1500+ test cases across hand-picked scenarios, fuzzing, and adversarial input in the `node:test` suite (`test/*.test.js`), plus a separate `vitest/` suite for internals, a conformance suite, smoke tests (CJS/ESM/bundler/nodenext), and type tests. If it's in this README, it has a test.
+The suites run 3,000+ test and smoke checks across `test/`, `vitest/`, and a consumer suite. The smoke runner packs and installs the package, checks public subpaths in CJS and ESM, and runs consumer type probes with both `bundler` and `nodenext` resolution. If it's in this README, it has a test.
+
+Run the suites independently with `npm test` (`test/`), `npm run test:unit` (`vitest/`), and `npm run test:smoke` (`smoke-test/`). `npm run test:all` runs the full sequence used by CI, including build, type, package, and runtime checks.
 
 ## Conformance fixtures
 
@@ -994,7 +996,7 @@ npm run build
 npm run test:all
 ```
 
-`npm test` runs only the `node:test` suite — it doesn't touch `vitest/`, which unit-tests internals directly. Run `npm run test:all` for everything CI runs (build + type tests + both suites).
+`npm test` runs only the classic `node:test` suite; it does not run `vitest/` or the packed-package smoke suite. Run `npm run test:all` for everything CI runs (build + both unit suites + package/type checks + smoke suite).
 
 Build notes if you're touching the toolchain:
 

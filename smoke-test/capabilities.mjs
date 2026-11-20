@@ -4,12 +4,9 @@
 // utilities, date arithmetic, comparison helpers, and the analyzer
 // integration in the ESLint plugin.
 //
-// Distinct from the existing smoke-test/run.mjs (which exercises the
-// package's install/resolution/types shape as a real consumer would):
-// this one is about API surface coverage, not packaging. Runs against
-// the local dist/ build, not a packed tarball.
-//
-// Run with: node smoke-test/capabilities.mjs
+// Broad API-level smoke coverage. The smoke runner copies this probe into
+// its throwaway consumer project, so these checks run against the packed
+// package rather than source files or the local dist/ directory.
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 import {
   format, formatToParts, compileFormat,
@@ -29,7 +26,7 @@ import {
   isToday, isTomorrow, isYesterday, isSameDay, isSameMonth, isSameYear,
   isWeekend, isWeekday,
   setTemporal,
-} from '../dist/index.js';
+} from 'temporal-fmt';
 
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 setTemporal(Temporal);

@@ -196,6 +196,11 @@ function appendLiteral(pieces: Array<Piece & { unit?: string }>, value: string):
   }
 }
 
+/* c8 ignore start @preserve -- dead code: findNextLiteralStart has no call
+   sites (it is a leftover helper from the removed indexOf-based
+   formatDurationToParts implementation — see the module comment above) and
+   is not exported, so no test or consumer can reach it. Verified by
+   repo-wide search: the only reference is this definition. */
 function findNextLiteralStart(
   tokens: Array<Piece & { unit?: string }>,
   _currentTok: Piece & { unit?: string },
@@ -222,6 +227,7 @@ function findNextLiteralStart(
   }
   return full.length;
 }
+/* c8 ignore stop @preserve */
 
 // ISO 8601 duration format: P[n]Y[n]M[n]W[n]DT[n]H[n]M[n]S
 // Parses a duration-format string (the tokenized format formatDuration

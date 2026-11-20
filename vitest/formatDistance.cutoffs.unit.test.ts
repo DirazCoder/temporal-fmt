@@ -162,3 +162,30 @@ describe('formatDistance cutoffs: option independence', () => {
     expect(formatDistance(in10d, today, { numeric: 'always', cutoffs: { days: 7 } })).toMatch(/month/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Branch-coverage additions (task 3-e). Cases above are untouched.
+// ---------------------------------------------------------------------------
+
+// The monotonicity check in resolveCutoffs ANDs four inequalities
+// (seconds ≤ minutes ≤ hours ≤ days ≤ months); the pre-existing tests only
+// invert the first one. These three invert each of the remaining pairs.
+describe('formatDistance cutoffs: remaining monotonicity boundary inversions', () => {
+  it('rejects minutes expressed larger than the hours boundary', () => {
+    // 1500min = 25h, which overshoots the default 24h hours cutoff
+    expect(() => formatDistance(date(2026, 8, 5), date(2026, 8, 4), { cutoffs: { minutes: 1500 } }))
+      .toThrow(/non-decreasing in equivalent ms/);
+  });
+
+  it('rejects hours expressed larger than the days boundary', () => {
+    // 721h overshoots the default 30d (=720h) days cutoff
+    expect(() => formatDistance(date(2026, 8, 5), date(2026, 8, 4), { cutoffs: { hours: 721 } }))
+      .toThrow(/non-decreasing in equivalent ms/);
+  });
+
+  it('rejects days expressed larger than the months boundary', () => {
+    // 400d overshoots the default 365d months cutoff
+    expect(() => formatDistance(date(2026, 8, 5), date(2026, 8, 4), { cutoffs: { days: 400 } }))
+      .toThrow(/non-decreasing in equivalent ms/);
+  });
+});

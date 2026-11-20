@@ -34,6 +34,7 @@ function getPieces(formatStr: string): Piece[] {
   if (pieces) return pieces;
   if (tokenizeCache.size >= MAX_TOKENIZE_CACHE_SIZE) {
     const oldestKey = tokenizeCache.keys().next().value;
+    /* c8 ignore next @preserve -- unreachable else-arm: tokenizeCache holds >= 500 entries here, so keys().next().value is never undefined (empty-map-only result). Guard kept for TS narrowing. */
     if (oldestKey !== undefined) tokenizeCache.delete(oldestKey);
   }
   pieces = tokenize(formatStr);

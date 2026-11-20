@@ -15,6 +15,7 @@ import { spawnSync } from 'node:child_process';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PROBES_DIR = fileURLToPath(new URL('./probes', import.meta.url));
+const SUITE_DIR = fileURLToPath(new URL('./suite', import.meta.url));
 
 // npm/npx are .cmd shims on Windows, not real executables — spawnSync()
 // can't invoke one directly without going through the shell. shell:true
@@ -105,6 +106,13 @@ try {
   const flatProbes = readdirSync(PROBES_DIR, { withFileTypes: true })
     .filter((entry) => entry.isFile())
     .map((entry) => entry.name);
+  const suiteFiles = readdirSync(SUITE_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.test.mjs'))
+    .map((entry) => entry.name)
+    .sort();
+  if (suiteFiles.length === 0) {
+    throw new Error(`smoke-test: no .test.mjs files found in ${SUITE_DIR}`);
+  }
 
   // --- Main project: ESM-default ("type": "module"), npm install ---
   const projectDir = join(scratchDir, 'project');
@@ -124,13 +132,17 @@ try {
   for (const name of flatProbes) {
     cpSync(join(PROBES_DIR, name), join(projectDir, name));
   }
+  cpSync(fileURLToPath(new URL('./capabilities.mjs', import.meta.url)), join(projectDir, 'capabilities.mjs'));
+  cpSync(SUITE_DIR, join(projectDir, 'suite'), { recursive: true });
 
-  console.log('\nsmoke-test: running probes (npm, ESM-default project)\n');
+  console.log('\nsmoke-test: running suite and consumer probes (npm, ESM-default project)\n');
 
   run('node', ['smoke-require.cjs'], { cwd: projectDir });
   run('node', ['smoke-import.mjs'], { cwd: projectDir });
   run('node', ['smoke-deep-import-blocked.cjs'], { cwd: projectDir });
   run('node', ['smoke-no-temporal.cjs'], { cwd: projectDir });
+  run('node', ['--test', ...suiteFiles.map((name) => join('suite', name))], { cwd: projectDir });
+  run('node', ['capabilities.mjs'], { cwd: projectDir });
 
   // TS moduleResolution: "bundler" mirrors the mode attw's "bundler" row
   // checks — the most common real-world consumer setup. "nodenext" is
@@ -192,7 +204,7 @@ try {
     console.log('\nsmoke-test: pnpm not found, skipping pnpm resolution probe');
   }
 
-  console.log('\nsmoke-test: all probes passed');
+  console.log('\nsmoke-test: full suite and consumer probes passed');
 } finally {
   rmSync(scratchDir, { recursive: true, force: true });
 }

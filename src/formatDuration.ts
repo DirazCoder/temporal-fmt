@@ -186,6 +186,11 @@ function getUnitFormatter(locale: string, intlUnit: string, unitDisplay: 'short'
   if (cached) return cached;
   if (unitFormatterCache.size >= MAX_UNIT_FORMATTER_CACHE_SIZE) {
     const oldestKey = unitFormatterCache.keys().next().value;
+    /* c8 ignore next @preserve -- unreachable else-arm: unitFormatterCache
+       holds >= MAX_UNIT_FORMATTER_CACHE_SIZE entries here, and
+       keys().next().value on a non-empty Map never yields undefined (only an
+       exhausted/empty iterator does). The guard exists for TS's
+       string | undefined narrowing of the iterator result. */
     if (oldestKey !== undefined) unitFormatterCache.delete(oldestKey);
   }
   let formatter: Intl.NumberFormat;

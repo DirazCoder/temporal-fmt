@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { isoWeekYearAndWeek, dayOfYear, isGregorianLeapYear } from '../src/isoWeek.js';
+import { Temporal } from 'temporal-polyfill/full';
+import { setTemporal } from '../src/temporalProvider.js';
+import {
+  isoWeekYearAndWeek,
+  dayOfYear,
+  isGregorianLeapYear,
+  daysFromCivil,
+  dayOfWeekFromCivil,
+} from '../src/isoWeek.js';
+
+setTemporal(Temporal);
 
 // node --test exercises isoWeekYearAndWeek indirectly through format()'s
 // `ww` and `RRRR` tokens, but only at a handful of boundary dates.
@@ -119,5 +129,88 @@ describe('isoWeekYearAndWeek', () => {
         }
       }
     }
+  });
+
+  it('week is in range for Dec 29-31 too (the sweep above stops at day 28)', () => {
+    // Dec 29-31 are exactly the dates whose Thursday-of-week can land in
+    // the NEXT calendar year — the sweep above never reaches them.
+    for (const year of [2020, 2021, 2024, 2025, 2026]) {
+      for (const day of [29, 30, 31]) {
+        const refJan1Dow = (() => {
+          // Jan 1, 2020 was a Wednesday (dow=3). Sum days in intervening years.
+          let dow = 3;
+          for (let y = 2020; y < year; y++) {
+            dow = ((dow - 1 + (isGregorianLeapYear(y) ? 366 : 365)) % 7 + 7) % 7 + 1;
+          }
+          return dow;
+        })();
+        const doy = dayOfYear(year, 12, day);
+        const dow = ((refJan1Dow - 1 + (doy - 1)) % 7 + 7) % 7 + 1;
+        const { week, isoYear } = isoWeekYearAndWeek(year, 12, day, dow);
+        expect(week).toBeGreaterThanOrEqual(1);
+        expect(week).toBeLessThanOrEqual(53);
+        expect(isoYear).toBeGreaterThanOrEqual(year);
+        expect(isoYear).toBeLessThanOrEqual(year + 1);
+      }
+    }
+  });
+
+  it('Dec 29-31 whose Thursday lands in the NEXT year shift ISO year forward (non-leap)', () => {
+    // 2026-01-01 is a Thursday, so the Mon-Wed of 2025-12-29..31 belong
+    // to 2026-W01 — the `thursdayDoyRelative > daysInYear(year)` branch.
+    expect(isoWeekYearAndWeek(2025, 12, 29, 1)).toEqual({ isoYear: 2026, week: 1 });
+    expect(isoWeekYearAndWeek(2025, 12, 30, 2)).toEqual({ isoYear: 2026, week: 1 });
+    expect(isoWeekYearAndWeek(2025, 12, 31, 3)).toEqual({ isoYear: 2026, week: 1 });
+  });
+
+  it('same forward shift in a leap (366-day) year', () => {
+    // 2009-01-01 was a Thursday; 2008-12-29/30 (Mon/Tue) are 2009-W01.
+    expect(isoWeekYearAndWeek(2008, 12, 29, 1)).toEqual({ isoYear: 2009, week: 1 });
+    expect(isoWeekYearAndWeek(2008, 12, 30, 2)).toEqual({ isoYear: 2009, week: 1 });
+  });
+
+  it('Jan 3 of a leap year can still belong to the previous ISO year', () => {
+    // 2016-01-03 was a Sunday; its Thursday is 2015-12-31 → 2015-W53.
+    expect(isoWeekYearAndWeek(2016, 1, 3, 7)).toEqual({ isoYear: 2015, week: 53 });
+  });
+
+  it('0001-01-01 (proleptic Monday) is week 1 of ISO year 1', () => {
+    expect(isoWeekYearAndWeek(1, 1, 1, 1)).toEqual({ isoYear: 1, week: 1 });
+  });
+});
+
+describe('daysFromCivil', () => {
+  it('anchors to the Unix epoch and other known day counts', () => {
+    expect(daysFromCivil(1970, 1, 1)).toBe(0);
+    expect(daysFromCivil(2000, 1, 1)).toBe(10957); // 30 years incl. 7 leap days
+    expect(daysFromCivil(1, 1, 1)).toBe(-719162); // JDN 1721426 → 2440588
+    expect(daysFromCivil(1969, 12, 31)).toBe(-1);
+    expect(daysFromCivil(1970, 1, 2)).toBe(1);
+  });
+
+  it('uses floor division so negative (BCE) years stay continuous', () => {
+    // -0001-12-31 is 367 days before 0001-01-01 (year 0 is leap, 366 days).
+    expect(daysFromCivil(-1, 12, 31)).toBe(-719529);
+    expect(daysFromCivil(-1, 12, 31) - daysFromCivil(1, 1, 1)).toBe(-367);
+    // Jan/Feb belong to the previous "era year" (month <= 2 shifts year).
+    expect(daysFromCivil(0, 1, 1) - daysFromCivil(-1, 12, 31)).toBe(1);
+  });
+});
+
+describe('dayOfWeekFromCivil', () => {
+  it('returns ISO 1-7 weekdays for anchor dates', () => {
+    expect(dayOfWeekFromCivil(1970, 1, 1)).toBe(4); // Thursday
+    expect(dayOfWeekFromCivil(2000, 1, 1)).toBe(6); // Saturday
+    expect(dayOfWeekFromCivil(2026, 8, 4)).toBe(2); // Tuesday
+    expect(dayOfWeekFromCivil(2023, 2, 28)).toBe(2); // Tuesday
+  });
+
+  it('handles year 1 and negative (BCE) years without the 1900s remap', () => {
+    // Date.UTC(year, ...) would remap years 0-99 to 1900-1999.
+    expect(dayOfWeekFromCivil(1, 1, 1)).toBe(1); // 0001-01-01 was a Monday
+    expect(dayOfWeekFromCivil(1, 3, 5)).toBe(1); // 63 days later, still Monday
+    expect(dayOfWeekFromCivil(-1, 12, 31)).toBe(5); // 2 BCE Dec 31, Friday
+    expect(dayOfWeekFromCivil(-4, 12, 31)).toBe(2); // 5 BCE Dec 31, Tuesday
+    expect(dayOfWeekFromCivil(-4, 2, 1)).toBe(4); // 5 BCE Feb 1, Thursday
   });
 });

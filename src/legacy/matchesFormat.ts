@@ -31,6 +31,11 @@ function getPattern(formatStr: string, locale: string) {
 
   if (patternCache.size >= MAX_CACHE_SIZE) {
     const oldestKey = patternCache.keys().next().value;
+    /* c8 ignore next @preserve -- unreachable else-arm: patternCache holds
+       >= MAX_CACHE_SIZE entries here, and keys().next().value on a non-empty
+       Map never yields undefined (only an exhausted/empty iterator does).
+       The guard exists for TS's string | undefined narrowing of the
+       iterator result. */
     if (oldestKey !== undefined) patternCache.delete(oldestKey);
   }
 

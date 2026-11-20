@@ -10,6 +10,22 @@ const { format, legacyMatchesFormat, matchesFormat, parse, setTemporal } = requi
 const { format: legacyFormat, parse: legacyParse } = require('temporal-fmt/legacy');
 const { Temporal } = require('temporal-polyfill/full');
 
+const subpathExports = [
+  ['./format', 'format'],
+  ['./parse', 'parse'],
+  ['./legacy', 'matchesFormat'],
+  ['./duration', 'parseDuration'],
+  ['./relative', 'formatRelative'],
+  ['./interval', 'interval'],
+  ['./calendar', 'daysInMonth'],
+  ['./timezone', 'resolveZoned'],
+  ['./recurrence', 'recurrence'],
+  ['./locale', 'registerLocale'],
+];
+for (const [subpath, name] of subpathExports) {
+  assert.equal(typeof require(`temporal-fmt/${subpath.slice(2)}`)[name], 'function', `${subpath} should export ${name}`);
+}
+
 setTemporal(Temporal);
 
 const date = Temporal.PlainDate.from('2026-08-04');

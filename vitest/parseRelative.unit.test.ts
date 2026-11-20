@@ -103,3 +103,117 @@ describe('parseRelative: adversarial / error paths', () => {
     expect((parseRelative('TOMORROW', REFERENCE) as { toString(): string }).toString()).toBe('2026-08-05');
   });
 });
+
+// ---------------------------------------------------------------------
+// Coverage additions: reference-field guards, both weekdayOffset wrap
+// directions, contradictory direction markers, input guards, the opt-in
+// fuzzy layer, month-day with explicit year, and the PlainDate.compare
+// capability check.
+
+const iso = (result: unknown): string => (result as { toString(): string }).toString();
+
+describe('parseRelative: reference-field validation', () => {
+  it('throws when the reference date is missing year', () => {
+    expect(() => parseRelative('today', {})).toThrow(/reference date is missing year/);
+  });
+
+  it('throws when the reference date is missing month', () => {
+    expect(() => parseRelative('today', { year: 2026 })).toThrow(/reference date is missing month/);
+  });
+
+  it('throws when the reference date is missing day', () => {
+    expect(() => parseRelative('today', { year: 2026, month: 8 })).toThrow(/reference date is missing day/);
+  });
+
+  it('throws when the reference date exposes no dayOfWeek (weekday phrases)', () => {
+    expect(() => parseRelative('next Monday', { year: 2026, month: 8, day: 4 })).toThrow(/exposing dayOfWeek/);
+  });
+});
+
+describe('parseRelative: weekdayOffset wrap directions', () => {
+  it('"next Friday" from a Tuesday needs no +7 wrap', () => {
+    expect(iso(parseRelative('next Friday', REFERENCE))).toBe('2026-08-07');
+  });
+
+  it('"last Monday" from a Tuesday needs no -7 wrap', () => {
+    expect(iso(parseRelative('last Monday', REFERENCE))).toBe('2026-08-03');
+  });
+});
+
+describe('parseRelative: contradictory direction markers', () => {
+  it('throws on "in 3 days ago" (future and past markers both present)', () => {
+    expect(() => parseRelative('in 3 days ago', REFERENCE)).toThrow(/contradictory direction markers/);
+  });
+});
+
+describe('parseRelative: input guards', () => {
+  it('throws RangeError when input exceeds 4096 characters', () => {
+    expect(() => parseRelative('x'.repeat(4097), REFERENCE)).toThrow(RangeError);
+    expect(() => parseRelative('x'.repeat(4097), REFERENCE)).toThrow(/maximum 4096 characters/);
+  });
+
+  it('treats nullish input as empty (nullish-coalescing fallback on input)', () => {
+    expect(() => parseRelative(null as unknown as string, REFERENCE)).toThrow(/empty input string/);
+    expect(() => parseRelative(undefined as unknown as string, REFERENCE)).toThrow(/empty input string/);
+  });
+});
+
+describe('parseRelative: month-day with explicit year (year ignored)', () => {
+  it('"March 5, 2026" still resolves to the next future occurrence', () => {
+    expect(iso(parseRelative('March 5, 2026', REFERENCE))).toBe('2027-03-05');
+  });
+});
+
+describe('parseRelative: fuzzy matching (opt-in)', () => {
+  it('corrects a typo day offset: "tommorow" → "tomorrow"', () => {
+    expect(iso(parseRelative('tommorow', REFERENCE, { fuzzy: true }))).toBe('2026-08-05');
+  });
+
+  it('corrects multiple typo words in one phrase: "nextt friyday" → "next friday"', () => {
+    expect(iso(parseRelative('nextt friyday', REFERENCE, { fuzzy: true }))).toBe('2026-08-07');
+  });
+
+  it('never touches pure numbers and ordinal-suffixed numbers: "marchx 5th"', () => {
+    expect(iso(parseRelative('marchx 5th', REFERENCE, { fuzzy: true }))).toBe('2027-03-05');
+  });
+
+  it('passes already-correct marker words through while correcting the unit: "in 3 dayz"', () => {
+    expect(iso(parseRelative('in 3 dayz', REFERENCE, { fuzzy: true }))).toBe('2026-08-07');
+  });
+
+  it('gives up unchanged when no word is correctable: "next zzzzzz"', () => {
+    expect(() => parseRelative('next zzzzzz', REFERENCE, { fuzzy: true })).toThrow(/doesn't recognize/);
+  });
+
+  it('still throws when the corrected phrase matches nothing: "nextt zzzzzz"', () => {
+    expect(() => parseRelative('nextt zzzzzz', REFERENCE, { fuzzy: true })).toThrow(/doesn't recognize/);
+  });
+
+  it('throws RangeError when the fuzzy input exceeds 32 words', () => {
+    expect(() => parseRelative('nope '.repeat(33).trim(), REFERENCE, { fuzzy: true })).toThrow(/fuzzy input is too large/);
+  });
+
+  it('throws when fuzzy is combined with a non-English locale', () => {
+    expect(() => parseRelative('tommorow', REFERENCE, { fuzzy: true, locale: 'es-ES' })).toThrow(/only supports English/);
+  });
+});
+
+describe('parseRelative: Temporal capability requirements', () => {
+  it('throws a clear error when the active Temporal lacks PlainDate.compare (month-day phrases)', () => {
+    const withoutCompare = {
+      PlainDate: {
+        from: (fields: Record<string, number>, options?: { overflow?: 'constrain' | 'reject' }) =>
+          Temporal.PlainDate.from(fields, options),
+      },
+      PlainTime: Temporal.PlainTime,
+      PlainDateTime: Temporal.PlainDateTime,
+      ZonedDateTime: Temporal.ZonedDateTime,
+    } as unknown as TemporalNamespace;
+    setTemporal(withoutCompare);
+    try {
+      expect(() => parseRelative('March 5th', REFERENCE)).toThrow(/needs Temporal\.PlainDate\.compare/);
+    } finally {
+      setTemporal(Temporal);
+    }
+  });
+});

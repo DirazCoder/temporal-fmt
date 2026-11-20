@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatDuration } from '../src/formatDuration.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
+import { InvalidLocaleError } from '../src/errors.js';
 
 // Unit tests for the locale-aware path of formatDuration. node --test
 // (test/formatDuration.locale.test.js) covers the public-API surface
@@ -146,5 +147,43 @@ describe('formatDuration: locale option accepts tag variants', () => {
     // side. Intl.NumberFormat accepts region variants natively.
     expect(formatDuration({ hours: 2 }, 'hhh', { locale: 'es-AR' })).toBe(intlUnitOutput('es-AR', 2, 'hour', 'long'));
     expect(formatDuration({ hours: 2 }, 'hhh', { locale: 'es-MX' })).toBe(intlUnitOutput('es-MX', 2, 'hour', 'long'));
+  });
+});
+
+describe('formatDuration: invalid locale tags', () => {
+  it('surfaces an Intl RangeError as the typed InvalidLocaleError', () => {
+    // getUnitFormatter's catch: a structurally invalid BCP-47 tag makes
+    // the Intl.NumberFormat constructor throw RangeError
+    let err: unknown;
+    try {
+      formatDuration({ hours: 2 }, 'hhh', { locale: 'not a locale!' });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(InvalidLocaleError);
+    expect((err as Error).message).toMatch(/not a locale!/);
+  });
+
+  it('throws InvalidLocaleError for every malformed tag (never cached)', () => {
+    // the failing formatter is never inserted into the cache, so each
+    // distinct malformed tag re-runs the constructor throw path
+    expect(() => formatDuration({ hours: 2 }, 'hh', { locale: 'zzz-@@@' })).toThrow(InvalidLocaleError);
+    expect(() => formatDuration({ hours: 2 }, 'hhh', { locale: 'en--US' })).toThrow(InvalidLocaleError);
+  });
+});
+
+describe('formatDuration: unit formatter cache eviction', () => {
+  it('evicts the oldest entry once the cache passes 200 formatters', () => {
+    // 210 fresh canonical locale keys (numeric region subtags are valid
+    // BCP-47 and resolve to English formatting) — each (locale, hour,
+    // short) triple is a distinct cache key, so the insertion past #200
+    // trips the size guard and deletes the oldest entry first.
+    for (let i = 0; i < 210; i++) {
+      const locale = `en-${100 + i}`;
+      expect(formatDuration({ hours: 2 }, 'hh', { locale })).toBe(intlUnitOutput(locale, 2, 'hour', 'short'));
+    }
+    // a locale evicted by the churn still renders correctly (the cache
+    // miss re-creates the formatter)
+    expect(formatDuration({ hours: 2 }, 'hh', { locale: 'en-100' })).toBe(intlUnitOutput('en-100', 2, 'hour', 'short'));
   });
 });

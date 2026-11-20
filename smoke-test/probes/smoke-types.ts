@@ -3,9 +3,16 @@
 // statically; this runs tsc against it for real, catching anything
 // attw's shape check wouldn't (e.g. a type that resolves to the wrong
 // file, or resolves but doesn't typecheck the way the source does).
-import { format, legacyMatchesFormat, matchesFormat, parse, setTemporal } from 'temporal-fmt';
+import { format, formatDuration, legacyMatchesFormat, matchesFormat, parse, setTemporal } from 'temporal-fmt';
 import type { TemporalNamespace } from 'temporal-fmt';
 import { format as legacyFormat, parse as legacyParse } from 'temporal-fmt/legacy';
+import { parseDuration } from 'temporal-fmt/duration';
+import { formatRelative } from 'temporal-fmt/relative';
+import { interval } from 'temporal-fmt/interval';
+import { daysInMonth } from 'temporal-fmt/calendar';
+import { resolveZoned } from 'temporal-fmt/timezone';
+import { recurrence } from 'temporal-fmt/recurrence';
+import { registerLocale } from 'temporal-fmt/locale';
 import { Temporal } from 'temporal-polyfill/full';
 
 // temporal-polyfill's PlainDate.from() etc. take a narrower PlainDateLike
@@ -28,3 +35,11 @@ void legacyOut;
 void legacyParsed;
 void legacyMatches;
 void matches;
+void formatDuration({ hours: 2 }, 'hh');
+void parseDuration('2h', 'hh');
+void formatRelative(date, date);
+void interval(date, date);
+void daysInMonth(date);
+void resolveZoned({ year: 2026, month: 8, day: 4 }, 'UTC');
+void recurrence(date, { frequency: 'daily', interval: 1 });
+void registerLocale;

@@ -86,3 +86,30 @@ describe('formatDuration: quoted literals', () => {
     expect(formatDuration({ hours: 2 }, "hh''hh")).toBe("2h'2h");
   });
 });
+
+describe('formatDuration: additional tokenizer/readUnit branches', () => {
+  it('unescapes a doubled quote inside a quoted span', () => {
+    // format[j+1] === "'" arm of the quoted-span scanner
+    expect(formatDuration({ hours: 9 }, "h 'o''clock'")).toBe("9 o'clock");
+  });
+
+  it('pushes a literal onto an empty piece list when the format starts with one', () => {
+    // appendLiteral with pieces empty (last === undefined arm)
+    expect(formatDuration({ hours: 2 }, "'P' hhh")).toBe('P 2 hours');
+  });
+
+  it('coerces a finite string field to a number', () => {
+    // readUnit's Number(value) fallthrough with a finite result
+    expect(formatDuration({ hours: '2' }, 'hhh')).toBe('2 hours');
+  });
+
+  it('throws when a string field does not coerce to a finite number', () => {
+    expect(() => formatDuration({ hours: 'abc' }, 'hhh')).toThrow(/not a finite number/);
+  });
+
+  it('treats a null field as 0', () => {
+    // value === null arm of readUnit's undefined/null guard
+    expect(formatDuration({ hours: null }, 'hhh')).toBe('');
+    expect(formatDuration({ hours: null }, 'hhh', { showZeroValues: true })).toBe('0 hours');
+  });
+});
