@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { TOKENS, DEFAULT_LOCALE, type TemporalLike, type FormatOptions } from './tokens.js';
+import { TOKENS, DEFAULT_LOCALE, fieldOf, type TemporalLike, type FormatOptions } from './tokens.js';
 import { tokenize, type Piece } from './tokenize.js';
 import { MAX_FORMAT_LENGTH } from './constants.js';
 import { applyNumbering, type NumberingFormatOptions } from './numbering.js';
@@ -105,7 +105,7 @@ export function format(temporal: TemporalLike, formatStr: string, options: Numbe
     }
     /* c8 ignore stop @preserve */
 
-    if (temporal[handler.field] === undefined) {
+    if (fieldOf(temporal, handler.field) === undefined) {
       throw new FormatSyntaxError({
         format: formatStr,
         token: piece.value,
@@ -178,7 +178,7 @@ export function formatToParts(temporal: TemporalLike, formatStr: string, options
       throw new UnknownTokenError({ token: piece.value, format: formatStr, message: `temporal-fmt: unknown token "${piece.value}"` });
     }
     /* c8 ignore stop @preserve */
-    if (temporal[handler.field] === undefined) {
+    if (fieldOf(temporal, handler.field) === undefined) {
       throw new FormatSyntaxError({
         format: formatStr,
         token: piece.value,
@@ -240,7 +240,7 @@ export function compileFormat(formatStr: string): CompiledFormat {
         const handler = HANDLER_BY_TOKEN.get(piece.value);
         /* c8 ignore next -- unreachable, see the note in format() above */
         if (!handler) throw new UnknownTokenError({ token: piece.value, format: formatStr, message: `temporal-fmt: unknown token "${piece.value}"` });
-        if (temporal[handler.field] === undefined) {
+        if (fieldOf(temporal, handler.field) === undefined) {
           throw new FormatSyntaxError({
             format: formatStr,
             token: piece.value,
@@ -268,7 +268,7 @@ export function compileFormat(formatStr: string): CompiledFormat {
         const handler = HANDLER_BY_TOKEN.get(piece.value);
         /* c8 ignore next -- unreachable, see the note in format() above */
         if (!handler) throw new UnknownTokenError({ token: piece.value, format: formatStr, message: `temporal-fmt: unknown token "${piece.value}"` });
-        if (temporal[handler.field] === undefined) {
+        if (fieldOf(temporal, handler.field) === undefined) {
           throw new FormatSyntaxError({
             format: formatStr,
             token: piece.value,

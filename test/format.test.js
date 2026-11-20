@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compileFormat, format, formatToParts, parse, setTemporal } from '../dist/index.js';
+import { compileFormat, format, formatToParts, parse, setTemporal, InvalidLocaleError } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
 // Use native Temporal when available (Node 26+), polyfill otherwise —
@@ -551,4 +551,91 @@ test('compileFormat: formatToParts() throws on missing field the same way format
   const time = Temporal.PlainTime.from('10:30:00');
   const compiled = compileFormat('yyyy-MM-dd');
   assert.throws(() => compiled.formatToParts(time), /token "yyyy" requires "year"/);
+});
+
+// #12: Intl rejects an iso8601 PlainYearMonth against the forced 'gregory'
+// formatter with "Mismatched calendars".
+test('PlainYearMonth: locale-aware month names format instead of throwing', () => {
+  const yearMonth = new Temporal.PlainYearMonth(1999, 12);
+  assert.equal(format(yearMonth, 'MMMM yyyy', { locale: 'de-DE' }), 'Dezember 1999');
+  assert.equal(format(yearMonth, 'MMM yyyy', { locale: 'de-DE' }), 'Dez 1999');
+  assert.equal(format(yearMonth, 'MMMM yyyy', { locale: 'en-US' }), 'December 1999');
+});
+
+test('PlainYearMonth: month name stays correct around the 1582 cutover', () => {
+  // day 1 of Oct 1582 is pre-cutover, so this goes through the reference-date lookup
+  assert.equal(format(new Temporal.PlainYearMonth(1582, 10), 'MMMM yyyy', { locale: 'de-DE' }), 'Oktober 1582');
+});
+
+// PlainMonthDay only has monthCode ("M12"), so every month token used to
+// throw 'requires "month"' for it.
+test('PlainMonthDay: numeric month tokens', () => {
+  const monthDay = new Temporal.PlainMonthDay(12, 25);
+  assert.equal(format(monthDay, 'MM-dd'), '12-25');
+  assert.equal(format(monthDay, 'M/d'), '12/25');
+  assert.equal(format(monthDay, 'Q QQQ'), '4 Q4');
+});
+
+test('PlainMonthDay: locale-aware month names', () => {
+  const monthDay = new Temporal.PlainMonthDay(12, 25);
+  assert.equal(format(monthDay, 'MMMM d', { locale: 'en-US' }), 'December 25');
+  assert.equal(format(monthDay, 'MMM d', { locale: 'de-DE' }), 'Dez 25');
+  assert.equal(format(monthDay, 'LLLL', { locale: 'ru-RU' }), 'декабрь');
+  // Feb 29 only exists in leap years; the name lookup must not need a year
+  assert.equal(format(new Temporal.PlainMonthDay(2, 29), 'MMMM d', { locale: 'fr-FR' }), 'février 29');
+});
+
+test('PlainMonthDay: gregory calendar reads monthCode the same way', () => {
+  const monthDay = Temporal.PlainMonthDay.from({ calendar: 'gregory', monthCode: 'M08', day: 4 });
+  assert.equal(format(monthDay, 'MMMM d', { locale: 'fr-FR' }), 'août 4');
+});
+
+test('PlainMonthDay: compileFormat and formatToParts handle it too', () => {
+  const monthDay = new Temporal.PlainMonthDay(8, 4);
+  const compiled = compileFormat('MMMM d');
+  assert.equal(compiled.format(monthDay, { locale: 'es-ES' }), 'agosto 4');
+  const joined = (parts) => parts.map((p) => p.value).join('');
+  assert.equal(joined(compiled.formatToParts(monthDay, { locale: 'es-ES' })), 'agosto 4');
+  assert.equal(joined(formatToParts(monthDay, 'MMM d', { locale: 'en-US' })), 'Aug 4');
+});
+
+test('PlainMonthDay: a monthCode that is not a plain month number still throws', () => {
+  // hebrew "M05L" is a leap month, so there is no month number to show
+  const monthDay = Temporal.PlainMonthDay.from({ calendar: 'hebrew', monthCode: 'M05L', day: 4 });
+  assert.throws(() => format(monthDay, 'MMMM d'), /token "MMMM" requires "month"/);
+});
+
+test('PlainMonthDay: year tokens still throw', () => {
+  assert.throws(() => format(new Temporal.PlainMonthDay(8, 4), 'yyyy'), /token "yyyy" requires "year"/);
+});
+
+// A malformed tag and a calendar mismatch both reach us as a RangeError
+// from toLocaleString. Only the first one is the locale's fault.
+const intlTakesTemporal = (() => {
+  try {
+    new Intl.DateTimeFormat('en-US').format(Temporal.PlainDate.from('2026-08-04'));
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+test('format: a RangeError that is not about the locale is not reported as InvalidLocaleError',
+  { skip: intlTakesTemporal && 'only the toLocaleString path wraps errors; native Intl formats directly' },
+  () => {
+    const mismatched = {
+      calendarId: 'iso8601', year: 2026, month: 8, day: 4,
+      toLocaleString() { throw new RangeError('Mismatched calendars'); },
+    };
+    assert.throws(
+      () => format(mismatched, 'MMMM', { locale: 'en-US' }),
+      (err) => err.name === 'RangeError' && /Mismatched calendars/.test(err.message),
+    );
+  });
+
+test('format: a malformed locale with a locale-aware token still throws InvalidLocaleError', () => {
+  assert.throws(
+    () => format(Temporal.PlainDate.from('2026-08-04'), 'MMMM', { locale: 'not a locale!!' }),
+    InvalidLocaleError,
+  );
 });

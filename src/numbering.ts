@@ -37,7 +37,15 @@ import { DEFAULT_LOCALE, type FormatOptions } from './tokens.js';
 import { InvalidLocaleError } from './errors.js';
 import { canonicalCacheKey, normalizeLocaleTag } from './localeVocab.js';
 
-export type NumberingSystem = 'latn' | 'arab' | 'deva' | 'beng' | 'guru' | 'gujr' | 'orya' | 'tamldec' | 'telu' | 'knda' | 'mlym' | 'fullwide' | 'hanidec';
+export type NumberingSystem =
+  | 'latn' | 'adlm' | 'ahom' | 'arab' | 'arabext' | 'bali' | 'beng' | 'bhks'
+  | 'brah' | 'cakm' | 'cham' | 'deva' | 'fullwide' | 'gong' | 'gonm' | 'gujr'
+  | 'guru' | 'hanidec' | 'hmng' | 'hmnp' | 'java' | 'kali' | 'khmr' | 'knda' | 'lana'
+  | 'lanatham' | 'laoo' | 'lepc' | 'limb' | 'mathbold' | 'mathdbl' | 'mathmono'
+  | 'mathsanb' | 'mathsans' | 'mlym' | 'modi' | 'mong' | 'mroo' | 'mtei' | 'mymr'
+  | 'mymrshan' | 'mymrtlng' | 'newa' | 'nkoo' | 'olck' | 'orya' | 'osma'
+  | 'rohg' | 'saur' | 'shrd' | 'sind' | 'sinh' | 'sora' | 'sund' | 'takr' | 'talu'
+  | 'tamldec' | 'telu' | 'thai' | 'tirh' | 'tibt' | 'vaii' | 'wara' | 'wcho';
 
 // What a caller may pass as numberingSystem / parseNumberingSystem: an
 // explicit system name, or 'auto' to derive the system from the call's
@@ -50,8 +58,14 @@ export type NumberingSystemOption = NumberingSystem | 'auto' | (string & {});
 // every NumberingSystem value we support. latn's the default and
 // what the rest of this lib naturally produces
 export const SUPPORTED_NUMBERING_SYSTEMS: ReadonlySet<string> = new Set([
-  'latn', 'arab', 'deva', 'beng', 'guru', 'gujr', 'orya', 'tamldec',
-  'telu', 'knda', 'mlym', 'fullwide', 'hanidec',
+  'latn', 'adlm', 'ahom', 'arab', 'arabext', 'bali', 'beng', 'bhks',
+  'brah', 'cakm', 'cham', 'deva', 'fullwide', 'gong', 'gonm', 'gujr',
+  'guru', 'hanidec', 'hmng', 'hmnp', 'java', 'kali', 'khmr', 'knda', 'lana',
+  'lanatham', 'laoo', 'lepc', 'limb', 'mathbold', 'mathdbl', 'mathmono',
+  'mathsanb', 'mathsans', 'mlym', 'modi', 'mong', 'mroo', 'mtei', 'mymr',
+  'mymrshan', 'mymrtlng', 'newa', 'nkoo', 'olck', 'orya', 'osma',
+  'rohg', 'saur', 'shrd', 'sind', 'sinh', 'sora', 'sund', 'takr', 'talu',
+  'tamldec', 'telu', 'thai', 'tirh', 'tibt', 'vaii', 'wara', 'wcho',
 ]);
 
 const digitMapCache = new Map<string, Record<string, string>>();
@@ -68,7 +82,7 @@ const MAX_AUTO_NUMBERING_CACHE = 500;
 // Turns 'auto' into a concrete system by asking Intl what the locale
 // itself defaults to (ar-EG -> arab, bn-BD -> beng, en-US -> latn). When
 // the locale's native system isn't one this library can transliterate
-// (thai, laoo, mymr, ... — anything outside SUPPORTED_NUMBERING_SYSTEMS),
+// (tnsa, kawi, nagm, ... — anything outside SUPPORTED_NUMBERING_SYSTEMS),
 // fall back to 'latn' rather than throwing: 'auto' means "use whatever
 // this locale naturally uses, if you can", not "throw on locales with
 // numerals this library doesn't cover". A malformed locale tag DOES

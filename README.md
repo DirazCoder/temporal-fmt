@@ -787,7 +787,7 @@ format(date, 'yyyy-MM-dd', { numberingSystem: 'auto', locale: 'bn-BD' }); // "�
 format(date, 'yyyy-MM-dd', { numberingSystem: 'auto' });                  // "2026-08-04" — en-US is latn
 ```
 
-When the locale's native system isn't supported (Thai, Lao, Myanmar digits), `'auto'` falls back to `'latn'`. A malformed locale tag throws. Unset still means `'latn'` everywhere.
+When the locale's native system isn't supported (e.g. Tangsa digits), `'auto'` falls back to `'latn'`. A malformed locale tag throws. Unset still means `'latn'` everywhere.
 
 Direct conversion utilities:
 
@@ -800,7 +800,7 @@ convertDigitsToAscii('٢٠٢٦', 'arab'); // "2026"
 
 - `convertDigits(s, system)`, `convertDigitsToAscii(s, system)`.
 - `applyNumbering(s, options)` / `applyParseNumbering(s, options)` — the same helpers `format()`/`parse()` use internally, exposed directly.
-- `SUPPORTED_NUMBERING_SYSTEMS` — `'latn' | 'arab' | 'deva' | 'beng' | 'guru' | 'gujr' | 'orya' | 'tamldec' | 'telu' | 'knda' | 'mlym' | 'fullwide' | 'hanidec'`.
+- `SUPPORTED_NUMBERING_SYSTEMS` — `'latn' | 'adlm' | 'ahom' | 'arab' | 'arabext' | 'bali' | 'beng' | 'bhks' | 'brah' | 'cakm' | 'cham' | 'deva' | 'fullwide' | 'gong' | 'gonm' | 'gujr' | 'guru' | 'hanidec' | 'hmng' | 'hmnp' | 'java' | 'kali' | 'khmr' | 'knda' | 'lana' | 'lanatham' | 'laoo' | 'lepc' | 'limb' | 'mathbold' | 'mathdbl' | 'mathmono' | 'mathsanb' | 'mathsans' | 'mlym' | 'modi' | 'mong' | 'mroo' | 'mtei' | 'mymr' | 'mymrshan' | 'mymrtlng' | 'newa' | 'nkoo' | 'olck' | 'orya' | 'osma' | 'rohg' | 'saur' | 'shrd' | 'sind' | 'sinh' | 'sora' | 'sund' | 'takr' | 'talu' | 'tamldec' | 'telu' | 'thai' | 'tirh' | 'tibt' | 'vaii' | 'wara' | 'wcho'`.
 
 ## Extending with custom tokens
 

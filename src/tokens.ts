@@ -41,6 +41,25 @@ function requireFields(t: TemporalLike, token: string, ...fields: Array<keyof Te
   }
 }
 
+// PlainMonthDay carries monthCode ("M12") instead of a numeric month,
+// because without a year a month number means nothing in calendars with
+// leap months. In iso8601 and gregory the code is just the month number,
+// so read it from there. Anything else (hebrew "M05L", ...) stays
+// undefined and format() throws its usual missing-field error.
+function monthOf(t: TemporalLike): number | undefined {
+  if (t.month !== undefined) return t.month;
+  const match = t.calendarId === 'iso8601' || t.calendarId === 'gregory'
+    ? /^M(\d{2})$/.exec(String(t.monthCode))
+    : null;
+  return match ? Number(match[1]) : undefined;
+}
+
+// Field lookup for format()'s missing-field precheck. Same as t[field]
+// except 'month', which a PlainMonthDay can answer through monthCode.
+export function fieldOf(t: TemporalLike, field: keyof TemporalLike): unknown {
+  return field === 'month' ? monthOf(t) : t[field];
+}
+
 export function pad(n: number, len: number): string {
   // padStart pads the whole string, sign included, so pad(-45, 4) used to
   // come out "0-45" instead of "-045" — split the sign off first.
@@ -76,6 +95,8 @@ pad.fraction = function formatFraction(t: TemporalLike, width: number): string {
 export interface TemporalLike {
   year?: number;
   month?: number;
+  // PlainMonthDay's stand-in for month, e.g. "M12". See monthOf().
+  monthCode?: string;
   day?: number;
   hour?: number;
   minute?: number;
@@ -95,6 +116,7 @@ export interface TemporalLike {
   dayOfWeek?: number; // 1=Mon, 7=Sun, per Temporal spec
   calendarId?: string;
   toInstant?: () => unknown;
+  toPlainDate?: (fields: { day: number }) => TemporalLike;
   toLocaleString?: (locale: string, options: Intl.DateTimeFormatOptions) => string;
 }
 
@@ -245,7 +267,7 @@ function preCutoverGregorianName(
   // for MMMM/MMM ('month') and EEEE/EEE ('dayOfWeek') ran before the
   // token handler was invoked at all.
   const reference = partType === 'month'
-    ? new Date(Date.UTC(2020, temporal.month! - 1, 1))
+    ? new Date(Date.UTC(2020, monthOf(temporal)! - 1, 1))
     : new Date(Date.UTC(2024, 0, temporal.dayOfWeek!));
   const formatter = getFormatter(locale, { ...formatterOptions, timeZone: 'UTC' });
   return partValue(formatter, reference, partType);
@@ -257,6 +279,22 @@ function intlPart(
   options: Intl.DateTimeFormatOptions,
   partType: Intl.DateTimeFormatPartTypes
 ): string {
+  // PlainYearMonth is stricter than PlainDate about calendars: Intl only
+  // accepts it when the formatter's calendar equals the object's own, and
+  // an iso8601 object never matches the 'gregory' we force below (and
+  // passing 'iso8601' itself gets empty parts, see the note further down).
+  // Month and year names are the same for the first of the month, so
+  // format that PlainDate instead (#12). Duck-typed like isPlainYearMonth:
+  // year but no day, plus toPlainDate.
+  if (
+    temporal?.calendarId === 'iso8601' &&
+    temporal.year !== undefined &&
+    temporal.day === undefined &&
+    typeof temporal.toPlainDate === 'function'
+  ) {
+    temporal = temporal.toPlainDate({ day: 1 });
+  }
+
   // Intl throws "Mismatching Calendars" if the formatter's calendar doesn't
   // match the object's own (e.g. en-US formatter defaults to gregory, but
   // a hebrew/islamic PlainDate needs its own calendar passed through).
@@ -325,10 +363,15 @@ function intlPart(
   // feeding one through a gregory-keyed reference lookup would index the
   // wrong month number into the wrong calendar. Custom vocabs never
   // reach here (localeAwareName resolves them before calling intlPart).
+  //
+  // A PlainMonthDay takes the same route: it has no year, and handing an
+  // iso8601 one to Intl with the 'gregory' calendar we force above throws
+  // "Mismatched calendars". Its month number is enough to pick the name.
+  const isMonthDay = partType === 'month' && temporal.month === undefined;
   if (
     (partType === 'month' || partType === 'weekday') &&
     formatterOptions.calendar === 'gregory' &&
-    isBeforeGregorianCutover(temporal)
+    (isMonthDay || isBeforeGregorianCutover(temporal))
   ) {
     return preCutoverGregorianName(temporal, locale, formatterOptions, partType);
   }
@@ -364,11 +407,12 @@ function intlPart(
     try {
       return ls.call(temporal, normalizeLocaleTag(locale), formatterOptions);
     } catch (err) {
-      // The active Temporal implementation forwards the tag to Intl, which
-      // throws a bare RangeError for a malformed one — rethrow typed.
-      if (err instanceof RangeError) {
-        throw new InvalidLocaleError({ actual: locale, reason: err.message });
-      }
+      // Intl throws a bare RangeError for a malformed tag, but also for
+      // things that have nothing to do with the locale (a calendar
+      // mismatch, say). Only blame the locale if it really is the problem:
+      // getFormatter throws the typed InvalidLocaleError for a bad tag and
+      // returns for a good one, in which case the original error is rethrown.
+      if (err instanceof RangeError) getFormatter(locale, {});
       throw err;
     }
   }
@@ -545,14 +589,14 @@ export const TOKENS: Array<[string, TokenHandler, keyof TemporalLike]> = [
   ['y', (t) => pad(t.year!, 0), 'year'],
   ['MMMM', (t, locale) => {
     const custom = getCustomVocab(locale);
-    return localeAwareName(t, locale, { month: 'long' }, 'month', custom?.monthLong, t.month! - 1);
+    return localeAwareName(t, locale, { month: 'long' }, 'month', custom?.monthLong, monthOf(t)! - 1);
   }, 'month'],
   ['MMM', (t, locale) => {
     const custom = getCustomVocab(locale);
-    return localeAwareName(t, locale, { month: 'short' }, 'month', custom?.monthShort, t.month! - 1);
+    return localeAwareName(t, locale, { month: 'short' }, 'month', custom?.monthShort, monthOf(t)! - 1);
   }, 'month'],
-  ['MM', (t) => pad(t.month!, 2), 'month'],
-  ['M', (t) => String(t.month!), 'month'],
+  ['MM', (t) => pad(monthOf(t)!, 2), 'month'],
+  ['M', (t) => String(monthOf(t)!), 'month'],
   ['dd', (t) => pad(t.day!, 2), 'day'],
   ['d', (t) => String(t.day!), 'day'],
   ['EEEE', (t, locale) => {
@@ -632,8 +676,8 @@ export const TOKENS: Array<[string, TokenHandler, keyof TemporalLike]> = [
   // date-fns's `Q` and `QQQ` for parity with the most common prior art.
   // Both format and parse; parse() cross-checks Q/QQQ against the parsed
   // month in the same spirit as the EEEE-vs-date cross-check.
-  ['Q', (t) => String(Math.ceil(t.month! / 3)), 'month'],
-  ['QQQ', (t) => 'Q' + Math.ceil(t.month! / 3), 'month'],
+  ['Q', (t) => String(Math.ceil(monthOf(t)! / 3)), 'month'],
+  ['QQQ', (t) => 'Q' + Math.ceil(monthOf(t)! / 3), 'month'],
 
   // ISO 8601 week and week-numbering year. Both are format-only — parsing
   // "ww"/"RRRR" back into a real date requires resolving an ISO week + a
@@ -680,11 +724,11 @@ export const TOKENS: Array<[string, TokenHandler, keyof TemporalLike]> = [
   // format form (nominative vs genitive case). LLLL = long, LLL = short.
   ['LLLL', (t, locale) => {
     const custom = getCustomVocab(locale);
-    return localeAwareName(t, locale, { month: 'long' }, 'month', custom?.monthLong, t.month! - 1);
+    return localeAwareName(t, locale, { month: 'long' }, 'month', custom?.monthLong, monthOf(t)! - 1);
   }, 'month'],
   ['LLL', (t, locale) => {
     const custom = getCustomVocab(locale);
-    return localeAwareName(t, locale, { month: 'short' }, 'month', custom?.monthShort, t.month! - 1);
+    return localeAwareName(t, locale, { month: 'short' }, 'month', custom?.monthShort, monthOf(t)! - 1);
   }, 'month'],
 
   // Stand-alone weekday — same pattern as stand-alone month but for
