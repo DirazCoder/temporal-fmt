@@ -819,7 +819,7 @@ These functions feed editor tooling rather than application code:
 
 ## Legacy mod documentation
 
-Mod support was removed in 0.9.80 — the package no longer discovers, loads, sandboxes, or executes mods, and the CLI is gone with it. Historical documentation for prior versions is in [`LEGACY_VERSION_MODS/`](./LEGACY_VERSION_MODS/). It describes behavior that no longer exists; don't use it as current usage guidance. That folder will be dropped from `main` once 0.10.x ships, but stays on the `0.9.x` branch after it's cut.
+Mod support was removed in 0.9.82 — the package no longer discovers, loads, sandboxes, or executes mods, and the CLI is gone with it. Historical documentation for prior versions is in [`LEGACY_VERSION_MODS/`](./LEGACY_VERSION_MODS/). It describes behavior that no longer exists; don't use it as current usage guidance. That folder will be dropped from `main` once 0.10.x ships, but stays on the `0.9.x` branch after it's cut.
 
 ## Subpath imports
 
