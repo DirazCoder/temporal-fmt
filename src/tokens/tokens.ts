@@ -433,41 +433,39 @@ function intlPart(
   // toLocaleString forwards the locale to Intl.DateTimeFormat, which
   // (unlike this library's cache keys) rejects underscore-separated tags
   // like 'en_US' outright.
-  const formatTarget: Date | number = isZoned
-    ? instant!.epochMilliseconds
-    : (temporal as Date | number);
-
   const formatter = getFormatter(locale, nativeOptions);
   let parts: Intl.DateTimeFormatPart[];
-  try {
-    parts = formatter.formatToParts(formatTarget);
-  } catch (err) {
-    // Native Intl support only applies to genuine Temporal instances (or
-    // an Instant/epoch value derived from one, for the zoned case). A
-    // duck-typed value may provide its own toLocaleString implementation
-    // but still be rejected by formatToParts() as an invalid Date value —
-    // and a plain (non-zoned) Temporal object on a runtime that doesn't
-    // recognize it natively lands here too, since there's no epoch value
-    // to fall back to for a wall-clock type. Fall back to the Temporal
-    // object's own toLocaleString(), which every spec-compliant
-    // implementation (native or polyfilled) provides, accepting that it
-    // can't isolate a single field for types with time components — that
-    // limitation only bites non-zoned PlainDateTime-shaped values with a
-    // field-only options object, which is an unusual combination (every
-    // multi-part token this library emits for such values combines
-    // several options together, landing on ICU's normal date+time
-    // resolution instead of the single-field one).
-    // (Field-bag guard runs unconditionally above, before this fallback,
-    // so it's not repeated here.)
-    if (isZoned) throw err;
+
+  if (isZoned) {
+    // ZonedDateTime: always use epoch-ms — a plain number Intl always
+    // accepts regardless of whether native Temporal is recognised.
+    parts = formatter.formatToParts(instant!.epochMilliseconds);
+  } else if (intlSupportsNativeTemporal()) {
+    // Plain types on a native-Temporal engine (Node 26+): pass the
+    // object directly — Intl recognises it.
+    // The probe above (intlSupportsNativeTemporal) is called once per
+    // active implementation and memoized; setTemporal() resets the cache
+    // so the next call re-probes against the new implementation (M-02
+    // regression guard).
+    /* c8 ignore next -- unreachable on Node 22 (polyfill); exercised on
+       Node 26 native builds only. */
+    parts = formatter.formatToParts(temporal as unknown as Date);
+  } else {
+    // Plain types on a polyfilled engine (Node 22/24): formatToParts()
+    // won't recognise the polyfill instance. Fall back to the object's
+    // own toLocaleString(), which every spec-compliant implementation
+    // provides. This can't isolate a single field for PlainDateTime-shaped
+    // values with a field-only options object, but that combination is
+    // unusual in practice (every multi-part token combines several
+    // options together, landing on ICU's normal date+time resolution).
     try {
       return ls.call(temporal, normalizeLocaleTag(locale), formatterOptions);
     } catch (lsErr) {
       // Intl throws a bare RangeError for a malformed tag, but also for
-      // things that have nothing to do with the locale (a calendar
-      // mismatch, say). Only blame the locale if it really is the problem:
-      // getFormatter throws the typed InvalidLocaleError for a bad tag and
-      // returns for a good one, in which case the original error is rethrown.
+      // unrelated things (calendar mismatch, etc.). Only blame the locale
+      // if it really is the problem: getFormatter throws the typed
+      // InvalidLocaleError for a bad tag and returns for a good one, in
+      // which case the original error is rethrown.
       if (lsErr instanceof RangeError) getFormatter(locale, {});
       throw lsErr;
     }
