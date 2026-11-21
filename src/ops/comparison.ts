@@ -61,8 +61,16 @@ function toComparableMs(view: DateTimeFieldView): number {
 }
 
 function asDateTimeFieldView(value: unknown): DateTimeFieldView {
-  const v = asDateFieldView(value);
-  return v as DateTimeFieldView;
+  if (typeof value !== 'object' || value === null) {
+    throw new Error(`temporal-fmt: expected a date-carrying Temporal value, got ${String(value)}.`);
+  }
+  const v = value as DateTimeFieldView;
+  if (typeof v.year !== 'number' || typeof v.month !== 'number' || typeof v.day !== 'number') {
+    throw new Error(
+      `temporal-fmt: value is missing year/month/day fields — pass a Temporal.PlainDate / PlainDateTime / ZonedDateTime.`
+    );
+  }
+  return v;
 }
 
 // Returns < 0 if a < b, 0 if a === b, > 0 if a > b. Same convention as

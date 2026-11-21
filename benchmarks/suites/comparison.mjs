@@ -13,6 +13,7 @@ export default function buildSuite(Temporal, Bench) {
   const c     = Temporal.PlainDate.from('2024-07-15');
   const adt   = Temporal.PlainDateTime.from('2024-07-04T14:30:00');
   const bdt   = Temporal.PlainDateTime.from('2024-07-04T15:00:00');
+  const saturday = Temporal.PlainDate.from('2024-07-06');
   const dates = [a, c, b, Temporal.PlainDate.from('2024-01-01'), Temporal.PlainDate.from('2024-12-31')];
 
   bench
@@ -28,7 +29,7 @@ export default function buildSuite(Temporal, Bench) {
     .add('isSameMonth',                    () => isSameMonth(a, b))
     .add('isSameYear',                     () => isSameYear(a, b))
     .add('isWeekend Thursday (false)',     () => isWeekend(a))
-    .add('isWeekend Saturday (true)',      () => isWeekend(Temporal.PlainDate.from('2024-07-06')))
+    .add('isWeekend Saturday (true)',      () => isWeekend(saturday))
     .add('isWeekday',                      () => isWeekday(a))
     .add('min of 5 dates',                 () => min(dates))
     .add('max of 5 dates',                 () => max(dates))

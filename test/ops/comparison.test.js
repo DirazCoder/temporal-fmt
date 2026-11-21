@@ -37,6 +37,12 @@ test('compare: returns -1/0/1 matching Temporal.PlainDate.compare convention', (
   assert.equal(compare(a, c), 0);
 });
 
+test('compare: rejects null, primitives, and incomplete date field bags', () => {
+  assert.throws(() => compare(null, null), /expected a date-carrying Temporal value/);
+  assert.throws(() => compare(42, 42), /expected a date-carrying Temporal value/);
+  assert.throws(() => compare({ year: 2026, month: 8 }, { year: 2026, month: 8, day: 4 }), /missing year\/month\/day fields/);
+});
+
 test('isEqual / isBefore / isAfter: derived from compare', () => {
   const a = Temporal.PlainDate.from('2026-08-04');
   const b = Temporal.PlainDate.from('2026-08-05');

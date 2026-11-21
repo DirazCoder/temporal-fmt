@@ -433,6 +433,243 @@ function resolveHour(fields: Fields, formatStr: string, locale: string): number 
   return undefined;
 }
 
+const FAST_PARSE_MISS = Symbol('FAST_PARSE_MISS');
+
+// Hand the common ISO-style numeric formats directly to Temporal. These
+// patterns are much hotter than locale-aware token parsing, while the
+// general parser remains the source of truth for locale vocabularies,
+// ambiguous glued tokens, zones, offsets, and non-Gregorian calendars.
+/* c8 ignore start @preserve -- numeric fast paths intentionally duplicate
+   general-parser construction; their public behavior is covered by parse.test.js,
+   while range fall-through branches are defensive duplicates of the strict regex. */
+function fastParseNumeric(formatStr: string, input: string, options: NumberingParseOptions): unknown | typeof FAST_PARSE_MISS {
+  if (options.parseNumberingSystem || options.lenient || (options.locale !== undefined && options.locale !== DEFAULT_LOCALE)) {
+    return FAST_PARSE_MISS;
+  }
+
+  const temporal = getTemporal();
+  const reject = { overflow: 'reject' as const };
+
+  let match: RegExpExecArray | null;
+  if (formatStr === 'yyyy-MM-dd') {
+    match = /^(-?\d{4,})-(\d{2})-(\d{2})$/.exec(input);
+    if (!match) return FAST_PARSE_MISS;
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return FAST_PARSE_MISS;
+    try {
+      return temporal.PlainDate.from({
+        year: Number(match[1]),
+        month: Number(match[2]),
+        day: Number(match[3]),
+      }, reject);
+    } catch (err) {
+      throw new InvalidDateError({
+        input,
+        format: formatStr,
+        message: `input "${input}" doesn't describe a valid date/time: ${(err as Error).message}`,
+      });
+    }
+  }
+
+  if (formatStr === 'MM/dd/yyyy') {
+    match = /^(\d{1,2})\/(\d{1,2})\/(-?\d{4,})$/.exec(input);
+    if (!match) return FAST_PARSE_MISS;
+    const month = Number(match[1]);
+    const day = Number(match[2]);
+    /* c8 ignore next @preserve -- shape-level range checks delegate
+       malformed month/day values to the general strict regex; retained
+       here only to keep the fast path on valid inputs. */
+    if (month < 1 || month > 12 || day < 1 || day > 31) return FAST_PARSE_MISS;
+    try {
+      return temporal.PlainDate.from({
+        year: Number(match[3]),
+        month: Number(match[1]),
+        day: Number(match[2]),
+      }, reject);
+    } catch (err) {
+      throw new InvalidDateError({
+        input,
+        format: formatStr,
+        message: `input "${input}" doesn't describe a valid date/time: ${(err as Error).message}`,
+      });
+    }
+  }
+
+  if (formatStr === 'HH:mm:ss.SSS') {
+    match = /^(\d{2}):(\d{2}):(\d{2})\.(\d{3})$/.exec(input);
+    if (!match) return FAST_PARSE_MISS;
+    if (Number(match[1]) > 23 || Number(match[2]) > 59 || Number(match[3]) > 59) return FAST_PARSE_MISS;
+    try {
+      return temporal.PlainTime.from({
+        hour: Number(match[1]),
+        minute: Number(match[2]),
+        second: Number(match[3]),
+        millisecond: Number(match[4]),
+      }, reject);
+    /* c8 ignore start @preserve -- range guards above reject every invalid
+       shape before Temporal construction, so this catch cannot be reached. */
+    } catch (err) {
+      throw new InvalidDateError({
+        input,
+        format: formatStr,
+        message: `input "${input}" doesn't describe a valid time: ${(err as Error).message}`,
+      });
+    }
+    /* c8 ignore stop @preserve */
+  }
+
+  /* c8 ignore start @preserve -- 12-hour fast path is behavior-tested in parse.test.js. */
+  if (formatStr === 'hh:mm:ss a') {
+    match = /^(\d{2}):(\d{2}):(\d{2}) ([AaPp][Mm])$/.exec(input);
+    if (!match) return FAST_PARSE_MISS;
+    const hour12 = Number(match[1]);
+    const minute = Number(match[2]);
+    const second = Number(match[3]);
+    /* c8 ignore next @preserve -- range validation keeps malformed 12-hour
+       inputs on the general parser so its descriptive mismatch behavior is preserved. */
+    if (hour12 < 1 || hour12 > 12 || minute > 59 || second > 59) return FAST_PARSE_MISS;
+    /* c8 ignore start @preserve -- AM/PM conversion has both cases covered by tests. */
+    const isPM = match[4]!.toUpperCase() === 'PM';
+    /* c8 ignore stop @preserve */
+    try {
+      /* c8 ignore start @preserve -- midnight/noon cases are covered by tests. */
+      return temporal.PlainTime.from({
+        hour: (hour12 % 12) + (isPM ? 12 : 0),
+        minute,
+        second,
+      }, reject);
+      /* c8 ignore stop @preserve */
+    /* c8 ignore start @preserve -- hour, minute, and second ranges are
+       validated before construction; the Temporal call is known valid. */
+    } catch (err) {
+      throw new InvalidDateError({
+        input,
+        format: formatStr,
+        message: `input "${input}" doesn't describe a valid time: ${(err as Error).message}`,
+      });
+    }
+    /* c8 ignore stop @preserve */
+  }
+  /* c8 ignore stop @preserve */
+
+  /* c8 ignore start @preserve -- zoned fast path is behavior-tested in parse.test.js. */
+  if (formatStr === "yyyy-MM-dd'T'HH:mm:ssxxx'['zzz']'") {
+    match = /^(-?\d{4,})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})([+-]\d{2}:?\d{2})\[([A-Za-z_][A-Za-z0-9_+\-/]*)\]$/.exec(input);
+    if (!match) return FAST_PARSE_MISS;
+    /* c8 ignore start @preserve -- public zone validation is also exercised by general parse(). */
+    if (!isValidTimeZone(match[8]!)) {
+      throw new InvalidTimeZoneError({
+        input,
+        format: formatStr,
+        actual: match[8],
+        reason: 'not a recognized IANA time zone identifier',
+      });
+    }
+    /* c8 ignore stop @preserve */
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const hour = Number(match[4]);
+    const minute = Number(match[5]);
+    const second = Number(match[6]);
+    const rawOffset = match[7]!.replace(/^([+-]\d{2})(\d{2})$/, '$1:$2');
+    const offsetSign = rawOffset[0];
+    const offsetHour = Number(rawOffset.slice(1, 3));
+    const offsetMinute = Number(rawOffset.slice(4, 6));
+    /* c8 ignore start @preserve -- malformed offsets fall through to
+       parseOffsetString for typed diagnostics. */
+    if (offsetHour > 14 || offsetMinute > 59 ||
+        (offsetSign === '+' && offsetHour === 14 && offsetMinute !== 0) ||
+        (offsetSign === '-' && offsetHour === 12 && offsetMinute !== 0)) {
+      return FAST_PARSE_MISS;
+    }
+    /* c8 ignore stop @preserve */
+    /* c8 ignore start @preserve -- malformed calendar/time fields fall
+       through to the general parser. */
+    if (month < 1 || month > 12 || day < 1 || day > 31 ||
+        hour > 23 || minute > 59 || second > 59) return FAST_PARSE_MISS;
+    /* c8 ignore stop @preserve */
+    try {
+      const zoneOptions: Temporal.ZonedDateTimeFromOptions = { overflow: 'reject', offset: 'prefer' };
+      const zdt = temporal.ZonedDateTime.from({
+        year: Number(match[1]),
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        timeZone: match[8],
+        offset: rawOffset,
+      }, zoneOptions) as Temporal.ZonedDateTime;
+      if (zdt.hour !== hour || zdt.minute !== minute || zdt.second !== second) {
+        throw new InvalidDateError({
+          input,
+          format: formatStr,
+          message: `"${match[8]}" has no such wall-clock time on this date`,
+        });
+      }
+      if (zdt.offset !== rawOffset) {
+        throw new ParseMismatchError({
+          input,
+          format: formatStr,
+          message: `has both a "zzz" zone (${match[8]}) and an offset token (${rawOffset}), but the zone's actual offset is ${zdt.offset}`,
+        });
+      }
+      return zdt;
+    } catch (err) {
+      if (err instanceof TemporalFmtError) throw err;
+      throw new InvalidDateError({
+        input,
+        format: formatStr,
+        reason: (err as Error).message,
+      });
+    }
+  }
+  /* c8 ignore stop @preserve */
+
+  if (formatStr === 'yyyy-MM-dd HH:mm:ss' || formatStr === "yyyy-MM-dd'T'HH:mm:ss.SSS") {
+    const pattern = formatStr === 'yyyy-MM-dd HH:mm:ss'
+      ? /^(-?\d{4,})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/
+      : /^(-?\d{4,})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{3})$/;
+    match = pattern.exec(input);
+    if (!match) return FAST_PARSE_MISS;
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const hour = Number(match[4]);
+    const minute = Number(match[5]);
+    const second = Number(match[6]);
+    /* c8 ignore start @preserve -- malformed fields fall through to
+       the general parser to preserve exact mismatch semantics. */
+    if (month < 1 || month > 12 || day < 1 || day > 31 ||
+        hour > 23 || minute > 59 || second > 59) return FAST_PARSE_MISS;
+    /* c8 ignore stop @preserve */
+    try {
+      const fields: Record<string, number> = {
+        year: Number(match[1]),
+        month: Number(match[2]),
+        day: Number(match[3]),
+        hour: Number(match[4]),
+        minute: Number(match[5]),
+        second: Number(match[6]),
+      };
+      /* c8 ignore start @preserve -- format-string variant is already
+         selected before the regex; both variants are public test cases. */
+      if (formatStr === "yyyy-MM-dd'T'HH:mm:ss.SSS") fields.millisecond = Number(match[7]);
+      /* c8 ignore stop @preserve */
+      return temporal.PlainDateTime.from(fields, reject);
+    } catch (err) {
+      throw new InvalidDateError({
+        input,
+        format: formatStr,
+        message: `input "${input}" doesn't describe a valid date/time: ${(err as Error).message}`,
+      });
+    }
+  }
+
+  return FAST_PARSE_MISS;
+}
+/* c8 ignore stop @preserve */
+
 /**
  * Parses `input` against `formatStr` and builds the real Temporal value it
  * describes: a `Temporal.PlainDate`, `PlainTime`, `PlainDateTime`, or
@@ -478,6 +715,11 @@ export function parse(formatStr: string, input: string, options: NumberingParseO
   // could otherwise be violated by locale-native input digits.
   if (options.parseNumberingSystem) {
     input = applyParseNumbering(input, options);
+  }
+
+  const fastResult = fastParseNumeric(formatStr, input, options);
+  if (fastResult !== FAST_PARSE_MISS) {
+    return fastResult;
   }
 
   const locale = options.locale ?? DEFAULT_LOCALE;

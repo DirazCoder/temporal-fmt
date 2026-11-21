@@ -236,74 +236,15 @@ export function formatRFC2822(value: unknown): string {
 }
 
 function formatRFC2822FromMs(ms: number): string {
-  // Use Intl.DateTimeFormat with the en-US POSIX locale and the rfc822
-  // format option. Modern Node ships Intl with this option; if not
-  // available, fall back to manual formatting.
-  try {
-    const fmt = new Intl.DateTimeFormat('en-US', {
-      weekday: 'short', day: '2-digit', month: 'short', year: 'numeric',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-      timeZone: 'UTC', timeZoneName: 'shortOffset',
-      hour12: false,
-    });
-    const parts = fmt.formatToParts(new Date(ms));
-    /* c8 ignore start -- every part type get() is called with (weekday,
-       day, month, year, hour, minute, second, timeZoneName) is always
-       present given the fixed options above, so the ?? '' fallback
-       can't fire without a different Intl implementation. */
-    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
-    /* c8 ignore stop */
-    const tzRaw = get('timeZoneName');
-    // Intl's shortOffset returns "GMT+0", "GMT-8", "GMT+5:30", etc.
-    // RFC 2822 wants "+0000", "-0800", "+0530". Parse and reformat.
-    const tzMatch = tzRaw?.match(/GMT([+-])(\d+)(?::(\d+))?/);
-    let tz: string;
-    if (tzMatch) {
-      const sign = tzMatch[1]!;
-      const hours = tzMatch[2]!.padStart(2, '0');
-      const minutes = (tzMatch[3] ?? '0').padStart(2, '0');
-      tz = `${sign}${hours}${minutes}`;
-    /* c8 ignore start @preserve -- timeZone is hardcoded to 'UTC' above,
-       which always resolves cleanly, so shortOffset always returns a
-       parseable "GMT+0"-shaped string in this environment's ICU. This
-       branch only guards against an ICU build whose shortOffset output
-       doesn't match the regex; can't trigger it without mocking Intl.
-       The ignore starts before the closing brace of the if-block so it
-       covers the whole else-branch node c8 tracks as a single unit. */
-    } else {
-      tz = '+0000';
-    }
-    /* c8 ignore stop @preserve */
-    let hour = get('hour');
-    /* c8 ignore start @preserve -- hour12:false with a fixed UTC zone
-       never yields "24" in this environment's ICU (midnight formats as
-       "00"). Some ICU versions/locales are documented to emit "24" for
-       hour12:false, so this stays as a defensive normalization; not
-       reachable here without mocking Intl.DateTimeFormat's output. */
-    if (hour === '24') hour = '00';
-    /* c8 ignore stop @preserve */
-    return `${get('weekday')}, ${get('day')} ${get('month')} ${get('year')} ${hour}:${get('minute')}:${get('second')} ${tz}`;
-    /* c8 ignore start @preserve -- Intl.DateTimeFormat is constructed
-       above with a literal, always-valid timeZone: 'UTC' and no other
-       user input reaches the constructor or formatToParts call, so this
-       catch can't be triggered through the public API in a normal Intl
-       environment (e.g. Node with full-icu). Kept as a genuine fallback
-       for runtimes with a broken or absent Intl implementation. */
-  } catch {
-    // Fallback: hand-rolled RFC 2822 format via Date's UTC methods.
-    const d = new Date(ms);
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const wd = days[d.getUTCDay()];
-    const dd = String(d.getUTCDate()).padStart(2, '0');
-    const mon = months[d.getUTCMonth()]!;
-    const yyyy = d.getUTCFullYear();
-    const hh = String(d.getUTCHours()).padStart(2, '0');
-    const mm = String(d.getUTCMinutes()).padStart(2, '0');
-    const ss = String(d.getUTCSeconds()).padStart(2, '0');
-    return `${wd}, ${dd} ${mon} ${yyyy} ${hh}:${mm}:${ss} +0000`;
-  }
-  /* c8 ignore stop @preserve */
+  // This helper is already UTC-based: formatRFC2822 reads epoch
+  // milliseconds and historically emits a +0000 offset. Manual UTC
+  // formatting avoids constructing an Intl.DateTimeFormat and repeatedly
+  // scanning formatToParts() arrays for every call.
+  const d = new Date(ms);
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${days[d.getUTCDay()]}, ${String(d.getUTCDate()).padStart(2, '0')} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()} ` +
+    `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}:${String(d.getUTCSeconds()).padStart(2, '0')} +0000`;
 }
 
 // RFC 7231 defines three formats: IMF-fixdate, RFC 850, asctime.

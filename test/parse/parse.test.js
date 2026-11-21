@@ -24,6 +24,63 @@ test('builds a PlainTime', () => {
   assert.equal(result.toString(), Temporal.PlainTime.from('15:45:30').toString());
 });
 
+test('numeric fast paths cover slash dates, fractions, and 12-hour times', () => {
+  const date = parse('MM/dd/yyyy', '08/04/2026');
+  assert.equal(date.toString(), '2026-08-04');
+
+  const time = parse('HH:mm:ss.SSS', '14:30:05.123');
+  assert.equal(time.toString(), '14:30:05.123');
+
+  const noon = parse('hh:mm:ss a', '12:30:05 PM');
+  assert.equal(noon.hour, 12);
+  assert.equal(noon.minute, 30);
+
+  const midnight = parse('hh:mm:ss a', '12:30:05 AM');
+  assert.equal(midnight.hour, 0);
+});
+
+test('numeric fast paths reject impossible values consistently', () => {
+  assert.throws(() => parse('MM/dd/yyyy', '13/04/2026'), /no valid pattern|InvalidDateError/);
+  assert.throws(() => parse('MM/dd/yyyy', '02/30/2026'), /doesn't describe a valid date|no valid pattern|InvalidDateError/);
+  assert.throws(() => parse('HH:mm:ss.SSS', '24:30:05.123'), /no valid pattern/);
+  assert.throws(() => parse('hh:mm:ss a', '13:30:05 PM'), /no valid pattern/);
+  assert.throws(() => parse('hh:mm:ss a', '10:60:05 PM'), /no valid pattern/);
+  assert.throws(() => parse('yyyy-MM-dd HH:mm:ss', '2026-02-30 15:45:30'), /valid date|InvalidDateError/);
+  assert.throws(() => parse("yyyy-MM-dd'T'HH:mm:ss.SSS", '2023-02-29T15:45:30.123'), /valid date|InvalidDateError/);
+});
+
+test('zoned offset fast path covers success, mismatch, and invalid zone', () => {
+  const fmt = "yyyy-MM-dd'T'HH:mm:ssxxx'['zzz']'";
+  const zdt = parse(fmt, '2026-08-04T15:45:30-04:00[America/New_York]');
+  assert.equal(zdt.timeZoneId, 'America/New_York');
+  assert.equal(zdt.offset, '-04:00');
+
+  assert.throws(
+    () => parse(fmt, '2026-08-04T15:45:30+05:00[America/New_York]'),
+    /actual offset|ParseMismatchError/
+  );
+  assert.throws(
+    () => parse(fmt, '2026-08-04T15:45:30-04:00[Not/A_Real_Zone]'),
+    /recognized IANA/
+  );
+});
+
+test('zoned offset fast path rejects DST gaps and out-of-range offsets', () => {
+  const fmt = "yyyy-MM-dd'T'HH:mm:ssxxx'['zzz']'";
+  assert.throws(
+    () => parse(fmt, '2026-03-08T02:30:00-05:00[America/New_York]'),
+    /wall-clock time|DST gap|no such/
+  );
+  assert.throws(
+    () => parse(fmt, '2026-08-04T15:45:30+14:01[UTC]'),
+    /maximum supported UTC offset/
+  );
+  assert.throws(
+    () => parse(fmt, '2026-02-30T15:45:30-05:00[UTC]'),
+    /valid date|InvalidDateError/
+  );
+});
+
 test('builds a ZonedDateTime', () => {
   const result = parse('yyyy-MM-dd HH:mm zzz', '2026-08-04 15:45 America/New_York');
   assert.equal(

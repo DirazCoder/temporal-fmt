@@ -11,6 +11,7 @@ export default function buildSuite(Temporal, Bench) {
   const dateB = Temporal.PlainDate.from('2024-07-04');
   const dt    = Temporal.PlainDateTime.from('2024-01-15T10:30:00');
   const zoned = Temporal.ZonedDateTime.from('2024-01-15T10:30:00[America/New_York]');
+  const monthEnd = Temporal.PlainDate.from('2024-01-31');
 
   // Crossing DST is intentional — it exercises the non-trivial path.
   const zonedDst = Temporal.ZonedDateTime.from('2024-03-10T01:00:00[America/New_York]');
@@ -19,7 +20,7 @@ export default function buildSuite(Temporal, Bench) {
     .add('addDays PlainDate +1',                   () => addDays(date, 1))
     .add('addDays PlainDate +365',                 () => addDays(date, 365))
     .add('addMonths PlainDate +1',                 () => addMonths(date, 1))
-    .add('addMonths PlainDate +6 (cross month-end)', () => addMonths(Temporal.PlainDate.from('2024-01-31'), 1))
+    .add('addMonths PlainDate +6 (cross month-end)', () => addMonths(monthEnd, 1))
     .add('addYears PlainDate +1',                  () => addYears(date, 1))
     .add('addHours PlainDateTime +3',              () => addHours(dt, 3))
     .add('addMinutes PlainDateTime +90',           () => addMinutes(dt, 90))

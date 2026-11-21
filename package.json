@@ -180,7 +180,7 @@
   "bugs": {
     "url": "https://github.com/DirazCoder/temporal-fmt/issues"
   },
-  "homepage": "https://github.com/DirazCoder/temporal-fmt#readme",
+  "homepage": "https://dirazcoder.github.io/temporal-fmt/",
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
     "@playwright/test": "^1.65.1",
