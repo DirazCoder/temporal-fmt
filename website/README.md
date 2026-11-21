@@ -20,6 +20,10 @@ The temporal-fmt docs site: sidebar, search, and live npm stats. Plain HTML, CSS
 
 Each folder only imports from the ones listed above it. To add a docs section, drop a new file in `src/content/` (`NN-name.html`, a `<section>` with `id`, `data-group` and `data-title`); the sidebar and search pick it up on their own. The live stats call the npm registry from the browser, so they only work on a real host, not in sandboxed previews.
 
+## Runtime dependencies
+
+The site eats its own cooking: the live stats are formatted by temporal-fmt, and the playground runs it. Both load it from jsDelivr when the page opens (plus `temporal-polyfill@1.0.8` for browsers without native `Temporal`). If jsDelivr or the registry is unreachable, the page falls back to plain text and the playground says so.
+
 ## Deploying
 
 `public/` is committed, so you can deploy it as is. Any static host works:

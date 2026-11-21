@@ -83,6 +83,96 @@
   var live = document.getElementById('live');
   var relBody = document.getElementById('rel');
 
+  // the site runs temporal-fmt itself: loaded from jsDelivr, plus a Temporal polyfill if the browser has none
+  var CDN = 'https://cdn.jsdelivr.net/npm/';
+  var POLYFILL = 'temporal-polyfill@1.0.8';
+  var libVersion = '';
+  var libStarted = false;
+  var libDone, libFailed;
+  var libReady = new Promise(function (ok, no) { libDone = ok; libFailed = no; });
+
+  function startLib(version) {
+    if (libStarted) return;
+    libStarted = true;
+    libVersion = version || '';
+    var needPolyfill = !window.Temporal;
+    Promise.all([
+      import(CDN + 'temporal-fmt' + (version ? '@' + version : '') + '/+esm'),
+      needPolyfill ? import(CDN + POLYFILL + '/+esm') : null
+    ]).then(function (mods) {
+      var T = needPolyfill ? mods[1].Temporal : window.Temporal;
+      mods[0].setTemporal(T);
+      libDone({ lib: mods[0], T: T });
+    }, libFailed);
+  }
+
+  // swap the plain "3 hours ago" text for the library's own output, full date on hover
+  function useLibForDates(api) {
+    // same zone as "now": the library compares wall-clock time, so mixed zones give wrong answers
+    var zone = api.T.Now.timeZoneId();
+    document.querySelectorAll('[data-iso]').forEach(function (el) {
+      var when = api.T.Instant.from(el.dataset.iso).toZonedDateTimeISO(zone);
+      el.textContent = api.lib.formatDistanceToNow(when, { numeric: 'always' });
+      el.title = api.lib.format(when, "MMM d, yyyy 'at' h:mm a zzz");
+    });
+    if (live.classList.contains('on')) stat('Dates by', 'temporal-fmt itself');
+  }
+
+  function setupPlayground(api) {
+    var fmt = document.getElementById('play-fmt');
+    var loc = document.getElementById('play-loc');
+    var out = document.getElementById('play-out');
+    var trip = document.getElementById('play-trip');
+    var status = document.getElementById('play-status');
+    var chips = document.querySelectorAll('.chips button');
+
+    function why(err) { return err.name + ': ' + String(err.message).replace(/^temporal-fmt: /, ''); }
+
+    function run() {
+      var now = api.T.Now.zonedDateTimeISO();
+      var opts = { locale: loc.value };
+      out.className = 'play-out';
+      trip.className = 'play-trip';
+      var text;
+      try {
+        text = api.lib.format(now, fmt.value, opts);
+        out.textContent = text;
+      } catch (err) {
+        out.textContent = why(err);
+        out.className = 'play-out bad';
+        trip.textContent = '';
+        return;
+      }
+      try {
+        var back = api.lib.parse(fmt.value, text, opts);
+        trip.textContent = 'parse() reads it back as ' + back.constructor.name + ' ' + back.toString();
+      } catch (err) {
+        trip.textContent = 'parse() refuses: ' + why(err);
+        trip.className = 'play-trip bad';
+      }
+    }
+
+    fmt.disabled = loc.disabled = false;
+    chips.forEach(function (chip) {
+      chip.disabled = false;
+      chip.addEventListener('click', function () {
+        var at = fmt.selectionEnd == null ? fmt.value.length : fmt.selectionEnd;
+        fmt.setRangeText(chip.textContent, fmt.selectionStart == null ? at : fmt.selectionStart, at, 'end');
+        fmt.focus();
+        run();
+      });
+    });
+    fmt.addEventListener('input', run);
+    loc.addEventListener('change', run);
+    status.textContent = 'Running temporal-fmt' + (libVersion ? ' v' + libVersion : '') + ' from jsDelivr' + (window.Temporal ? ', native Temporal.' : ', with a Temporal polyfill.');
+    run();
+  }
+
+  libReady.then(useLibForDates, function () {});
+  libReady.then(setupPlayground, function () {
+    document.getElementById('play-out').textContent = 'Couldn’t load temporal-fmt from jsDelivr. Everything else on the page still works.';
+  });
+
   function ago(iso) {
     var secs = (Date.parse(iso) - Date.now()) / 1000;
     var fmt = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
@@ -128,13 +218,14 @@
 
   getJSON('https://registry.npmjs.org/' + PKG, 'tfmt:packument').then(function (doc) {
     var latest = doc['dist-tags'].latest;
+    startLib(latest);
     var info = doc.versions[latest];
     var tagOf = {};
     Object.keys(doc['dist-tags']).forEach(function (t) { tagOf[doc['dist-tags'][t]] = t; });
 
     live.classList.add('on');
     stat('Latest', 'v' + latest);
-    stat('Published', ago(doc.time[latest]));
+    stat('Published', ago(doc.time[latest])).dataset.iso = doc.time[latest];
     stat('Unpacked', info.dist && info.dist.unpackedSize ? size(info.dist.unpackedSize) : 'n/a');
     stat('Versions', String(Object.keys(doc.versions).length));
     var weekly = stat('Downloads / week', '…');
@@ -161,11 +252,13 @@
         name.appendChild(tag);
       }
       when.textContent = ago(doc.time[v]);
+      when.dataset.iso = doc.time[v];
       tr.appendChild(name);
       tr.appendChild(when);
       relBody.appendChild(tr);
     });
   }).catch(function () {
+    startLib(null);
     relBody.innerHTML = '<tr><td colspan="2">Couldn’t reach the npm registry. Check <a href="https://www.npmjs.com/package/temporal-fmt">npmjs.com</a> instead.</td></tr>';
   });
 
