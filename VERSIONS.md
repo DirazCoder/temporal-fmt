@@ -60,7 +60,7 @@ The exception is when something shouldn't have been in scope to begin with — a
 - **0.8.3** — `QQQ` now checks that the quarter you gave it actually matches the month/date in the same string, and throws if they don't agree.
 - **0.8.3** — `registerLocaleVocab()` checks your locale data right when you register it, so bad data throws immediately instead of later when you try to use it.
 - **0.9.0** — errors from the main API are typed (`TemporalFmtError` and subclasses) instead of plain `Error`. `try/catch` and `instanceof Error` continue to work, but strict checks such as `err.constructor === Error` or `err.name === 'Error'` do not. Use the `temporal-fmt/legacy` subpath to retain plain-`Error` behavior while continuing to upgrade.
-- **0.9.80** — mod loading and the package CLI were removed. Neither belongs in a date-formatting library's scope, and mod loading also ran project-local code, which made it an active risk on top of that. Historical mod documentation remains in `LEGACY_VERSION_MODS/` for now — it'll be dropped from `main` once 0.10.x ships, but stays available on the `0.9.x` branch after that branch is cut.
+- **0.9.82** — mod loading and the package CLI were removed. Neither belongs in a date-formatting library's scope, and mod loading also ran project-local code, which made it an active risk on top of that. Historical mod documentation remains in `LEGACY_VERSION_MODS/` for now — it'll be dropped from `main` once 0.10.x ships, but stays available on the `0.9.x` branch after that branch is cut.
 
 ## History
 
