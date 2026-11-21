@@ -1,0 +1,22 @@
+.logo { display: inline-flex; align-items: center; gap: .6rem; font: 600 .95rem var(--mono); text-decoration: none; letter-spacing: -.01em; }
+
+.btn { display: inline-block; padding: .6rem 1.1rem; border-radius: 999px; font: 500 .9rem var(--sans); text-decoration: none; border: 1px solid var(--fg); transition: background .15s, color .15s, border-color .15s; }
+.btn--solid { background: var(--fg); color: var(--bg); }
+.btn--solid:hover { background: transparent; color: var(--fg); }
+.btn--ghost { border-color: var(--line); }
+.btn--ghost:hover { border-color: var(--fg); }
+
+.badge { display: inline-block; padding: .15rem .6rem; border: 1px solid var(--line); border-radius: 999px; font: .75rem var(--mono); color: var(--muted); }
+
+.eyebrow { font: .72rem var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
+
+.code { margin: 0; padding: 1rem 1.1rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); font: .84rem/1.65 var(--mono); overflow-x: auto; }
+.code code { font: inherit; }
+.tk-c { color: var(--muted); }
+.tk-s { color: var(--cold); }
+.tk-k { color: var(--warm); }
+
+.copy { appearance: none; background: none; border: 1px solid var(--line); border-radius: 6px; padding: .15rem .55rem; color: var(--muted); font: .72rem var(--mono); cursor: pointer; transition: color .15s, border-color .15s; }
+.copy:hover { color: var(--fg); border-color: var(--fg); }
+.copy[data-done] { color: var(--cold); border-color: var(--cold); }
+:focus-visible { outline: 2px solid var(--cold); outline-offset: 2px; }

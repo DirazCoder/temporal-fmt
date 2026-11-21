@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>temporal-fmt: format and parse Temporal with date-fns-style tokens</title>
+  <meta name="description" content="Format and parse Temporal values with the tokens you already know. Strict, locale-aware, zero dependencies.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2022%2014%22%3E%3Ccircle%20cx%3D%227%22%20cy%3D%227%22%20r%3D%226%22%20fill%3D%22%2322d3ee%22%2F%3E%3Ccircle%20cx%3D%2215%22%20cy%3D%227%22%20r%3D%226%22%20fill%3D%22%23fb923c%22%20fill-opacity%3D%22.85%22%2F%3E%3C%2Fsvg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+    <a class="logo" href="#top" aria-label="temporal-fmt home">
+    <svg width="22" height="14" viewBox="0 0 22 14" aria-hidden="true"><circle cx="7" cy="7" r="6" fill="var(--cold)"/><circle cx="15" cy="7" r="6" fill="var(--warm)" fill-opacity=".85"/></svg>
+    <span>temporal-fmt</span>
+  </a>
+    <nav class="nav" aria-label="Main">
+      <a class="nav__link" href="#examples">Examples</a>
+      <a class="nav__link" href="#features">Features</a>
+      <a class="nav__link" href="#subpaths">Imports</a>
+      <a class="nav__link" href="https://github.com/DirazCoder/temporal-fmt">GitHub</a>
+    </nav>
+  </header>
+    <main><section class="hero" id="top">
+    <h1>Format and parse <em>Temporal</em> with the tokens you already know.</h1>
+    <p class="hero__lede">yyyy-MM-dd in, string out. Bad input throws instead of quietly handing you garbage. Locale-aware, zero dependencies.</p>
+    <div class="install"><span class="install__prompt" aria-hidden="true">$</span><code>npm install temporal-fmt</code><button class="copy" type="button" data-copy="npm install temporal-fmt">copy</button></div>
+    <div class="hero__actions">
+      <a class="btn btn--solid" href="#examples" rel="noopener">See it in action</a>
+      <a class="btn btn--ghost" href="https://github.com/DirazCoder/temporal-fmt" rel="noopener">View on GitHub</a>
+    </div>
+    <p class="hero__badges"><span class="badge">100% test coverage</span> <span class="badge">0 dependencies</span> <span class="badge">Node 20+</span></p>
+  </section>
+<section class="section section--narrow">
+    <h2 class="section__title">Why this exists</h2>
+    <p class="prose">Node 26 shipped <code>Temporal</code> without a string formatter. TC39's answer is to use <code>Intl.DateTimeFormat</code> and let userland handle token-style formatting. Fair enough. But if <code>yyyy-MM-dd</code> is muscle memory, you still want that, so this is that userland.</p>
+  </section>
+<section class="section" id="examples">
+    <p class="eyebrow">Examples</p>
+    <h2 class="section__title">What it looks like</h2>
+    <div class="grid grid--examples"><article class="example">
+    <p class="eyebrow">Format</p>
+    <pre class="code"><code><span class="tk-k">import</span> { format } <span class="tk-k">from</span> <span class="tk-s">'temporal-fmt/format'</span>;
+
+<span class="tk-k">const</span> dt = Temporal.PlainDateTime.<span class="tk-k">from</span>(<span class="tk-s">'2026-08-04T15:45:30'</span>);
+format(dt, <span class="tk-s">&quot;MMM d, yyyy 'at' h:mm a&quot;</span>);</code></pre>
+    <p class="example__out"><span aria-hidden="true">→</span> "Aug 4, 2026 at 3:45 PM"</p>
+  </article><article class="example">
+    <p class="eyebrow">Parse</p>
+    <pre class="code"><code><span class="tk-k">import</span> { parse } <span class="tk-k">from</span> <span class="tk-s">'temporal-fmt/parse'</span>;
+
+parse(<span class="tk-s">'yyyy-MM-dd HH:mm'</span>, <span class="tk-s">'2026-08-04 15:45'</span>);</code></pre>
+    <p class="example__out"><span aria-hidden="true">→</span> Temporal.PlainDateTime</p>
+  </article><article class="example">
+    <p class="eyebrow">It throws</p>
+    <pre class="code"><code><span class="tk-k">const</span> date = Temporal.PlainDate.<span class="tk-k">from</span>(<span class="tk-s">'2026-08-04'</span>);
+
+<span class="tk-c">// a date has no hours, so this can't work</span>
+format(date, <span class="tk-s">'HH:mm'</span>);</code></pre>
+    <p class="example__out"><span aria-hidden="true">→</span> an error that tells you what went wrong, not "undefined"</p>
+  </article><article class="example">
+    <p class="eyebrow">Relative time</p>
+    <pre class="code"><code><span class="tk-k">import</span> { formatDistance } <span class="tk-k">from</span> <span class="tk-s">'temporal-fmt'</span>;
+
+<span class="tk-k">const</span> today = Temporal.PlainDate.<span class="tk-k">from</span>(<span class="tk-s">'2026-08-04'</span>);
+formatDistance(today, today.add({ days: 2 }), { locale: <span class="tk-s">'fr-FR'</span> });</code></pre>
+    <p class="example__out"><span aria-hidden="true">→</span> "dans 2 jours"</p>
+  </article><article class="example">
+    <p class="eyebrow">Natural language</p>
+    <pre class="code"><code><span class="tk-k">import</span> { parseRelative } <span class="tk-k">from</span> <span class="tk-s">'temporal-fmt'</span>;
+
+parseRelative(<span class="tk-s">'next Tuesday'</span>, today);</code></pre>
+    <p class="example__out"><span aria-hidden="true">→</span> Temporal.PlainDate</p>
+  </article><article class="example">
+    <p class="eyebrow">Recurrence</p>
+    <pre class="code"><code><span class="tk-k">import</span> { recurrence, take } <span class="tk-k">from</span> <span class="tk-s">'temporal-fmt'</span>;
+
+<span class="tk-k">const</span> start = Temporal.PlainDate.<span class="tk-k">from</span>(<span class="tk-s">'2026-08-04'</span>);
+<span class="tk-k">const</span> rule = { freq: <span class="tk-s">'weekly'</span>, interval: 1, count: 10 };
+take(recurrence(start, rule), 5);</code></pre>
+    <p class="example__out"><span aria-hidden="true">→</span> the next five occurrences</p>
+  </article></div>
+  </section>
+<section class="section" id="features">
+    <p class="eyebrow">Features</p>
+    <h2 class="section__title">Small API, deep bench</h2>
+    <div class="grid grid--features"><article class="feature"><h3>Strict, not forgiving</h3><p>A token the input type can't support, input that doesn't match, an ambiguous date: all of it throws a typed error. A lenient mode exists for when you want it.</p></article><article class="feature"><h3>Locale-aware</h3><p>Month names, relative time and natural-language parsing work across languages. Register your own vocabulary if yours isn't covered.</p></article><article class="feature"><h3>No dependencies</h3><p>Nothing to audit, nothing that breaks on you in a transitive update.</p></article><article class="feature"><h3>Only ship what you import</h3><p>Subpath imports and <code>sideEffects: false</code>. Importing just <code>format</code> is roughly 27 KB, against roughly 68 KB for the bare import.</p></article><article class="feature"><h3>More than format and parse</h3><p>Durations, intervals, recurrence with RRULE, business calendars and holidays, time zone disambiguation, and a format-string analyzer.</p></article><article class="feature"><h3>Tested hard</h3><p>100% coverage, plus fuzz, adversarial and conformance suites. A small thing that tells you the truth about dates should be boring to depend on.</p></article></div>
+  </section>
+<section class="section section--narrow" id="subpaths">
+    <p class="eyebrow">Imports</p>
+    <h2 class="section__title">Pull in only what you need</h2>
+    <ul class="subpaths"><li class="subpath"><code>temporal-fmt/format</code><span>format, formatToParts, compileFormat</span></li><li class="subpath"><code>temporal-fmt/parse</code><span>parse, strict by default</span></li><li class="subpath"><code>temporal-fmt/duration</code><span>formatDuration and friends</span></li><li class="subpath"><code>temporal-fmt/relative</code><span>formatRelative, "in 3 days"</span></li><li class="subpath"><code>temporal-fmt/interval</code><span>intervals and formatRange</span></li><li class="subpath"><code>temporal-fmt/calendar</code><span>daysInMonth, startOf, calendar helpers</span></li><li class="subpath"><code>temporal-fmt/timezone</code><span>DST-aware resolution, resolveZoned, isDST</span></li><li class="subpath"><code>temporal-fmt/recurrence</code><span>recurrence rules, RRULE in and out</span></li><li class="subpath"><code>temporal-fmt/locale</code><span>registerLocale for your own languages</span></li></ul>
+    <p class="note">Arithmetic, comparison, rounding, business calendars, holidays, serialization and the analyzer live in the main <code>temporal-fmt</code> import.</p>
+  </section>
+<section class="section section--narrow migrate">
+    <h2 class="section__title">Coming from date-fns or Day.js?</h2>
+    <p class="prose">The tokens are the ones you already type. The README has a token and API mapping, and an honest list of what will bite you on the way over.</p>
+    <a class="btn btn--ghost" href="https://github.com/DirazCoder/temporal-fmt#migrating-from-dayjs-or-date-fns" rel="noopener">Read the migration guide</a>
+  </section></main>
+    <footer class="footer">
+    <span>temporal-fmt v0.9.85 &middot; Apache-2.0</span>
+    <span class="footer__links">
+      <a class="nav__link" href="https://github.com/DirazCoder/temporal-fmt">GitHub</a>
+      <a class="nav__link" href="https://www.npmjs.com/package/temporal-fmt">npm</a>
+      <a class="nav__link" href="https://github.com/DirazCoder/temporal-fmt/issues">Issues</a>
+    </span>
+  </footer>
+  </div>
+  <script src="script.js" defer></script>
+</body>
+</html>

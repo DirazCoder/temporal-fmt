@@ -1,0 +1,7 @@
+.container { max-width: var(--width); margin: 0 auto; padding: 0 var(--gap); }
+
+.section { padding: clamp(2.5rem, 7vw, 4.5rem) 0; }
+.section--narrow { max-width: 640px; }
+.section__title { font: 600 clamp(1.4rem, 3.4vw, 1.9rem)/1.2 var(--sans); letter-spacing: -.02em; margin-top: .5rem; }
+.prose { margin-top: 1rem; color: var(--muted); }
+.prose code, .note code { font: .88em var(--mono); color: var(--fg); background: var(--surface); padding: .1em .4em; border-radius: 5px; }
