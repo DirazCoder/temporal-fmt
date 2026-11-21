@@ -10,7 +10,28 @@ permissions:
   contents: read
 
 jobs:
+  check-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if CI workflow did not succeed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHA="${{ github.sha }}"
+          CONCLUSION=$(gh api \
+            "repos/${{ github.repository }}/commits/${SHA}/check-runs" \
+            --jq '[.check_runs[] | select(.name | test("test|browser-smoke"; "i"))] |
+                  if length == 0 then "not_found"
+                  elif all(.conclusion == "success") then "success"
+                  else "failure" end')
+          echo "CI conclusion: $CONCLUSION"
+          if [ "$CONCLUSION" != "success" ]; then
+            echo "CI checks did not all pass (got: $CONCLUSION). Blocking release."
+            exit 1
+          fi
+
   publish:
+    needs: check-ci
     runs-on: ubuntu-latest
     permissions:
       contents: read
