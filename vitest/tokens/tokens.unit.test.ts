@@ -189,6 +189,27 @@ describe('intlPart input arms', () => {
     expect(format(dateTime, 'G')).toBe('AD');
   });
 
+  it('extracts a single Intl part from a Temporal-like value on the fallback path', () => {
+    let timeZone: string | undefined;
+    const dateTime: TemporalLike = {
+      year: 2020,
+      month: 2,
+      day: 29,
+      hour: 16,
+      minute: 5,
+      second: 9,
+      toLocaleString: () => 'unused fallback',
+      toZonedDateTime: (zone) => {
+        timeZone = zone;
+        return {
+          toInstant: () => ({ epochMilliseconds: Date.UTC(2020, 1, 29, 16, 5, 9) }),
+        };
+      },
+    };
+    expect(format(dateTime, 'G')).toBe('AD');
+    expect(timeZone).toBe('UTC');
+  });
+
   it('formats a PlainYearMonth by rendering its toPlainDate({ day: 1 })', () => {
     // year but no day + iso8601 calendar + toPlainDate → convert to the
     // first of the month, which Intl accepts with the forced gregory
