@@ -90,6 +90,17 @@ describe('tryRegisteredGrammar: matcher isolation and field bags', () => {
     expect(iso(tryRegisteredGrammar('vitest-throw-lang', 'afterthrow', REF))).toBe('2020-01-01');
   });
 
+  it('continues when a matcher throws during resolve', () => {
+    registerRelativeGrammar({
+      language: 'vitest-resolve-throw-lang',
+      matchers: [
+        () => ({ resolve: () => { throw new Error('resolve exploded'); } }),
+        () => ({ year: 2021, month: 2, day: 3 }),
+      ] as unknown as Parameters<typeof registerRelativeGrammar>[0]['matchers'],
+    });
+    expect(iso(tryRegisteredGrammar('vitest-resolve-throw-lang', 'anything', REF))).toBe('2021-02-03');
+  });
+
   it('fills missing year/month/day from the reference date (field-bag matches)', () => {
     registerRelativeGrammar({
       language: 'vitest-fields-lang',

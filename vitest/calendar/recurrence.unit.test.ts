@@ -472,9 +472,17 @@ describe('parseRRule extras', () => {
     });
   });
 
-  it('strips the RRULE: prefix, uppercases, trims, and defaults to daily/1', () => {
+  it('strips the RRULE: prefix, uppercases, trims, and defaults interval to 1', () => {
     expect(parseRRule('  rrule:freq=daily;count=2  ')).toEqual({ frequency: 'daily', interval: 1, count: 2 });
-    expect(parseRRule('')).toEqual({ frequency: 'daily', interval: 1 });
+  });
+
+  it('requires FREQ — garbage and empty strings are not silent daily rules', () => {
+    // RFC 5545 §3.3.10: FREQ is mandatory. parseRRule('') and
+    // parseRRule('GARBAGE') used to return an unbounded daily rule.
+    expect(() => parseRRule('')).toThrow(/requires FREQ/);
+    expect(() => parseRRule('GARBAGE')).toThrow(/requires FREQ/);
+    expect(() => parseRRule(';;')).toThrow(/requires FREQ/);
+    expect(() => parseRRule('COUNT=5')).toThrow(/requires FREQ/);
   });
 
   it('ignores empty segments, segments without "=", and unknown parts', () => {
@@ -559,7 +567,7 @@ describe('formatRRule extras', () => {
 
   it('renders count, until, and the BYMONTHDAY/BYMONTH parts', () => {
     expect(formatRRule({ frequency: 'daily', interval: 1, count: 5, until: Temporal.PlainDate.from('2026-06-30') }))
-      .toBe('FREQ=DAILY;COUNT=5;UNTIL=2026-06-30');
+      .toBe('FREQ=DAILY;COUNT=5;UNTIL=20260630');
     expect(formatRRule({ frequency: 'monthly', interval: 2, byMonthDay: [15, -1], byMonth: [1, 3] }))
       .toBe('FREQ=MONTHLY;INTERVAL=2;BYMONTHDAY=15,-1;BYMONTH=1,3');
   });
@@ -592,5 +600,55 @@ describe('formatRRule extras', () => {
       byMonthDay: [15, -1], byMonth: [1, 3],
     };
     expect(parseRRule(formatRRule(rule))).toEqual(rule);
+  });
+});
+
+describe('recurrence remaining branches', () => {
+  it('drains pending rDates, deduplicates them, and excludes exDates', () => {
+    const iter = recurrence(Temporal.PlainDate.from('2026-01-02'), {
+      frequency: 'daily',
+      count: 3,
+      rDates: [
+        Temporal.PlainDate.from('2026-01-01'),
+        Temporal.PlainDate.from('2026-01-02'),
+        Temporal.PlainDate.from('2026-01-04'),
+      ],
+      exDates: [Temporal.PlainDate.from('2026-01-04')],
+      until: Temporal.PlainDate.from('2026-01-10'),
+    });
+    expect(take(iter, 10).map(iso)).toEqual(['2026-01-02', '2026-01-03', '2026-01-05']);
+  });
+
+  it('honors sub-daily date constraints by jumping to the next matching day', () => {
+    const iter = recurrence(dt('2026-01-01T23:30:00'), {
+      frequency: 'hourly',
+      interval: 1,
+      count: 2,
+      byMonth: [2],
+    });
+    expect(take(iter, 2).length).toBe(2);
+  });
+
+  it('terminates impossible Feb 29 searches beyond the search cap', () => {
+    const iter = recurrence(Temporal.PlainDate.from('2097-01-01'), {
+      frequency: 'daily',
+      interval: 1,
+      byMonth: [2],
+      byMonthDay: [30],
+    });
+    expect(take(iter, 1)).toEqual([]);
+  });
+
+  it('skips rDates beyond UNTIL and before the anchor', () => {
+    const iter = recurrence(Temporal.PlainDate.from('2026-01-10'), {
+      frequency: 'daily',
+      count: 2,
+      rDates: [
+        Temporal.PlainDate.from('2026-01-01'),
+        Temporal.PlainDate.from('2026-01-20'),
+      ],
+      until: Temporal.PlainDate.from('2026-01-15'),
+    });
+    expect(take(iter, 5).map(iso)).toEqual(['2026-01-10', '2026-01-11']);
   });
 });

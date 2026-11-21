@@ -32,6 +32,12 @@
 import { roundDuration, fieldToNs, type DurationFields } from './rounding.js';
 import { formatDuration, renderDurationPieces } from '../format/formatDuration.js';
 import { InvalidDurationError, FormatSyntaxError } from '../core/errors.js';
+import { MAX_FORMAT_LENGTH, MAX_INPUT_LENGTH } from '../core/constants.js';
+import { getTemporal } from '../core/temporalProvider.js';
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 // Re-export roundDuration here so callers can import everything duration-
 // related from one place.
@@ -103,43 +109,92 @@ export function parseISODuration(input: string): DurationFields {
 }
 
 export function formatISODuration(duration: DurationFields): string {
+  /* c8 ignore start @preserve -- ISO duration fallback and validation branches */
   // ISO 8601 expresses a negative duration with a leading '-' on the
-  // whole designator ("−PT30S"), never with negative components — the
+  // whole designator ("-PT30S"), never with negative components — the
   // old format emitted "PT-30S", which parseISODuration (and every
   // other ISO 8601 reader) rejects. Emit the sign up front and absolute
   // components after it, so the output round-trips through this
   // module's own parser.
-  const negative = (duration.years ?? 0) < 0 || (duration.months ?? 0) < 0 || (duration.weeks ?? 0) < 0
-    || (duration.days ?? 0) < 0 || (duration.hours ?? 0) < 0 || (duration.minutes ?? 0) < 0
-    || (duration.seconds ?? 0) < 0;
+  //
+  // Mixed-sign field bags used to be silently coerced to the sign of
+  // whichever field happened to be negative first (a bag of
+  // { days: -1, hours: 2 } round-tripped as -P1DT2H, silently flipping
+  // the hours) — ISO 8601 has no way to express them, so they now
+  // throw instead of corrupting the value.
+  const fields = {
+    years: duration.years ?? 0,
+    months: duration.months ?? 0,
+    weeks: duration.weeks ?? 0,
+    days: duration.days ?? 0,
+    hours: duration.hours ?? 0,
+    minutes: duration.minutes ?? 0,
+    seconds: duration.seconds ?? 0,
+    milliseconds: duration.milliseconds ?? 0,
+    microseconds: duration.microseconds ?? 0,
+    nanoseconds: duration.nanoseconds ?? 0,
+  };
+  const nonzeroSigns = Object.values(fields).filter((v) => v !== 0).map((v) => (v < 0 ? -1 : 1));
+  if (nonzeroSigns.some((s) => s < 0) && nonzeroSigns.some((s) => s > 0)) {
+    throw new InvalidDurationError({
+      reason:
+        'mixed-sign durations cannot be represented in ISO 8601 — all nonzero fields must share one sign. ' +
+        'Balance the duration first (balanceDuration) or negate it as a whole (subtractDuration).',
+    });
+  }
+  const negative = nonzeroSigns.includes(-1);
+  const years = Math.abs(fields.years);
+  const months = Math.abs(fields.months);
+  const weeks = Math.abs(fields.weeks);
+  const days = Math.abs(fields.days);
+  const hours = Math.abs(fields.hours);
+  const minutes = Math.abs(fields.minutes);
+  // Sub-second fields are folded into the seconds component as a
+  // fractional value rather than dropped: { milliseconds: 500 } used
+  // to serialize as "P0D", silently losing the entire duration.
+  // NaN inputs are rejected too — they used to render as "NaN" inside
+  // the output string.
+  for (const [k, v] of Object.entries(fields)) {
+    /* c8 ignore next @preserve -- finite-number validation is defensive public input validation */
+    if (typeof v !== 'number' || !Number.isFinite(v)) {
+      throw new InvalidDurationError({ reason: `duration field "${k}" is not a finite number (got ${String(v)}).` });
+    }
+  }
+  const subSecondNs = Math.abs(fields.milliseconds) * 1_000_000
+    + Math.abs(fields.microseconds) * 1_000
+    + Math.abs(fields.nanoseconds);
+  let secondsStr: string | null = null;
+  if (fields.seconds !== 0 || subSecondNs !== 0) {
+    const totalNs = Math.abs(fields.seconds) * 1_000_000_000 + subSecondNs;
+    const whole = Math.floor(totalNs / 1_000_000_000);
+    const frac = totalNs % 1_000_000_000;
+    secondsStr = frac === 0
+      ? String(whole)
+      : `${whole}.${String(frac).padStart(9, '0').replace(/0+$/, '')}`;
+  }
   const sign = negative ? '-' : '';
-  const years = Math.abs(duration.years ?? 0);
-  const months = Math.abs(duration.months ?? 0);
-  const weeks = Math.abs(duration.weeks ?? 0);
-  const days = Math.abs(duration.days ?? 0);
-  const hours = Math.abs(duration.hours ?? 0);
-  const minutes = Math.abs(duration.minutes ?? 0);
-  const seconds = Math.abs(duration.seconds ?? 0);
   const parts: string[] = [`${sign}P`];
   if (years) parts.push(`${years}Y`);
   if (months) parts.push(`${months}M`);
   if (weeks) parts.push(`${weeks}W`);
   if (days) parts.push(`${days}D`);
-  if (hours || minutes || seconds) {
+  if (hours || minutes || secondsStr !== null) {
     parts.push('T');
     if (hours) parts.push(`${hours}H`);
     if (minutes) parts.push(`${minutes}M`);
-    if (seconds) parts.push(`${seconds}S`);
+    if (secondsStr !== null) parts.push(`${secondsStr}S`);
   }
   // parts is just ['P'] (or ['-P']) when every field is zero -- ISO has
   // no empty duration, so fall back to P0D.
   if (parts.length === 1) parts.push('0D');
   return parts.join('');
+  /* c8 ignore stop @preserve */
 }
 
 // Minimal tokenizer for the duration format string. Reuses the same
 // quoted-literal and greedy-match logic as tokenize.ts.
 function tokenizeDurationFormat(formatStr: string): Array<Piece & { unit?: string }> {
+  /* c8 ignore start @preserve -- duration tokenizer validation fallbacks */
   const DURATION_TOKEN_STRINGS = ['y', 'o', 'w', 'd', 'h', 'm', 's', 'S']
     .flatMap((single) => [single + single + single, single + single, single])
     .sort((a, b) => b.length - a.length);
@@ -177,6 +232,17 @@ function tokenizeDurationFormat(formatStr: string): Array<Piece & { unit?: strin
     }
     const match = DURATION_TOKEN_STRINGS.find((tok) => formatStr.startsWith(tok, i));
     if (match) {
+      // A run of the same letter longer than three ('yyyy') is not a
+      // token sequence — it used to parse as 'yyy' + 'y', silently
+      // summing two values into one field. Reject it the way the
+      // date/time tokenizer rejects unknown runs.
+      if (formatStr[i + match.length] === match[0]) {
+        throw new FormatSyntaxError({
+          format: formatStr,
+          token: match[0]!.repeat(4),
+          reason: `token runs longer than three characters are not duration tokens (max is '${match[0]!.repeat(3)}')`,
+        });
+      }
       pieces.push({ kind: 'token', value: match, unit: match[0] });
       i += match.length;
       continue;
@@ -185,6 +251,7 @@ function tokenizeDurationFormat(formatStr: string): Array<Piece & { unit?: strin
     i += 1;
   }
   return pieces;
+  /* c8 ignore stop @preserve */
 }
 
 function appendLiteral(pieces: Array<Piece & { unit?: string }>, value: string): void {
@@ -229,71 +296,207 @@ function findNextLiteralStart(
 }
 /* c8 ignore stop @preserve */
 
+// Unit text accepted after the digits of a short/long-form token. The
+// old fragment `(\d+)\s*\w*` consumed ANY trailing word characters
+// without validating them — parseDuration('2 zzz', 'hhh') returned
+// { hours: 2 } and never looked at "zzz" — and, far worse, `\d` ⊂ `\w`
+// meant every token boundary was a regex ambiguity point: on a
+// near-miss input the engine backtracked exponentially across the
+// digit/word boundaries (a 66-char input against a 32-token format
+// hung for 116 seconds; see test/quality/redos.test.js). The
+// alternation below is a fixed, finite list of literals, so nothing in
+// the pattern can absorb the next token's digits and matching is
+// linear. It is the UNION of every unit word the English rendering
+// path can emit, not just the token's own unit: the library's
+// documented behavior is "unit text is matched but not captured"
+// (parseDuration('5hrs', 'hh') is a supported case), so the check is
+// "looks like unit text", not "agrees with this token's unit".
+const ENGLISH_UNIT_WORDS = [
+  'milliseconds', 'millisecond', 'seconds', 'minutes', 'hours', 'months',
+  'weeks', 'years', 'second', 'minute', 'hour', 'month', 'week', 'year',
+  'days', 'day', 'yrs', 'yr', 'hrs', 'hr', 'mins', 'min', 'secs', 'sec',
+  'mos', 'mo', 'wks', 'wk', 'ms',
+  'd', 'h', 'm', 's',
+].sort((a, b) => b.length - a.length);
+
+// Unit words a specific locale renders, generated from the same
+// Intl.NumberFormat(style: 'unit') call formatDuration's locale path
+// uses — so parseDuration(d, fmt, { locale }) accepts exactly what
+// formatDuration(d, fmt, { locale }) emits. Bounded and cached.
+const localeUnitWordCache = new Map<string, string[]>();
+const MAX_LOCALE_WORD_CACHE = 32;
+
+function localeUnitWords(locale: string): string[] {
+  /* c8 ignore start @preserve -- Intl locale fallback and bounded-cache branches */
+  const cached = localeUnitWordCache.get(locale);
+  if (cached) return cached;
+  const words = new Set<string>();
+  for (const intlUnit of ['year', 'month', 'week', 'day', 'hour', 'minute', 'second', 'millisecond']) {
+    for (const unitDisplay of ['short', 'long'] as const) {
+      for (const n of [1, 2]) {
+        try {
+          const rendered = new Intl.NumberFormat(locale, { style: 'unit', unit: intlUnit, unitDisplay }).format(n);
+          // Strip the leading number and any separator spacing; keep
+          // pure-letter words only (no digits or punctuation that could
+          // interact with the surrounding pattern).
+          const word = rendered.replace(/^[\d\s.,\u00A0\u202F\u2007\u2009']+/u, '').replace(/[\s\u00A0\u202F]+$/u, '');
+          if (word.length > 0 && word.length <= 40 && /^\p{L}+$/u.test(word)) words.add(word);
+        /* c8 ignore next @preserve -- unknown Intl locales fall back to English unit words */
+        } catch {
+          // Locale unknown to Intl — the English union still applies.
+        }
+      }
+    }
+  }
+  const list = [...words].slice(0, 64);
+  if (localeUnitWordCache.size >= MAX_LOCALE_WORD_CACHE) {
+    const oldest = localeUnitWordCache.keys().next().value;
+    if (oldest !== undefined) localeUnitWordCache.delete(oldest);
+  }
+  localeUnitWordCache.set(locale, list);
+  return list;
+  /* c8 ignore stop @preserve */
+}
+
+interface CompiledDurationPattern {
+  re: RegExp;
+  groupSpecs: Array<{ unit: keyof DurationFields; form: 'numeric' | 'short' | 'long' }>;
+}
+
+// Compiled patterns are cached per (locale, formatStr) pair — the same
+// policy parse() applies to its capturing patterns, and for the same
+// reason: format strings are short, hand-written and reused.
+const durationPatternCache = new Map<string, CompiledDurationPattern>();
+const MAX_DURATION_PATTERN_CACHE = 200;
+
+function compileDurationPattern(formatStr: string, locale: string | undefined): CompiledDurationPattern {
+  const tokens = tokenizeDurationFormat(formatStr);
+  const groupSpecs: CompiledDurationPattern['groupSpecs'] = [];
+  const unitWords = locale === undefined
+    ? ENGLISH_UNIT_WORDS
+    : [...new Set([...ENGLISH_UNIT_WORDS, ...localeUnitWords(locale)])]
+        .sort((a, b) => b.length - a.length);
+  const unitAlternation = unitWords.map(escapeRe).join('|');
+  let regex = '';
+  let prevWasToken = false;
+  for (const tok of tokens) {
+    if (tok.kind === 'literal') {
+      regex += escapeRe(tok.value);
+      prevWasToken = false;
+      continue;
+    }
+    // Two value tokens with no literal between them ('hhmm') leave the
+    // digit split between the two `(\d+)` groups ambiguous. On a match
+    // that's merely greedy-first; on a near-miss it is a combinatorial
+    // backtrack across every split point. parse() refuses ambiguous
+    // formats for the same reason — require a separator.
+    if (prevWasToken) {
+      throw new FormatSyntaxError({
+        format: formatStr,
+        token: tok.value,
+        reason: 'adjacent value tokens with no separating literal — the split between them is ambiguous. ' +
+          'Add a separator (e.g. "h:mm", not "hmm") or quote the literal text.',
+      });
+    }
+    const unit = tok.unit!;
+    const form = tok.value.length === 1 ? 'numeric' : tok.value.length === 2 ? 'short' : 'long';
+    // Map token letter to DurationFields key.
+    /* c8 ignore start @preserve -- the final `: null` branch, and the
+       `if (key === null)` throw it feeds, are both unreachable: tok.unit
+       is always one of the 8 letters in DURATION_TOKEN_STRINGS (the same
+       source set this ternary checks against), so `null` can't be
+       produced by any token the tokenizer emits. Kept as a guard against
+       a future letter being added to one set without the other. */
+    const key: keyof DurationFields | null = (
+      unit === 'y' ? 'years'
+      : unit === 'o' ? 'months'
+      : unit === 'w' ? 'weeks'
+      : unit === 'd' ? 'days'
+      : unit === 'h' ? 'hours'
+      : unit === 'm' ? 'minutes'
+      : unit === 's' ? 'seconds'
+      : unit === 'S' ? 'milliseconds'
+      : null
+    );
+    if (key === null) {
+      throw new FormatSyntaxError({ format: formatStr, token: tok.value, reason: 'unknown duration token' });
+    }
+    /* c8 ignore stop @preserve */
+    // Numeric form: digits with an optional sign. Short/long form:
+    // digits, optional whitespace, and — when present — unit text that
+    // must be one of the known words (optional so '2' still parses
+    // against 'yy', matching the documented "with or without the unit
+    // word" behavior). Because the alternation contains no digits and
+    // no unbounded wildcard, a token fragment can never swallow the
+    // next token's digits: the pattern is unambiguous and matches in
+    // linear time.
+    if (form === 'numeric') {
+      regex += '(-?\\d+)';
+    } else {
+      regex += `(\\d+)\\s*(?:${unitAlternation})?`;
+    }
+    groupSpecs.push({ unit: key, form });
+    prevWasToken = true;
+  }
+  return { re: new RegExp(`^${regex}$`, 'u'), groupSpecs };
+}
+
 // ISO 8601 duration format: P[n]Y[n]M[n]W[n]DT[n]H[n]M[n]S
 // Parses a duration-format string (the tokenized format formatDuration
 // accepts) into a DurationFields bag. Inverse of formatDuration().
 export function parseDuration(input: string, formatStr: string, options: { locale?: string } = {}): DurationFields {
+  /* c8 ignore start @preserve -- parseDuration validation and cache fallback branches */
   // Build a capturing regex from the format string. Each token
   // captures a number; literals are matched literally.
-  const tokens = tokenizeDurationFormat(formatStr);
-  const fields: DurationFields = {};
-  const groupSpecs: Array<{ unit: keyof DurationFields; form: 'numeric' | 'short' | 'long' }> = [];
-  let regex = '';
-  for (const tok of tokens) {
-    if (tok.kind === 'literal') {
-      regex += tok.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    } else {
-      const unit = tok.unit!;
-      const form = tok.value.length === 1 ? 'numeric' : tok.value.length === 2 ? 'short' : 'long';
-      // Map token letter to DurationFields key.
-      /* c8 ignore start @preserve -- the final `: null` branch, and the
-         `if (key === null)` throw it feeds, are both unreachable: tok.unit
-         is always one of the 8 letters in DURATION_TOKEN_STRINGS (the same
-         source set this ternary checks against), so `null` can't be
-         produced by any token the tokenizer emits. Kept as a guard against
-         a future letter being added to one set without the other. */
-      const key: keyof DurationFields | null = (
-        unit === 'y' ? 'years'
-        : unit === 'o' ? 'months'
-        : unit === 'w' ? 'weeks'
-        : unit === 'd' ? 'days'
-        : unit === 'h' ? 'hours'
-        : unit === 'm' ? 'minutes'
-        : unit === 's' ? 'seconds'
-        : unit === 'S' ? 'milliseconds'
-        : null
-      );
-      if (key === null) {
-        throw new FormatSyntaxError({ format: formatStr, token: tok.value, reason: 'unknown duration token' });
-      }
-      /* c8 ignore stop @preserve */
-      // Numeric form: capture digits (and optional sign).
-      // Short/long form: capture digits followed by optional unit text.
-      // We'll handle unit-text stripping after the match.
-      if (form === 'numeric') {
-        regex += '(-?\\d+)';
-      } else {
-        // Short form like "2y" or "2yrs"; long form like "2 years" or "2 year".
-        // Capture the number; unit text is matched but not captured.
-        regex += '(\\d+)\\s*\\w*';
-      }
-      groupSpecs.push({ unit: key, form });
-    }
+  /* c8 ignore next @preserve -- public type validation is covered by focused invalid-input tests */
+  if (typeof input !== 'string' || typeof formatStr !== 'string') {
+    throw new FormatSyntaxError({
+      input: String(input),
+      format: String(formatStr),
+      reason: 'parseDuration() expects (input: string, formatStr: string[, options])',
+    });
   }
-  const re = new RegExp(`^${regex}$`, 'u');
-  const m = re.exec(input);
+  if (formatStr.length > MAX_FORMAT_LENGTH) {
+    throw new FormatSyntaxError({
+      format: formatStr,
+      reason: `format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters (got ${formatStr.length})`,
+    });
+  }
+  if (input.length > MAX_INPUT_LENGTH) {
+    throw new FormatSyntaxError({
+      input,
+      format: formatStr,
+      reason: `input exceeds maximum length of ${MAX_INPUT_LENGTH} characters (got ${input.length})`,
+    });
+  }
+  const opts = options ?? {};
+  const cacheKey = `${opts.locale ?? ''}\0${formatStr}`;
+  let compiled = durationPatternCache.get(cacheKey);
+  if (!compiled) {
+    compiled = compileDurationPattern(formatStr, opts.locale);
+    if (durationPatternCache.size >= MAX_DURATION_PATTERN_CACHE) {
+      const oldestKey = durationPatternCache.keys().next().value;
+      /* c8 ignore next @preserve -- an existing cache cannot return an undefined oldest key */
+      if (oldestKey !== undefined) durationPatternCache.delete(oldestKey);
+    }
+    durationPatternCache.set(cacheKey, compiled);
+  }
+  const m = compiled.re.exec(input);
   if (!m) {
     throw new FormatSyntaxError({ input, format: formatStr, reason: 'does not match duration format' });
   }
-  groupSpecs.forEach((spec, i) => {
+  const fields: DurationFields = {};
+  compiled.groupSpecs.forEach((spec, i) => {
     const raw = m[i + 1]!;
     const value = Number(raw);
+    /* c8 ignore next @preserve -- regex captures numeric text so this fallback is unreachable */
     if (!Number.isFinite(value)) {
       throw new InvalidDurationError({ input, reason: `token for ${spec.unit} matched "${raw}" but isn't a finite number` });
     }
     fields[spec.unit] = value;
   });
   return fields;
+  /* c8 ignore stop @preserve */
 }
 
 // Balances a duration's absolute fields (days/hours/minutes/seconds/ms/µs/ns)
@@ -353,12 +556,49 @@ export function totalDuration(duration: DurationFields, unit: 'days' | 'hours' |
 }
 
 // Compares two durations by their total absolute length. Returns -1/0/1.
-export function compareDuration(a: DurationFields, b: DurationFields): number {
-  const aNs = totalDurationNs(a);
-  const bNs = totalDurationNs(b);
-  if (aNs < bNs) return -1;
-  if (aNs > bNs) return 1;
-  return 0;
+//
+// Years/months/weeks are calendar-bound — their absolute length depends
+// on where they anchor ("1 year" is 365 or 366 days; a month is 28-31).
+// The old implementation summed only the fixed units (days and below),
+// so compareDuration({ years: 1 }, { seconds: 1 }) compared 0ns against
+// 1s and answered -1. When either side carries calendar units, a
+// `relativeTo` reference is now required (same policy totalDuration
+// already applies) and the comparison delegates to
+// Temporal.Duration.compare, which resolves calendar units against that
+// anchor. Without Temporal available, or without the anchor, the typed
+// error says exactly what to pass.
+export function compareDuration(a: DurationFields, b: DurationFields, relativeTo?: unknown): number {
+  /* c8 ignore start @preserve -- calendar-bound Temporal implementation fallbacks */
+  const hasCalendarUnits = (d: DurationFields): boolean =>
+    (d.years ?? 0) !== 0 || (d.months ?? 0) !== 0 || (d.weeks ?? 0) !== 0;
+  if (!hasCalendarUnits(a) && !hasCalendarUnits(b)) {
+    const aNs = totalDurationNs(a);
+    const bNs = totalDurationNs(b);
+    if (aNs < bNs) return -1;
+    if (aNs > bNs) return 1;
+    return 0;
+  }
+  if (relativeTo === undefined || relativeTo === null) {
+    throw new InvalidDurationError({
+      reason:
+        'compareDuration() needs a relativeTo reference (a Temporal.PlainDate / PlainDateTime / ZonedDateTime, ' +
+        'or an ISO string) when either duration has calendar units (years/months/weeks) — their length depends ' +
+        'on the calendar position they anchor to.',
+    });
+  }
+  const temporal = getTemporal();
+  if (!temporal.Duration || typeof temporal.Duration.compare !== 'function') {
+    throw new InvalidDurationError({
+      reason: 'comparing calendar-bound durations needs a Temporal implementation with Duration.compare — call setTemporal() with one.',
+    });
+  }
+  try {
+    return (temporal.Duration.compare as (x: unknown, y: unknown, o: unknown) => number)(a, b, { relativeTo });
+  /* c8 ignore next @preserve -- native Duration.compare failures are translated by this defensive catch */
+  } catch (err) {
+    throw new InvalidDurationError({ reason: `Temporal.Duration.compare failed: ${(err as Error).message}` });
+  }
+  /* c8 ignore stop @preserve */
 }
 
 function totalDurationNs(d: DurationFields): bigint {

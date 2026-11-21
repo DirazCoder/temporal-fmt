@@ -180,8 +180,8 @@ test('splitInterval: n=1 returns the original interval unchanged', () => {
 
 test('splitInterval: throws for n <= 0', () => {
   const iv = interval(d('2026-01-01'), d('2026-12-31'));
-  assert.throws(() => splitInterval(iv, 0), /requires n > 0/);
-  assert.throws(() => splitInterval(iv, -3), /requires n > 0/);
+  assert.throws(() => splitInterval(iv, 0), /positive safe integer n/);
+  assert.throws(() => splitInterval(iv, -3), /positive safe integer n/);
 });
 
 test('splitInterval: slices partition the interval — every point in exactly one slice, dates correct', () => {

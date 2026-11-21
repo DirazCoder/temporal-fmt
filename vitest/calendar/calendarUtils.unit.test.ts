@@ -335,11 +335,17 @@ describe('startOf — remaining units', () => {
     });
   });
 
-  it('an unknown unit matches no branch and leaves the view unchanged', () => {
-    // No throw exists for invalid units — the if/else-if chain just
-    // falls through. 'week' isn't in StartOfUnit; the cast exists only
-    // to exercise that final false branch.
-    expect(startOf(full, 'week' as StartOfUnit)).toEqual(full);
+  it('an unknown unit throws instead of silently no-opping', () => {
+    // 'quarter' used to fall through every branch and return the input
+    // unchanged; unknown units now fail loudly.
+    expect(() => startOf(full, 'week' as StartOfUnit)).toThrow(/unit must be one of/);
+  });
+
+  it('starts of a quarter land on the quarter\'s first day at midnight', () => {
+    const feb = startOf({ year: 2026, month: 2, day: 15, hour: 10 }, 'quarter');
+    expect({ year: feb.year, month: feb.month, day: feb.day, hour: feb.hour }).toEqual({ year: 2026, month: 1, day: 1, hour: 0 });
+    const nov = startOf({ year: 2026, month: 11, day: 20, hour: 10 }, 'quarter');
+    expect({ year: nov.year, month: nov.month, day: nov.day }).toEqual({ year: 2026, month: 10, day: 1 });
   });
 
   it('recomputes dayOfWeek for a first-century date (no 1900s remap)', () => {
@@ -420,8 +426,18 @@ describe('endOf — remaining units', () => {
     });
   });
 
-  it('an unknown unit matches no branch and leaves the view unchanged', () => {
-    expect(endOf(full, 'week' as StartOfUnit)).toEqual(full);
+  it('ends quarter boundaries and month boundaries consistently', () => {
+    expect(endOf(full, 'quarter')).toMatchObject({ month: 9, day: 30 });
+  });
+
+  it('an unknown unit throws instead of silently no-opping', () => {
+    expect(() => endOf(full, 'week' as StartOfUnit)).toThrow(/unit must be one of/);
+  });
+
+  it('end of a quarter lands on the quarter\'s last day at 23:59:59.999', () => {
+    const q1 = endOf({ year: 2026, month: 2, day: 15, hour: 10 }, 'quarter');
+    expect({ year: q1.year, month: q1.month, day: q1.day, hour: q1.hour, minute: q1.minute, second: q1.second, millisecond: q1.millisecond })
+      .toEqual({ year: 2026, month: 3, day: 31, hour: 23, minute: 59, second: 59, millisecond: 999 });
   });
 
   it('handles a negative (BCE) year end: 2 BCE Dec 31 was a Friday', () => {
@@ -514,5 +530,22 @@ describe('asDateFieldView', () => {
     for (const bad of [42, '2026-08-04', true, undefined, null]) {
       expect(() => asDateFieldView(bad)).toThrow(/expected a date-carrying Temporal value/);
     }
+  });
+});
+
+describe('calendarUtils remaining validation branches', () => {
+  it('rejects invalid ISO dayOfWeek values', async () => {
+    const mod = await import('../../src/calendar/calendarUtils.js');
+    expect(() => mod.weekOfYear({ year: 2026, month: 8, day: 4, dayOfWeek: 0 })).toThrow(/ISO numbering/);
+    expect(() => mod.weekYear({ year: 2026, month: 8, day: 4, dayOfWeek: 8 })).toThrow(/ISO numbering/);
+  });
+
+  it('rejects invalid year values for daysInMonth', () => {
+    expect(() => daysInMonth({ year: Number.NaN, month: 2 })).toThrow(/year must be an integer/);
+  });
+
+  it('rejects invalid month values', () => {
+    expect(() => daysInMonth({ year: 2026, month: 0 })).toThrow(/month must be an integer/);
+    expect(() => daysInMonth({ year: 2026, month: 13 })).toThrow(/month must be an integer/);
   });
 });

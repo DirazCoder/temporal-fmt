@@ -170,15 +170,31 @@ describe('formatISODuration', () => {
     expect(formatISODuration({ months: -1 })).toBe('-P1M');
     expect(formatISODuration({ weeks: -1 })).toBe('-P1W');
     expect(formatISODuration({ days: -1 })).toBe('-P1D');
-    expect(formatISODuration({ hours: -1, days: 1 })).toBe('-P1DT1H');
-    expect(formatISODuration({ minutes: -30, hours: 1 })).toBe('-PT1H30M');
-    expect(formatISODuration({ seconds: -5, hours: 1 })).toBe('-PT1H5S');
     expect(formatISODuration({ years: -1, months: -2, weeks: -3, days: -4, hours: -5, minutes: -6, seconds: -7 })).toBe('-P1Y2M3W4DT5H6M7S');
+  });
+
+  it('rejects mixed-sign bags instead of silently flipping field signs', () => {
+    // ISO 8601 cannot express a duration whose fields disagree in sign;
+    // these used to be coerced to all-negative (round-tripping
+    // { days: -1, hours: 2 } as -P1DT2H and silently flipping the hours).
+    expect(() => formatISODuration({ hours: -1, days: 1 })).toThrow(/mixed-sign/);
+    expect(() => formatISODuration({ minutes: -30, hours: 1 })).toThrow(/mixed-sign/);
+    expect(() => formatISODuration({ seconds: -5, hours: 1 })).toThrow(/mixed-sign/);
+    expect(() => formatISODuration({ days: -3, hours: 2 })).toThrow(/mixed-sign/);
   });
 
   it('absolute-values components under a leading minus', () => {
     expect(formatISODuration({ hours: -1, minutes: -30 })).toBe('-PT1H30M');
-    expect(formatISODuration({ days: -3, hours: 2 })).toBe('-P3DT2H');
+  });
+
+  it('emits sub-second fields as fractional seconds instead of dropping them', () => {
+    // { milliseconds: 500 } used to serialize as "P0D", losing the
+    // entire duration.
+    expect(formatISODuration({ milliseconds: 500 })).toBe('PT0.5S');
+    expect(formatISODuration({ seconds: 1, nanoseconds: 1 })).toBe('PT1.000000001S');
+    expect(formatISODuration({ microseconds: 250 })).toBe('PT0.00025S');
+    expect(formatISODuration({ milliseconds: -500 })).toBe('-PT0.5S');
+    expect(formatISODuration({ hours: 1, milliseconds: 500 })).toBe('PT1H0.5S');
   });
 
   it('round-trips through parseISODuration', () => {
@@ -191,6 +207,9 @@ describe('formatISODuration', () => {
 });
 
 describe('parseDuration', () => {
+  it('rejects adjacent value tokens without a separator', () => {
+    expect(() => parseDuration('123', 'hhmm')).toThrow(/adjacent value tokens/);
+  });
   it('parses numeric tokens separated by literals', () => {
     expect(parseDuration('2:30', 'h:m')).toEqual({ hours: 2, minutes: 30 });
     expect(parseDuration('2:30:5', 'h:m:s')).toEqual({ hours: 2, minutes: 30, seconds: 5 });

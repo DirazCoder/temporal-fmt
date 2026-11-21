@@ -159,8 +159,12 @@ describe('formatRFC3339 (validation branch)', () => {
     expect(() => formatRFC3339(Temporal.PlainDate.from('2026-08-04'))).toThrow(/did not produce RFC 3339/);
     // PlainDateTime: no offset.
     expect(() => formatRFC3339(Temporal.PlainDateTime.from('2026-08-04T15:45:30'))).toThrow(FormatSyntaxError);
-    // ZonedDateTime always prints a bracketed zone, which RFC 3339 forbids.
-    expect(() => formatRFC3339(Temporal.ZonedDateTime.from('2026-08-04T15:45:30+00:00[UTC]'))).toThrow(FormatSyntaxError);
+    // A ZonedDateTime's toString() carries a trailing [Zone] bracket —
+    // legal ISO 8601, not RFC 3339. The bracket is now stripped before
+    // validation, so the natural input type formats instead of always
+    // throwing; a value with no offset at all still fails.
+    expect(formatRFC3339(Temporal.ZonedDateTime.from('2026-08-04T15:45:30+00:00[UTC]'))).toBe('2026-08-04T15:45:30+00:00');
+    expect(formatRFC3339(Temporal.ZonedDateTime.from('2026-08-04T15:45:30+05:30[Asia/Kolkata]'))).toBe('2026-08-04T15:45:30+05:30');
   });
 
   it('passes an Instant with fractional seconds straight through', () => {

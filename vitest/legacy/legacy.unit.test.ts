@@ -303,3 +303,9 @@ describe('matchesFormat: pattern cache', () => {
     expect(matchesFormat('yyyy-MM-dd', '2026-08-04')).toBe(true);
   });
 });
+
+describe('matchesFormat: input length guard', () => {
+  it('rejects inputs beyond the matching cap', () => {
+    expect(matchesFormat('yyyy', 'x'.repeat(100_001))).toBe(false);
+  });
+});

@@ -5,10 +5,16 @@ import {
   between,
   createConfig,
   createHolidayCalendar,
+  daysInMonth,
   format,
   formatDistance,
+  formatHTTPDate,
   formatISODuration,
   formatRRule,
+  fromUnixSeconds,
+  fromUnixMilliseconds,
+  fromUnixMicroseconds,
+  fromUnixNanoseconds,
   getNextTransition,
   getPreviousTransition,
   getTransitions,
@@ -16,15 +22,24 @@ import {
   isDST,
   mergeIntervals,
   parseISODuration,
+  parseHTTPDate,
+  parseDuration,
+  parseISO,
   parseRelative,
   parseRRule,
   recurrence,
+  registerLocale,
+  getLocale,
   registerRelativeGrammar,
   roundDuration,
   setTemporal,
   skip,
   splitInterval,
   take,
+  toUnixSeconds,
+  toUnixMilliseconds,
+  toUnixMicroseconds,
+  toUnixNanoseconds,
   union,
   intervalDifference,
 } from '../../dist/index.js';
@@ -364,12 +379,11 @@ test('cov: getNextTransition returns undefined when the bag cannot be resolved',
   assert.equal(getNextTransition(bag), undefined);
 });
 
-test('cov: bisect probes that throw count as old-side and the day is the fallback', () => {
-  // First from() call is the candidate-day detection (returns a new offset,
-  // so a transition is "found"); every later call is a bisect probe that
-  // throws — they must read as old-side, the search normalizes to the last
-  // window minute, and the final reconstruction failure falls back to the
-  // candidate day itself.
+test('cov: day-probe failures read as "no answer" rather than a fabricated transition', () => {
+  // First from() call is the anchor-day probe (returns an offset); every
+  // later call — the day-window scan — throws. Unresolvable probes mean
+  // no transition can be located, so the scan gives up and returns
+  // undefined instead of synthesizing one.
   let calls = 0;
   const fake = {
     ZonedDateTime: {
@@ -382,7 +396,7 @@ test('cov: bisect probes that throw count as old-side and the day is the fallbac
   setTemporal(fake);
   try {
     const r = getNextTransition(T.ZonedDateTime.from('2026-03-01T12:00[UTC]'));
-    assert.ok(r !== undefined);
+    assert.equal(r, undefined);
   } finally {
     setTemporal(T);
   }
@@ -614,4 +628,95 @@ test('cov: yearly ordinal BYDAY yields the 1st weekday of each year', () => {
 test('cov: multi-value BYMONTHDAY yields same-month days in order', () => {
   const iter = recurrence(START, { frequency: 'monthly', byMonthDay: [1, 15] });
   assert.deepEqual(take(iter, 3).map(iso), ['2026-01-01', '2026-01-15', '2026-02-01']);
+});
+
+test('cov: daysInMonth covers leap February and ordinary February', () => {
+  assert.equal(daysInMonth({ year: 2024, month: 2 }), 29);
+  assert.equal(daysInMonth({ year: 2025, month: 2 }), 28);
+});
+
+test('cov: locale deep-clone preserves nested arrays and records', () => {
+  const vocab = {
+    monthLong: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+    monthShort: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+    weekdayLong: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+    weekdayShort: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+    dayPeriod: ['AM', 'PM'],
+    quartersLong: ['Q1', 'Q2', 'Q3', 'Q4'],
+    quartersShort: ['Q1', 'Q2', 'Q3', 'Q4'],
+    erasLong: ['BC', 'AD'],
+    erasShort: ['BC', 'AD'],
+    ordinals: ['st', 'nd', 'rd', 'th'],
+    relativeTime: { future: 'in ', past: 'ago', justNow: 'now' },
+    durationUnits: { years: 'y' },
+  };
+  registerLocale('x-covnested', vocab);
+  const stored = getLocale('x-covnested');
+  assert.ok(stored);
+  assert.deepEqual(stored.quartersLong, ['Q1', 'Q2', 'Q3', 'Q4']);
+  stored.quartersLong.push('changed');
+  assert.deepEqual(getLocale('x-covnested').quartersLong, ['Q1', 'Q2', 'Q3', 'Q4']);
+});
+
+test('cov: parseDuration locale unit words and cache reuse', () => {
+  assert.deepEqual(parseDuration('2', 'hh', { locale: 'en-US' }), { hours: 2 });
+  assert.deepEqual(parseDuration('3', 'hh', { locale: 'en-US' }), { hours: 3 });
+});
+
+test('cov: recurrence rDates merge, exclude, deduplicate, and expire', () => {
+  const start = T.PlainDate.from('2026-01-01');
+  const iter = recurrence(start, {
+    frequency: 'daily',
+    count: 4,
+    rDates: [
+      T.PlainDate.from('2025-12-31'),
+      T.PlainDate.from('2026-01-01'),
+      T.PlainDate.from('2026-01-03'),
+      T.PlainDate.from('2026-01-05'),
+    ],
+    exDates: [T.PlainDate.from('2026-01-03')],
+    until: { year: 2026, month: 1, day: 4 },
+  });
+  assert.deepEqual(take(iter, 10).map(iso), [
+    '2026-01-01',
+    '2026-01-02',
+    '2026-01-04',
+  ]);
+});
+
+test('cov: recurrence rDate before generated occurrence is emitted first', () => {
+  const iter = recurrence(T.PlainDate.from('2026-01-02'), {
+    frequency: 'daily',
+    count: 3,
+    rDates: [
+      T.PlainDate.from('2026-01-01'),
+      T.PlainDate.from('2026-01-02'),
+      T.PlainDate.from('2026-01-04'),
+    ],
+  });
+  assert.deepEqual(take(iter, 5).map(iso), [
+    '2026-01-02',
+    '2026-01-03',
+    '2026-01-04',
+  ]);
+});
+
+test('cov: parseISO bare numeric offsets and HTTP date forms', () => {
+  assert.ok(parseISO('2026-08-04T12:30:45+05:30'));
+  assert.ok(parseHTTPDate('Sunday, 06-Nov-94 08:49:37 GMT'));
+  assert.ok(parseHTTPDate('Sun Nov  6 08:49:37 1994'));
+  assert.equal(formatHTTPDate(T.ZonedDateTime.from('2026-01-04T12:00:00+00:00[UTC]')),
+    'Sun, 04 Jan 2026 12:00:00 GMT');
+});
+
+test('cov: epoch conversions cover seconds, milliseconds, micros, and nanos', () => {
+  const inst = T.Instant.fromEpochMilliseconds(1_700_000_000_123);
+  assert.equal(toUnixSeconds(inst), 1700000000.123);
+  assert.equal(toUnixMilliseconds(inst), 1700000000123);
+  assert.equal(toUnixMicroseconds(inst), 1700000000123000);
+  assert.equal(toUnixNanoseconds(inst), 1700000000123000000n);
+  assert.equal(fromUnixSeconds(1).epochMilliseconds, 1000);
+  assert.equal(fromUnixMilliseconds(1).epochMilliseconds, 1);
+  assert.equal(fromUnixMicroseconds(1).epochNanoseconds, 1000n);
+  assert.equal(fromUnixNanoseconds(1n).epochNanoseconds, 1n);
 });

@@ -35,7 +35,7 @@ describe('nextBusinessDay / previousBusinessDay', () => {
 
   it('throws once every candidate in the search window is excluded', () => {
     const cal = createBusinessCalendar({ weekend: [1, 2, 3, 4, 5, 6, 7] });
-    expect(() => nextBusinessDay(cal, Temporal.PlainDate.from('2026-08-04'))).toThrow(/gave up after 14 days/);
+    expect(() => nextBusinessDay(cal, Temporal.PlainDate.from('2026-08-04'))).toThrow(/found no business day within 732 days/);
   });
 });
 
@@ -112,7 +112,7 @@ describe('custom weeks and holidays', () => {
 
   it('throws from previousBusinessDay when every candidate is excluded', () => {
     const cal = createBusinessCalendar({ weekend: [1, 2, 3, 4, 5, 6, 7] });
-    expect(() => previousBusinessDay(cal, pd('2026-08-05'))).toThrow(/gave up after 14 days/);
+    expect(() => previousBusinessDay(cal, pd('2026-08-05'))).toThrow(/found no business day within 732 days/);
   });
 });
 

@@ -306,3 +306,10 @@ describe('_handlerFor', () => {
     expect(_handlerFor('definitely-not-a-token')).toBeUndefined();
   });
 });
+
+describe('formatToParts remaining validation branches', () => {
+  it('rejects null temporal input with a typed syntax error', () => {
+    expect(() => formatToParts(null as unknown as typeof d, 'yyyy')).toThrow(FormatSyntaxError);
+    expect(formatToParts(d, 'yyyy', null)).toEqual([{ type: 'token', value: '2026', token: 'yyyy' }]);
+  });
+});

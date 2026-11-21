@@ -66,6 +66,17 @@ function recomputeDayOfWeek(view: DateTimeFieldView): void {
 // mode, which is the closest match to "do the obvious thing" callers
 // expect from arithmetic.
 export function add(value: unknown, amount: number, unit: AddUnit): DateTimeFieldView {
+  // Fractional and non-finite amounts used to flow straight into the
+  // field math: add(date, 0.5, 'days') produced { day: 1.5,
+  // dayOfWeek: 4.5 }, and NaN silently NaN'd every field. All units
+  // here are whole units — require an integer, the same strictness
+  // roundDuration/parseISODuration apply on their surfaces.
+  if (typeof amount !== 'number' || !Number.isInteger(amount)) {
+    throw new RangeError(
+      `temporal-fmt: add() amount must be a whole number of ${unit} (got ${String(amount)}). ` +
+      `Use Temporal.Duration arithmetic for sub-unit precision.`
+    );
+  }
   const v = asDateTime(value);
   let result: DateTimeFieldView = { ...v };
   switch (unit) {

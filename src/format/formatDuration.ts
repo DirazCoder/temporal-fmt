@@ -18,7 +18,7 @@ import { type FormatOptions } from '../tokens/tokens.js';
 import { tokenize } from '../tokens/tokenize.js';
 import { MAX_FORMAT_LENGTH } from '../core/constants.js';
 import { canonicalCacheKey, normalizeLocaleTag } from '../locale/localeVocab.js';
-import { InvalidLocaleError } from '../core/errors.js';
+import { InvalidLocaleError, FormatSyntaxError } from '../core/errors.js';
 
 // A Temporal.Duration doesn't sit on a calendar — it has no year/month/day
 // position the way a PlainDate does — so the date/time token set in
@@ -120,7 +120,9 @@ function tokenizeDuration(format: string): Piece[] {
         j += 1;
       }
       if (!closed) {
-        throw new Error(`temporal-fmt: unterminated quote in duration format string "${format}"`);
+        // Used to be a plain Error; the typed surface is FormatSyntaxError
+        // (same as the parse-side duration tokenizer).
+        throw new FormatSyntaxError({ format, reason: 'unterminated quote' });
       }
       appendLiteral(pieces, literal);
       i = j;
@@ -128,6 +130,19 @@ function tokenizeDuration(format: string): Piece[] {
     }
     const match = DURATION_TOKEN_STRINGS.find((tok) => format.startsWith(tok, i));
     if (match) {
+      // A run of the same letter longer than the longest token ('yyyy')
+      // is not a token sequence — it used to fall out of the greedy
+      // match as 'yyy' + 'y', rendering { years: 2 } against 'yyyy' as
+      // "2 years2". Reject it the way the date/time tokenizer rejects
+      // unknown runs. (Same guard as the parse-side tokenizer in
+      // duration.ts.)
+      if (format[i + match.length] === match[0]) {
+        throw new FormatSyntaxError({
+          format,
+          token: match[0]!.repeat(4),
+          reason: `token runs longer than three characters are not duration tokens (max is '${match[0]!.repeat(3)}')`,
+        });
+      }
       // single letter = numeric, double = short, triple = long
       const unit = match[0]!;
       const form = match.length === 1 ? 'numeric' : match.length === 2 ? 'short' : 'long';

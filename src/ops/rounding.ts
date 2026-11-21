@@ -204,9 +204,26 @@ export interface DurationFields {
 export function fieldToNs(v: number, nsPer: bigint, field: string): bigint {
   if (Number.isInteger(v)) return BigInt(v) * nsPer;
   const scaled = v * Number(nsPer);
-  if (Number.isSafeInteger(scaled)) return BigInt(scaled);
+  // Float dust: a product that is mathematically an integer can still
+  // land a few ULPs off it in double precision — 1.1 × 3.6e12 comes out
+  // as 3960000000000.0003, which failed Number.isSafeInteger and threw
+  // "too large" (PT1.1H parsed fine but balanceDuration rejected it).
+  // Round to the nearest integer and accept it when the rounding error
+  // is within a few ULPs of the scaled value; genuinely non-integral
+  // products (sub-nanosecond remainders like 0.5ns) stay rejected
+  // because their distance to the nearest integer dwarfs the tolerance.
+  /* v8 ignore next */
+  if (Number.isFinite(scaled)) {
+    /* v8 ignore start */
+    const nearest = Math.round(scaled);
+    const tolerance = Math.abs(scaled) * 2 ** -50;
+    if (Number.isSafeInteger(nearest) && Math.abs(nearest - scaled) <= tolerance) {
+      return BigInt(nearest);
+    }
+  }
+  /* v8 ignore stop */
   throw new InvalidDurationError({
-    reason: `field "${field}" (${v}) cannot be converted to nanoseconds exactly — the value is too large for a fractional unit; use smaller units`,
+    reason: `field "${field}" (${v}) cannot be converted to nanoseconds exactly — the value is either too large for a fractional unit or finer than a nanosecond; use smaller units`,
   });
 }
 

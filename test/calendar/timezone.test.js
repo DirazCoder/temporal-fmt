@@ -71,10 +71,19 @@ test('getPreviousTransition: same 2-year exhaustion, walking backward instead of
 });
 
 test('getNextTransition: finds the real spring-forward date in America/New_York', () => {
+  // US DST begins on the second Sunday of March; in 2026 that is
+  // March 8 (Mar 1 is a Sunday), at 02:00 local. The old day-scan
+  // probed at midnight and landed a day late + ~22h off (it pinned
+  // 2026-03-09T00:01 here); the transition-instant bisection now
+  // returns the boundary itself.
   const zdt = Temporal.ZonedDateTime.from('2026-01-01T00:00[America/New_York]');
   const next = getNextTransition(zdt);
   assert.ok(next !== undefined);
-  assert.equal(next.toString().slice(0, 10), '2026-03-09');
+  assert.equal(next.toString().slice(0, 10), '2026-03-08');
+  const wall = next.toString().slice(11, 16);
+  assert.ok(wall === '02:00' || wall === '03:00', `transition minute should be the 02:00 gap boundary, got ${wall}`);
+  // Same instant expressed either side of the gap: 02:00 EST == 03:00 EDT.
+  assert.equal(next.toInstant().toString(), '2026-03-08T07:00:00Z');
 });
 
 test('getTransitions: throws when start is not a ZonedDateTime', () => {

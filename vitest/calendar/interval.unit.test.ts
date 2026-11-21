@@ -109,7 +109,7 @@ describe('mergeIntervals / splitInterval', () => {
   it('n=1 returns the original interval unchanged, and n<=0 throws', () => {
     const iv = interval(d('2026-01-01'), d('2026-12-31'));
     expect(splitInterval(iv, 1)).toEqual([iv]);
-    expect(() => splitInterval(iv, 0)).toThrow(/requires n > 0/);
+    expect(() => splitInterval(iv, 0)).toThrow(/positive safe integer n/);
   });
 });
 
@@ -652,7 +652,7 @@ describe('splitInterval: partitions, bounds and edge cases', () => {
   it('throws for negative n too', () => {
     // same n <= 0 branch as n = 0, negative side
     const iv = interval(d('2026-01-01'), d('2026-12-31'));
-    expect(() => splitInterval(iv, -2)).toThrow(/requires n > 0/);
+    expect(() => splitInterval(iv, -2)).toThrow(/positive safe integer n/);
   });
 
   it('splits a closed date range into half-open slices plus a closed last', () => {
@@ -820,5 +820,13 @@ describe('formatRangeToParts', () => {
     const iv = interval(d('2026-01-01'), d('2026-01-05'));
     const parts = formatRangeToParts(iv, 'yyyy-MM-dd', { locale: 'en-US' });
     expect(parts.map((p) => p.value).join('')).toBe('2026-01-01 \u2013 2026-01-05');
+  });
+});
+
+describe('splitInterval validation branches', () => {
+  it('rejects inverted hand-built intervals and oversized slice counts', () => {
+    const inverted = { start: d('2026-02-01'), end: d('2026-01-01'), bounds: 'closed' as const };
+    expect(() => splitInterval(inverted, 2)).toThrow(/inverted interval/);
+    expect(() => splitInterval(interval(d('2026-01-01'), d('2026-02-01')), 100_001)).toThrow(/caps at/);
   });
 });

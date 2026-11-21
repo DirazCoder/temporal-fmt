@@ -203,6 +203,10 @@ describe('roundDuration: modes, signs and units', () => {
     expect(roundDuration({ nanoseconds: 1500 }, { unit: 'nanoseconds' })).toMatchObject({ microseconds: 1, nanoseconds: 500 });
   });
 
+  it('uses ULP tolerance for rounded integer products', () => {
+    expect(roundDuration({ nanoseconds: 1_000_000_001 }, { unit: 'seconds', mode: 'trunc' })).toMatchObject({ seconds: 1, milliseconds: 0 });
+  });
+
   it('balances a fractional day field exactly (P1.5D → 1d 12h)', () => {
     expect(roundDuration({ days: 1.5 }, { unit: 'hours' })).toMatchObject({ days: 1, hours: 12 });
   });

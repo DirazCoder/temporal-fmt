@@ -371,7 +371,13 @@ export function formatDistance(
   }
 
   const divisor = unitToMs(unit);
-  const rounded = Math.round(diffMs / divisor);
+  // Symmetric half-away-from-zero rounding. Math.round alone rounds
+  // halves toward +∞, so the same absolute distance landed on different
+  // units by direction: 90 seconds past read as "1 minute ago" (-1.5 →
+  // -1) while 90 seconds future read as "in 2 minutes" (+1.5 → 2).
+  // Halves now round away from zero on both sides.
+  const quotient = diffMs / divisor;
+  const rounded = quotient < 0 ? -Math.round(-quotient) : Math.round(quotient);
 
   const numeric = options.numeric ?? 'auto';
   const locale = options.locale ?? DEFAULT_LOCALE;

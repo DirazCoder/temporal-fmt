@@ -105,10 +105,22 @@
   function startLib(version) {
     if (libStarted) return;
     libStarted = true;
-    libVersion = version || '';
+    // Supply-chain guard: `version` comes from the npm registry response
+    // (or its sessionStorage cache, which anything on the page — or a
+    // compromised dependency — could have written). It is interpolated
+    // into a dynamic import() URL, so an unsanitized value like
+    // "1.0.0/../../other-pkg" would import an arbitrary module and run
+    // it with the page's origin. Only strict semver strings pass;
+    // anything else falls back to the unversioned (jsDelivr-resolved)
+    // latest instead of importing a attacker-shaped URL.
+    if (version && !/^\d+\.\d+\.\d+(-[\w.-]+)?$/.test(String(version))) {
+      console.warn('[temporal-fmt site] ignoring non-semver version from registry:', version);
+      version = '';
+    }
+    libVersion = typeof version === 'string' ? version.slice(0, 64) : '';
     var needPolyfill = !window.Temporal;
     Promise.all([
-      import(CDN + 'temporal-fmt' + (version ? '@' + version : '') + '/+esm'),
+      import(CDN + 'temporal-fmt' + (libVersion ? '@' + libVersion : '') + '/+esm'),
       needPolyfill ? import(CDN + POLYFILL + '/+esm') : null
     ]).then(function (mods) {
       var T = needPolyfill ? mods[1].Temporal : window.Temporal;
@@ -226,17 +238,25 @@
   }
 
   getJSON('https://registry.npmjs.org/' + PKG, 'tfmt:packument').then(function (doc) {
-    var latest = doc['dist-tags'].latest;
+    var latest = doc && doc['dist-tags'] && doc['dist-tags'].latest;
+    // Same semver gate as startLib — the cached packument in
+    // sessionStorage is attacker-writable storage, so nothing read
+    // back from it is trusted until validated.
+    if (typeof latest !== 'string' || !/^\d+\.\d+\.\d+(-[\w.-]+)?$/.test(latest)) {
+      latest = '';
+    }
     startLib(latest);
-    var info = doc.versions[latest];
+    var info = (doc && doc.versions && doc.versions[latest]) || {};
     var tagOf = {};
-    Object.keys(doc['dist-tags']).forEach(function (t) { tagOf[doc['dist-tags'][t]] = t; });
+    if (doc && doc['dist-tags']) {
+      Object.keys(doc['dist-tags']).forEach(function (t) { tagOf[doc['dist-tags'][t]] = t; });
+    }
 
     live.classList.add('on');
-    stat('Latest', 'v' + latest);
-    stat('Published', ago(doc.time[latest])).dataset.iso = doc.time[latest];
+    stat('Latest', latest ? 'v' + latest : 'n/a');
+    stat('Published', (doc && doc.time && doc.time[latest]) ? ago(doc.time[latest]) : 'n/a').dataset.iso = (doc && doc.time && doc.time[latest]) || '';
     stat('Unpacked', info.dist && info.dist.unpackedSize ? size(info.dist.unpackedSize) : 'n/a');
-    stat('Versions', String(Object.keys(doc.versions).length));
+    stat('Versions', doc && doc.versions ? String(Object.keys(doc.versions).length) : 'n/a');
     var weekly = stat('Downloads / week', '…');
 
     getJSON('https://api.npmjs.org/downloads/point/last-week/' + PKG, 'tfmt:weekly').then(function (d) {

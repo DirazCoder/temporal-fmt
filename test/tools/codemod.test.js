@@ -67,17 +67,29 @@ test('translateDateFnsFormatString: locale composite tokens have no single tempo
   );
 });
 
-test('translateDateFnsFormatString: bracket-escaped text becomes a quoted literal, same as Day.js', () => {
-  assert.equal(translateDateFnsFormatString("yyyy 'Q'"), "yyyy 'Q'"); // no bracket used, passes through as-is
-  assert.equal(translateDateFnsFormatString('yyyy [at] HH'), "yyyy 'at' HH");
+test('translateDateFnsFormatString: brackets are literal characters (date-fns escapes with quotes, not brackets)', () => {
+  // date-fns escapes literal text with single quotes — square brackets
+  // have no special meaning there, so "[at]" must stay a literal
+  // "[at]" in the output (bracket chars pass through, the letters
+  // inside get quoted so temporal-fmt won't read them as tokens).
+  assert.equal(translateDateFnsFormatString("yyyy 'Q'"), "yyyy 'Q'"); // quoted span is already temporal-fmt syntax
+  // In date-fns, brackets are NOT escapes — "[at]" renders as literal
+  // "[" + <am/pm token> + literal "t]". The translation preserves that
+  // exactly: 'a' stays a temporal-fmt meridiem token, 't] ' (letter +
+  // bracket + space run) is quoted as a literal.
+  assert.equal(translateDateFnsFormatString('yyyy [at] HH'), "yyyy [a't] 'HH");
+  // Non-letter bracket contents pass through untouched.
+  assert.equal(translateDateFnsFormatString('yyyy [2026] HH'), 'yyyy [2026] HH');
+  // The quote dialect is actually parsed now: "yyyy 'at' HH:mm" used to
+  // come out as corrupted output the library itself rejects.
+  assert.equal(translateDateFnsFormatString("yyyy 'at' HH:mm"), "yyyy 'at' HH:mm");
+  // '' inside a date-fns quoted span is one literal quote.
+  assert.equal(translateDateFnsFormatString("yyyy 'o''clock'"), "yyyy 'o''clock'");
 });
 
-test('an unterminated bracket at the end of a source string is scanned as token text, not silently dropped', () => {
-  // splitOnBrackets treats a "[" with no matching "]" as the start of a
-  // token run (including the "[" itself) rather than swallowing the rest
-  // of the string as an escaped literal. The "[" and "oop" fall through
-  // as an unrecognized, quoted literal run; "s" mid-run still matches
-  // the real seconds token, since the run-splitter re-checks at every
-  // position rather than giving up once it's inside unrecognized text.
-  assert.equal(translateDayjsFormatString('YYYY [oops'), "yyyy '[oop's");
+test('an unterminated bracket at the end of a source string is kept as literal text', () => {
+  // Day.js renders an unterminated "[" and everything after it as
+  // literal text, so the translation quotes the whole remainder
+  // (bracket included) instead of feeding it to the token mapper.
+  assert.equal(translateDayjsFormatString('YYYY [oops'), "yyyy '[oops'");
 });

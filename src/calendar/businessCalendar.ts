@@ -30,7 +30,11 @@ export interface BusinessCalendarOptions {
   // skip it and you just get weekend logic
   holidays?: HolidayCalendar;
   // hours per weekday, 1=Mon..7=Sun. defaults to 8hrs weekdays, 0 weekend.
-  // addBusinessDays() uses this for partial-day math
+  // NOTE: addBusinessDays()/differenceInBusinessDays() count WHOLE
+  // business days and do not read this table — it is exposed for
+  // callers doing their own partial-day math (e.g. prorating an
+  // 8:00-16:00 workday). It previously claimed addBusinessDays()
+  // "uses this for partial-day math", which it never did.
   workingHours?: Record<number, number>;
   // which weekdays get reduced hours. empty by default
   halfDays?: number[];
@@ -88,23 +92,34 @@ export function isBusinessDay(cal: BusinessCalendar, value: unknown): boolean {
 
 export function nextBusinessDay(cal: BusinessCalendar, value: unknown): unknown {
   let candidate = add(value, 1, 'days');
-  // keep going till we hit a business day. capped at 14 just to be safe —
-  // a week is really the natural bound even with weekend + holidays combined
-  for (let i = 0; i < 14; i++) {
+  // Keep going till we hit a business day. A 14-day cap used to throw
+  // on legitimate month-long closures (e.g. a calendar with every day
+  // of July marked as a holiday); two years covers even year-long
+  // shutdowns while still bounding the walk against a fully-bogus
+  // calendar where every day is a weekend/holiday.
+  for (let i = 0; i < MAX_ADJACENT_BUSINESS_DAY_SEARCH; i++) {
     if (isBusinessDay(cal, candidate)) return candidate;
     candidate = add(candidate, 1, 'days');
   }
-  throw new Error('temporal-fmt: nextBusinessDay() gave up after 14 days — likely a misconfigured calendar (e.g. all days are weekends or holidays).');
+  throw new Error(
+    `temporal-fmt: nextBusinessDay() found no business day within ${MAX_ADJACENT_BUSINESS_DAY_SEARCH} days — ` +
+    `likely a misconfigured calendar (e.g. all days are weekends or holidays).`
+  );
 }
 
 export function previousBusinessDay(cal: BusinessCalendar, value: unknown): unknown {
   let candidate = add(value, -1, 'days');
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < MAX_ADJACENT_BUSINESS_DAY_SEARCH; i++) {
     if (isBusinessDay(cal, candidate)) return candidate;
     candidate = add(candidate, -1, 'days');
   }
-  throw new Error('temporal-fmt: previousBusinessDay() gave up after 14 days — likely a misconfigured calendar.');
+  throw new Error(
+    `temporal-fmt: previousBusinessDay() found no business day within ${MAX_ADJACENT_BUSINESS_DAY_SEARCH} days — ` +
+    `likely a misconfigured calendar.`
+  );
 }
+
+const MAX_ADJACENT_BUSINESS_DAY_SEARCH = 366 * 2;
 
 const MAX_BUSINESS_DAY_TRAVERSAL = 100_000;
 

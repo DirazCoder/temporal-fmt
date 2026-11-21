@@ -493,7 +493,7 @@ describe('index barrel: timezone / extensibility / ideData / codemod', () => {
     const jan = Temporal.ZonedDateTime.from('2026-01-01T00:00[America/New_York]');
     const jun = Temporal.ZonedDateTime.from('2026-06-01T00:00[America/New_York]');
     expect(fmt.getTransitions(jan, jun)).toHaveLength(1);
-    expect(String(fmt.getNextTransition(jan)).slice(0, 10)).toBe('2026-03-09');
+    expect(String(fmt.getNextTransition(jan)).slice(0, 10)).toBe('2026-03-08');
     expect(fmt.getPreviousTransition(zdt)).toBeTruthy();
     expect(fmt.resolveZoned({ year: 2026, month: 8, day: 4 }, 'UTC')).toBeTruthy();
     expect(fmt.possibleInstantsFor(

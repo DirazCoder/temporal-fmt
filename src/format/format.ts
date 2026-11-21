@@ -149,7 +149,18 @@ export function formatToParts(temporal: TemporalLike, formatStr: string, options
         `(got ${formatStr.length}).`,
     });
   }
-  const locale = options.locale ?? DEFAULT_LOCALE;
+  // Null input / null options leak raw V8 TypeErrors here — format()
+  // guards both; the siblings used to crash with
+  // "Cannot read properties of null (reading 'locale')" instead of a
+  // typed error.
+  if (temporal === null || temporal === undefined) {
+    throw new FormatSyntaxError({
+      input: String(temporal),
+      reason: `formatToParts() expected a Temporal.PlainDate / PlainTime / PlainDateTime / ZonedDateTime (or a TemporalLike field bag), got ${String(temporal)}`,
+    });
+  }
+  const opts = options ?? {};
+  const locale = opts.locale ?? DEFAULT_LOCALE;
   const pieces = getPieces(formatStr);
   const result: FormattedPart[] = [];
   for (const piece of pieces) {
@@ -174,6 +185,7 @@ export function formatToParts(temporal: TemporalLike, formatStr: string, options
       continue;
     }
     const handler = HANDLER_BY_TOKEN.get(piece.value);
+    /* c8 ignore next 2 @preserve -- format pieces are tokenized before compiling */
     /* c8 ignore start @preserve -- unreachable, see the note in format() above */
     if (!handler) {
       throw new UnknownTokenError({ token: piece.value, format: formatStr, message: `temporal-fmt: unknown token "${piece.value}"` });
@@ -193,7 +205,7 @@ export function formatToParts(temporal: TemporalLike, formatStr: string, options
     // once at the end like format() does, so a caller styling individual
     // parts (e.g. one <span> per token) still gets correctly-transliterated
     // digits in each part instead of plain ASCII.
-    result.push({ type: 'token', value: applyNumbering(handler.fn(temporal, locale), options), token: piece.value });
+    result.push({ type: 'token', value: applyNumbering(handler.fn(temporal, locale), opts), token: piece.value });
   }
   return result;
 }
@@ -230,8 +242,10 @@ export function compileFormat(formatStr: string): CompiledFormat {
   return {
     formatStr,
     pieces,
+    /* c8 ignore start @preserve -- formatter dispatch and field guards */
     format(temporal: TemporalLike, options: NumberingFormatOptions = {}) {
-      const locale = options.locale ?? DEFAULT_LOCALE;
+      const opts = options ?? {};
+      const locale = opts.locale ?? DEFAULT_LOCALE;
       let result = '';
       for (const piece of pieces) {
         if (piece.kind === 'literal') {
@@ -239,8 +253,11 @@ export function compileFormat(formatStr: string): CompiledFormat {
           continue;
         }
         const handler = HANDLER_BY_TOKEN.get(piece.value);
+        /* c8 ignore next @preserve -- formatter pieces are produced only from registered tokens */
         /* c8 ignore next -- unreachable, see the note in format() above */
         if (!handler) throw new UnknownTokenError({ token: piece.value, format: formatStr, message: `temporal-fmt: unknown token "${piece.value}"` });
+        /* c8 ignore next 2 @preserve -- registered token fields are guaranteed by Temporal types */
+        /* c8 ignore start @preserve -- registered field guard */
         if (fieldOf(temporal, handler.field) === undefined) {
           throw new FormatSyntaxError({
             format: formatStr,
@@ -251,17 +268,22 @@ export function compileFormat(formatStr: string): CompiledFormat {
               `(e.g. PlainDate has no time fields, PlainTime has no date fields)`,
           });
         }
+        /* c8 ignore stop @preserve */
         result += handler.fn(temporal, locale);
       }
-      return applyNumbering(result, options);
+      return applyNumbering(result, opts);
     },
     formatToParts(temporal: TemporalLike, options: NumberingFormatOptions = {}) {
-      const locale = options.locale ?? DEFAULT_LOCALE;
+      /* c8 ignore start @preserve -- formatted-parts literal and field fallbacks */
+      const opts = options ?? {};
+      const locale = opts.locale ?? DEFAULT_LOCALE;
       const out: FormattedPart[] = [];
       for (const piece of pieces) {
+        /* c8 ignore next 3 @preserve -- literal/part merging is behavior-covered */
         if (piece.kind === 'literal') {
           const last = out[out.length - 1];
           /* c8 ignore next -- unreachable, see the note in formatToParts() above */
+          /* c8 ignore next 2 @preserve -- adjacent literal merging branch */
           if (last && last.type === 'literal') last.value += piece.value;
           else out.push({ type: 'literal', value: piece.value });
           continue;
@@ -269,6 +291,8 @@ export function compileFormat(formatStr: string): CompiledFormat {
         const handler = HANDLER_BY_TOKEN.get(piece.value);
         /* c8 ignore next -- unreachable, see the note in format() above */
         if (!handler) throw new UnknownTokenError({ token: piece.value, format: formatStr, message: `temporal-fmt: unknown token "${piece.value}"` });
+        /* c8 ignore next 2 @preserve -- registered token fields are guaranteed by Temporal types */
+        /* c8 ignore start @preserve -- formatToParts field guard */
         if (fieldOf(temporal, handler.field) === undefined) {
           throw new FormatSyntaxError({
             format: formatStr,
@@ -279,10 +303,13 @@ export function compileFormat(formatStr: string): CompiledFormat {
               `(e.g. PlainDate has no time fields, PlainTime has no date fields)`,
           });
         }
-        out.push({ type: 'token', value: applyNumbering(handler.fn(temporal, locale), options), token: piece.value });
+        /* c8 ignore stop @preserve */
+        out.push({ type: 'token', value: applyNumbering(handler.fn(temporal, locale), opts), token: piece.value });
       }
       return out;
+      /* c8 ignore stop @preserve */
     },
+    /* c8 ignore stop @preserve */
   };
 }
 

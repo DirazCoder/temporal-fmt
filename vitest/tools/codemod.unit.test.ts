@@ -35,8 +35,15 @@ describe('translateDayjsFormatString / translateDateFnsFormatString: boundary in
   });
 
   it('translates a string with no tokens at all, only bracketed literal text', () => {
+    // Day.js escapes with brackets — the span becomes a quoted literal.
     expect(translateDayjsFormatString('[just text]')).toBe("'just text'");
-    expect(translateDateFnsFormatString('[just text]')).toBe("'just text'");
+    // date-fns brackets are literal characters — they do NOT escape the
+    // span. date-fns itself scans "just text" for tokens (s = seconds,
+    // x = offset), and the translation preserves exactly that: brackets
+    // stay literal, 's'/'x' stay tokens, the rest is quoted literal.
+    expect(translateDateFnsFormatString('[just text]')).toBe("'[ju's't te'x't]'");
+    // Bracket contents with no token letters pass through untouched.
+    expect(translateDateFnsFormatString('[2026]')).toBe('[2026]');
   });
 });
 
@@ -101,12 +108,11 @@ describe('translate: composite format strings', () => {
 });
 
 describe('translate: bracket edge cases', () => {
-  it('treats an unterminated bracket span as unbracketed source text, not an escaped literal', () => {
-    // branch: end === -1 (lines 45-46). The rest of the string is pushed
-    // as a TOKEN piece, so it goes back through the token scanner: dayjs
-    // "s" is a seconds token, so only the non-token prefix "[oop" gets
-    // quoted — the "s" still translates as a token.
-    expect(translateDayjsFormatString('YYYY [oops')).toBe("yyyy '[oop's");
+  it('treats an unterminated bracket span as literal text (bracket included)', () => {
+    // Day.js renders an unterminated "[" plus the remainder as literal
+    // text, so the whole tail is quoted — it used to be re-scanned for
+    // tokens, splitting "oops" into a literal and a stray seconds token.
+    expect(translateDayjsFormatString('YYYY [oops')).toBe("yyyy '[oops'");
     // digit-only tails contain no letters, so they pass through raw
     // (the non-quoting passthrough branch of the literal renderer)
     expect(translateDateFnsFormatString('yyyy [123')).toBe('yyyy [123');
@@ -119,11 +125,17 @@ describe('translate: bracket edge cases', () => {
 
   it('re-escapes quote characters inside bracketed literals', () => {
     expect(translateDayjsFormatString("[it's]")).toBe("'it''s'");
-    expect(translateDateFnsFormatString("[it's]")).toBe("'it''s'");
+    // date-fns: the apostrophe opens a quoted literal span (unterminated
+    // here), so date-fns renders "[its]" — the translation is faithful:
+    // brackets stay literal, the escaped "s]" stays literal, the
+    // apostrophe itself is consumed as the escape marker.
+    expect(translateDateFnsFormatString("[it's]")).toBe("'[its]'");
   });
 
-  it('renders empty brackets as an empty quoted literal', () => {
-    expect(translateDayjsFormatString('[]')).toBe("''");
+  it('renders empty brackets as nothing, not an apostrophe', () => {
+    // "''" in temporal-fmt is an ESCAPED QUOTE — it renders as one
+    // apostrophe. An empty bracket span contributes no text at all.
+    expect(translateDayjsFormatString('[]')).toBe('');
   });
 
   it('keeps bracketed text literal between tokens', () => {

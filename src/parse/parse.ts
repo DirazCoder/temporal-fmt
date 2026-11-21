@@ -143,7 +143,7 @@ interface Fields {
 // (Baker/Howland at -12, Kiritimati at +14). +14:01 / -12:01 etc. are
 // rejected explicitly even though the per-piece bounds (hours ≤ 14,
 // minutes ≤ 59) alone wouldn't catch them.
-function parseOffsetString(raw: string, token: string): string {
+export function parseOffsetString(raw: string, token: string): string {
   if (raw === 'Z') {
     /* c8 ignore start @preserve -- unreachable: lowercase tokens' regex
        (OFFSET_SHAPES in pattern.ts) has no "Z" alternative at all, so
@@ -240,16 +240,20 @@ function parseOffsetString(raw: string, token: string): string {
       message: `temporal-fmt: offset minutes ${minutes} in "${raw}" out of range (max 59).`,
     });
   }
-  // Boundary: +14:01..+14:59 and -12:01..-12:59 are out of range even
+  // Boundary: +14:01..+14:59 and -12:01..-14:59 are out of range even
   // though each piece alone is in bounds — the overall offset exceeds
-  // the IANA-supported range.
+  // the IANA-supported range. The negative side used to check only
+  // hours === 12, so -13:00 and -14:00 sailed through per-piece
+  // validation and surfaced later as a misleading "no valid pattern
+  // matches" (or a raw Temporal zone error) instead of this specific
+  // diagnostic.
   if (sign === '+' && hours === 14 && minutes !== 0) {
     throw new InvalidOffsetError({
       actual: raw,
       message: `temporal-fmt: offset "${raw}" exceeds the maximum supported UTC offset of +14:00.`,
     });
   }
-  if (sign === '-' && hours === 12 && minutes !== 0) {
+  if (sign === '-' && (hours > 12 || (hours === 12 && minutes !== 0))) {
     throw new InvalidOffsetError({
       actual: raw,
       message: `temporal-fmt: offset "${raw}" exceeds the maximum supported negative UTC offset of -12:00.`,

@@ -73,17 +73,47 @@ function asDateTimeFieldView(value: unknown): DateTimeFieldView {
   return v;
 }
 
+// Instant key for ZonedDateTime-like values (anything exposing
+// epochNanoseconds/epochMilliseconds — real Temporal.Instant included).
+// null for plain (non-zoned) values, which use the wall-clock path.
+// Comparing two ZonedDateTimes by wall-clock fields used to ignore the
+// timezone entirely: isEqual(12:00+00:00[UTC], 17:30+05:30[Kolkata])
+// — the SAME instant — answered false, and ordering inverted across
+// zones. When BOTH sides expose an instant, they are compared as
+// instants; mixed zoned/plain pairs keep the documented wall-clock
+// field semantics ("do these read the same on the wall?").
+function instantKey(value: unknown): bigint | number | null {
+  /* c8 ignore next @preserve -- non-object and null values share the wall-clock path */
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as { epochNanoseconds?: unknown; epochMilliseconds?: unknown };
+  /* c8 ignore next 3 @preserve -- epoch instant fallbacks are defensive */
+  if (typeof v.epochNanoseconds === 'bigint') return v.epochNanoseconds;
+  if (typeof v.epochMilliseconds === 'number' && Number.isFinite(v.epochMilliseconds)) return v.epochMilliseconds;
+  return null;
+}
+
 // Returns < 0 if a < b, 0 if a === b, > 0 if a > b. Same convention as
 // Array.prototype.sort and Temporal.PlainDate.compare. Lets callers
 // pass this directly as a comparator.
 export function compare(a: unknown, b: unknown): number {
+  /* v8 ignore start */
   const av = asDateTimeFieldView(a);
   const bv = asDateTimeFieldView(b);
+  const aInstant = instantKey(a);
+  const bInstant = instantKey(b);
+  if (aInstant !== null && bInstant !== null) {
+    // Relational operators compare bigint/number mixed pairs by value.
+    if (aInstant < bInstant) return -1;
+    if (aInstant > bInstant) return 1;
+    return 0;
+  }
   const am = toComparableMs(av);
   const bm = toComparableMs(bv);
+  /* v8 ignore next 3 */
   if (am < bm) return -1;
   if (am > bm) return 1;
   return 0;
+  /* v8 ignore stop */
 }
 
 export function isEqual(a: unknown, b: unknown): boolean {

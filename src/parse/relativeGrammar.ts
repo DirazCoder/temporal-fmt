@@ -77,15 +77,21 @@ export function registerRelativeGrammar(grammar: RelativeGrammar): void {
   if (!grammar.matchers.every((m) => typeof m === 'function')) {
     throw new Error('temporal-fmt: registerRelativeGrammar matchers must all be functions.');
   }
+  // BCP-47 language subtags are case-insensitive. The grammar used to
+  // be stored under the exact string passed in while the lookup
+  // compared against the locale's lowercased primary subtag — so
+  // registerRelativeGrammar({ language: 'PT' }) NEVER matched a
+  // 'pt-BR' parse. Normalize at registration and at lookup.
+  const normalized: RelativeGrammar = { ...grammar, language: grammar.language.toLowerCase() };
   // if this language's already registered, just swap it out
-  const existingIdx = registeredGrammars.findIndex((g) => g.language === grammar.language);
+  const existingIdx = registeredGrammars.findIndex((g) => g.language === normalized.language);
   if (existingIdx >= 0) {
-    registeredGrammars[existingIdx] = grammar;
+    registeredGrammars[existingIdx] = normalized;
   } else {
     if (registeredGrammars.length >= MAX_REGISTERED_GRAMMARS) {
       throw new RangeError(`temporal-fmt: registerRelativeGrammar reached the ${MAX_REGISTERED_GRAMMARS}-grammar limit.`);
     }
-    registeredGrammars.push(grammar);
+    registeredGrammars.push(normalized);
   }
 }
 
@@ -96,8 +102,9 @@ export function tryRegisteredGrammar(
   input: string,
   reference: { year: number; month: number; day: number; dayOfWeek: number },
 ): unknown | null {
+  const wanted = language.toLowerCase();
   for (const grammar of registeredGrammars) {
-    if (grammar.language !== language) continue;
+    if (grammar.language !== wanted) continue;
     for (const matcher of grammar.matchers) {
       // One throwing matcher shouldn't take parseRelative() down with a
       // raw error — treat it as "no match" and let the next matcher (or
@@ -113,8 +120,16 @@ export function tryRegisteredGrammar(
       if (match === null) continue;
       const temporal = getTemporal();
       if (match.resolve) {
-        const fields = match.resolve(reference);
-        return temporal.PlainDate.from(fields, { overflow: 'reject' });
+        // resolve() is third-party code, same as the matchers above —
+        // one throwing resolver (or one returning unconstructable
+        // fields) used to take parseRelative() down with a raw error.
+        // Treat it as "no match" and let the next matcher try.
+        try {
+          const fields = match.resolve(reference);
+          return temporal.PlainDate.from(fields, { overflow: 'reject' });
+        } catch {
+          continue;
+        }
       }
       return temporal.PlainDate.from(
         { year: match.year ?? reference.year, month: match.month ?? reference.month, day: match.day ?? reference.day },

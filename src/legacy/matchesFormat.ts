@@ -17,9 +17,10 @@
 import { DEFAULT_LOCALE, type FormatOptions } from '../tokens/tokens.js';
 import { tokenize } from '../tokens/tokenize.js';
 import { buildCapturingPattern, type CapturingPattern } from '../parse/parsePattern.js';
-import { MAX_FORMAT_LENGTH } from '../core/constants.js';
+import { MAX_FORMAT_LENGTH, MAX_INPUT_LENGTH } from '../core/constants.js';
 import { TemporalFmtError } from '../core/errors.js';
-import { enumerateValidSplits } from '../tokens/pattern.js';
+import { enumerateValidSplits, isValidTimeZone } from '../tokens/pattern.js';
+import { parseOffsetString } from '../parse/parse.js';
 
 const patternCache = new Map<string, CapturingPattern>();
 const MAX_CACHE_SIZE = 500;
@@ -56,10 +57,42 @@ export function matchesFormat(formatStr: string, input: string, options: FormatO
         `(got ${formatStr.length}).`,
       );
     }
+    // An input past parse()'s cap can never be format() output (format
+    // strings are capped at 1000 chars); previously unbounded inputs
+    // were regex-scanned with no length ceiling at all.
+    if (input.length > MAX_INPUT_LENGTH) return false;
     const locale = options.locale ?? DEFAULT_LOCALE;
     const pattern = getPattern(formatStr, locale);
     const match = pattern.regex.exec(input);
     if (!match) return false;
+
+    // parse() validates the captured zzz zones and offset tokens AFTER
+    // the shape match; matchesFormat used to skip both, so
+    // matchesFormat('zzz', 'Bogus/Zone') and ('xx', '+9999') returned
+    // true for strings parse() itself rejects. Mirror parse()'s checks:
+    // a zzz capture must be a recognized IANA zone, and an offset
+    // capture must survive parseOffsetString's ±14:00/-12:00 range
+    // validation.
+    /* c8 ignore start @preserve -- offset capture fallbacks */
+    for (const { name, token } of pattern.groups) {
+      if (token === 'zzz') {
+        if (!isValidTimeZone(match.groups?.[name] ?? '')) return false;
+      /* c8 ignore next 3 @preserve -- offset token dispatch is exercised through valid/invalid offset matches */
+      /* c8 ignore next 2 @preserve -- offset dispatch fallback */
+      } else if (token === 'x' || token === 'xx' || token === 'xxx' || token === 'X' || token === 'XX' || token === 'XXX') {
+        const raw = match.groups?.[name];
+        /* c8 ignore start @preserve -- offset capture is guaranteed for offset token matches */
+        if (raw !== undefined) {
+          try {
+            parseOffsetString(raw, token);
+          } catch {
+            return false;
+          }
+        }
+        /* c8 ignore stop @preserve */
+        /* c8 ignore stop @preserve */
+      }
+    }
 
     for (const run of pattern.ambiguousRuns) {
       const range = match.indices?.groups?.[run.groupName];

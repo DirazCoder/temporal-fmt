@@ -51,7 +51,7 @@ describe('getNextTransition / getTransitions', () => {
   it('finds the real spring-forward date in a DST-observing zone', () => {
     const zdt = Temporal.ZonedDateTime.from('2026-01-01T00:00[America/New_York]');
     const next = getNextTransition(zdt) as Temporal.ZonedDateTime;
-    expect(next.toString().slice(0, 10)).toBe('2026-03-09');
+    expect(next.toString().slice(0, 10)).toBe('2026-03-08');
   });
 
   it('trims transitions that fall after the end boundary', () => {
@@ -212,8 +212,10 @@ describe('isDST (hemispheres, LMT eras, fallbacks, guards)', () => {
     expect(isDST({ timeZoneId: 'America/New_York', offset: '-05:00', year: 2026 })).toBe(false);
   });
 
-  it('returns false when the Jan/Jul zone probes fail (invalid zone id)', () => {
-    expect(isDST({ timeZoneId: 'Not/AZone', offset: '+00:00', year: 2026 })).toBe(false);
+  it('propagates a Jan/Jul probe failure instead of silently answering false', () => {
+    // An invalid zone id makes the probe throw; the old catch swallowed
+    // it into a confident "not in DST". Probe failures are real errors.
+    expect(() => isDST({ year: 2026, month: 7, day: 1, offset: '+00:00', timeZoneId: 'Not/A_Real_Zone' })).toThrow();
   });
 
   it('throws for values that are not ZonedDateTime-like', () => {
@@ -284,10 +286,13 @@ describe('getNextTransition / getPreviousTransition (directions, duck-typed inpu
     const withHour = getNextTransition({ timeZoneId: 'America/New_York', year: 2026, month: 1, day: 15, hour: 12 }) as Temporal.ZonedDateTime;
     expect(withHour.toString().slice(0, 10)).toBe('2026-03-08');
     expect(withHour.offset).toBe('-04:00');
-    // …and defaulting to noon when the input has no hour either (the
-    // day-by-day candidates then run at midnight, so detection slips to Mar 9)
+    // …and defaulting to midnight when the input has no hour either.
+    // The bisection still lands on the transition itself: the window is
+    // anchored at the value's own time-of-day, so a midnight-anchored
+    // scan detects the change one day late but bisects back into the
+    // right day (the old code reported Mar 9 here).
     const noHour = getNextTransition({ timeZoneId: 'America/New_York', year: 2026, month: 1, day: 15 }) as Temporal.ZonedDateTime;
-    expect(noHour.toString().slice(0, 10)).toBe('2026-03-09');
+    expect(noHour.toString().slice(0, 10)).toBe('2026-03-08');
   });
 
   it('returns undefined when the zone probe fails for a duck-typed input', () => {
@@ -342,8 +347,8 @@ describe('getTransitions (guards, boundary trimming, exhaustion)', () => {
   it('collects every transition in a full year', () => {
     const ts = getTransitions(start, { year: 2026, month: 12, day: 31 });
     expect(ts).toHaveLength(2);
-    expect((ts[0] as Temporal.ZonedDateTime).toString().slice(0, 10)).toBe('2026-03-09');
-    expect((ts[1] as Temporal.ZonedDateTime).toString().slice(0, 10)).toBe('2026-11-02');
+    expect((ts[0] as Temporal.ZonedDateTime).toString().slice(0, 10)).toBe('2026-03-08');
+    expect((ts[1] as Temporal.ZonedDateTime).toString().slice(0, 10)).toBe('2026-11-01');
   });
 
   it('trims a transition that falls in a later year than the end boundary', () => {
@@ -359,6 +364,26 @@ describe('getTransitions (guards, boundary trimming, exhaustion)', () => {
 
   it('exhausts the search window for a zone without transitions', () => {
     expect(getTransitions(Temporal.ZonedDateTime.from('2026-01-01T00:00[UTC]'), { year: 2030, month: 1, day: 1 })).toEqual([]);
+  });
+
+  it('ignores unresolvable day probes during transition scanning', () => {
+    const shim = {
+      ZonedDateTime: {
+        from(fields: { day?: number }) {
+          if (fields.day === 2) throw new Error('unresolvable probe');
+          return { offset: '+00:00', year: 2026, month: 1, day: fields.day ?? 1 };
+        },
+      },
+    };
+    setTemporal(shim as unknown as typeof Temporal);
+    try {
+      expect(getTransitions(
+        { timeZoneId: 'UTC', year: 2026, month: 1, day: 1, hour: 0, minute: 0 },
+        { year: 2026, month: 1, day: 3 },
+      )).toEqual([]);
+    } finally {
+      setTemporal(Temporal);
+    }
   });
 
   it('throws for invalid start and end values', () => {

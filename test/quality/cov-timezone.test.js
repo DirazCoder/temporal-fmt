@@ -17,12 +17,13 @@ test('cov: isDST summer NY', () => assert.ok(isDST(T.ZonedDateTime.from('2026-07
 test('cov: isDST winter NY', () => assert.ok(!isDST(T.ZonedDateTime.from('2026-01-04T12:00[America/New_York]'))));
 test('cov: isDST throws on non-ZDT', () => assert.throws(() => isDST(42), /expected a ZonedDateTime/));
 
-test('cov: isDST returns false when the January comparison ZonedDateTime cannot be constructed', () => {
+test('cov: isDST propagates a probe failure instead of silently answering false', () => {
   // A timeZoneId Temporal doesn't recognize makes the internal January
-  // lookup throw, landing in the catch { return false } branch rather
-  // than the compare-offsets happy path exercised by the two tests above.
+  // lookup throw. The old catch { return false } swallowed that into a
+  // confident "not in DST" — probe failures are real errors and now
+  // surface as-is.
   const fake = { timeZoneId: 'Not/A_Real_Zone', offset: '+00:00', year: 2026 };
-  assert.equal(isDST(fake), false);
+  assert.throws(() => isDST(fake));
 });
 
 test('cov: resolveZoned rewrites the DST-gap error message when disambiguation is "reject"', () => {

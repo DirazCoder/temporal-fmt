@@ -4,6 +4,131 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.8.988 - 2026-11-21 (`hash`)
+
+  The two availability/security fixes 
+  (the `parseDuration()` ReDoS and the `splitInterval()`/`take()` OOM
+  caps) are also backported to the 0.8.x LTS line.
+
+## 0.9.89 — 2026-11-21 (`hash`)
+
+Full-codebase security/correctiness audit fixes. Every change below is
+covered by a regression test (`test/quality/audit-fixes.test.js`) and the
+full suites pass.
+
+### Security
+
+- **CRITICAL — ReDoS in `parseDuration()`.** The per-token fragment
+  `(\d+)\s*\w*` made every token boundary a regex ambiguity point: a
+  66-character near-miss input against a 32-token long-form format hung
+  for 116 seconds, scaling exponentially (~2^8 per 8 tokens). The
+  fragment is now unambiguous (digits + a fixed alternation of known
+  unit words), compiled patterns are cached per (format, locale), format
+  and input are length-capped, and glued value tokens without a
+  separator (`'hhmm'`) are rejected as ambiguous. The audit payload now
+  parses-or-rejects in ~4 ms (was 116 s).
+- **DoS caps on `splitInterval()` / `take()`.** `splitInterval(day, 1e8)`
+  killed the process with an uncatchable heap-OOM abort; both functions
+  now throw a `RangeError` past 100,000 items, matching `skip()`.
+- **Website supply-chain hardening.** The npm registry's
+  `dist-tags.latest` (and the `sessionStorage`-cached packument) was
+  interpolated unvalidated into a dynamic `import()` URL; the version is
+  now validated as strict semver before use, and `npx serve` is pinned.
+
+### Fixed
+
+- **`ZonedDateTime` comparisons ignored the timezone.** `compare()`
+  (and `isEqual`/`isBefore`/`isAfter`/`min`/`max`/`clamp`/`isBetween`)
+  compared wall-clock fields only — the same instant in two zones
+  compared unequal and ordering inverted across zones. Both-zoned
+  comparisons now use the instant (epoch nanoseconds).
+- **`parseISO()` silently dropped zones and offsets.** Bracketed IANA
+  zones (`...+05:30[Asia/Kolkata]`) and offset-seconds suffixes now
+  route to `ZonedDateTime.from` instead of a `PlainDateTime` with the
+  zone discarded; `parseISO(formatISO(zdt))` round-trips. Lowercase `t`
+  separators and >9-digit fractional seconds are accepted (RFC 3339).
+- **Recurrence 2000-step cap silently truncated valid rules.** The
+  step cap is replaced by a semantic 400-year Gregorian-cycle distance
+  bound (any BYMONTH x BYMONTHDAY x BYDAY combination that can occur,
+  repeats within it), plus a day-granularity fast-forward for
+  sub-daily frequencies under date constraints.
+  `FREQ=DAILY;BYMONTHDAY=29;BYMONTH=2` from 2097 now finds 2104-02-29.
+- **`getNextTransition()` returned the wrong day and instant.** The
+  day-scan now anchors on the value's own time-of-day and bisects the
+  detection window, so New York's 2026 spring-forward returns
+  `2026-03-08T02:00` (was `2026-03-09T00:01`). `getTransitions()` is
+  bounded by its `end` argument instead of a silent 5-year cap and
+  throws past ~400 years.
+- **Codemod corrupted date-fns quoted literals.** date-fns escapes
+  with `'...'` (not `[...]`); `translateDateFnsFormatString("yyyy 'at'
+  HH:mm")` now round-trips instead of emitting a string the library
+  itself rejects. Adjacent Day.js bracket literals no longer produce a
+  spurious apostrophe at the seam, `[]` translates to nothing (not an
+  apostrophe), and unterminated brackets are kept as literal text.
+- **`parseRRule()` without `FREQ` returned an unbounded daily rule.**
+  `parseRRule('')`/`('GARBAGE')`/`(';;')` now throw (RFC 5545 requires
+  FREQ); `recurrence()` likewise rejects missing/unknown frequencies,
+  and scalar `BY*` values (`byMonthDay: 29`) are accepted instead of
+  crashing with a raw TypeError.
+- **`formatRRule()` emitted `UNTIL=[object Object]`.** UNTIL now
+  serializes to RFC 5545's `YYYYMMDD[THHMMSSZ]` form and round-trips
+  through `parseRRule()`.
+- **`rDates` (inclusions) were documented but ignored.** They now
+  merge into the occurrence stream: sorted, deduplicated against
+  generated occurrences, bounded by `until`, excluded by `exDates`,
+  and counted against `count`.
+- **`BYDAY` ordinals with `FREQ=WEEKLY` silently dropped the whole
+  BYDAY constraint** (`FREQ=WEEKLY;BYDAY=2MO` yielded the start's own
+  weekday forever) — now rejected per RFC 5545 SS3.3.10.
+- **`formatISODuration()` sign and precision.** Mixed-sign bags threw
+  away the sign of some fields (`{days:-1, hours:2}` round-tripped as
+  -P1DT2H); they now throw, since ISO 8601 cannot express them.
+  Sub-second fields were dropped entirely (`{milliseconds:500}` →
+  "P0D"); they now serialize as fractional seconds ("PT0.5S").
+- **`compareDuration()` ignored calendar units**
+  (`{years:1}` vs `{seconds:1}` answered -1). A `relativeTo` reference
+  is now required when either side has years/months/weeks and the
+  comparison delegates to `Temporal.Duration.compare`.
+- **`balanceDuration()` rejected `PT1.1H` with a bogus "too large"
+  error** — the product 1.1 x 3.6e12 is an integer with float dust;
+  near-integer products are now accepted (balances to 1h 6m).
+- **`add()` accepted fractional/NaN amounts**
+  (`add(date, 0.5, 'days')` → `{day: 1.5}`); amounts must now be whole
+  numbers.
+- **Locale registry.** `registerLocale()` validated after mutating (a
+  failed call leaked a partial registration process-wide) — it is now
+  atomic; `getLocale()` returned live internal arrays (one mutation
+  poisoned all later format()/parse()) — it now returns deep copies.
+- **`formatDistance()` rounded the half-boundary asymmetrically**
+  (90 s past = "1 minute ago", 90 s future = "in 2 minutes") — halves
+  now round away from zero on both sides.
+- **`parseHTTPDate()` accepted anything `Date.parse` understands.**
+  Only the three RFC 7231 formats pass now, and asctime (zone-less) is
+  parsed as UTC instead of the host timezone.
+- **`formatRFC3339(zdt)` always threw** on the natural input type (the
+  trailing `[Zone]` bracket); the bracket is stripped and ZDTs format
+  correctly.
+- **Business-day search window.** `nextBusinessDay()`/
+  `previousBusinessDay()` threw on legitimate month-long closures (14-day
+  cap); the window is now two years. `workingHours` docs no longer claim
+  `addBusinessDays()` uses it (it never did).
+- **Various.** `matchesFormat()` now validates captured `zzz` zones and
+  offset ranges (and caps input length) instead of accepting
+  `Bogus/Zone`/`+9999`; `formatToParts()` and compiled formats guard
+  null options/input like `format()` does; `formatDuration()` rejects
+  overlong token runs (`'yyyy'` rendered "2 years2"); `setTemporal(42)`
+  throws at the call site instead of crashing later; registered
+  relative grammars match language subtags case-insensitively and
+  third-party matcher/`resolve()` failures are isolated;
+  `parseOffsetString()` rejects -13:00/-14:00 with a specific error;
+  epoch helpers throw typed range errors; `daysInMonth({month:13})`
+  throws instead of returning undefined; `weekOfYear`/`getWeekday`
+  reject JS-convention `dayOfWeek: 0`; `startOf`/`endOf` support
+  `'quarter'` and reject unknown units; inverted hand-built intervals
+  fail fast instead of making `isBefore()` and `isAfter()` both true;
+  `isDST()` propagates probe failures instead of silently answering
+  false.
+  
 ## 0.9.88 — 2026-11-21 (`7a15900`)
 
 ### Added

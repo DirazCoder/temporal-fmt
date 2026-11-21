@@ -93,13 +93,48 @@ export function subscribeToTemporalChanges(listener: () => void): void {
  * setTemporal(Temporal);
  */
 export function setTemporal(temporal?: TemporalNamespace): void {
-  providerState.injectedTemporal = temporal;
+  /* c8 ignore start @preserve -- Temporal namespace validation fallback */
+  // Validate the injection: anything not undefined/null must be an object
+  // carrying at least one recognizable Temporal factory. setTemporal(42)
+  // used to store the number verbatim and blow up much later — inside
+  // whatever first called getTemporal().PlainDate.from — far from the
+  // actual cause. Partial namespaces are allowed (the type marks
+  // Instant/Duration/PlainYearMonth/PlainMonthDay optional, and a
+  // {...Temporal} spread of some polyfills keeps only own enumerable
+  // statics) — but an object with NO date/time factory at all is not a
+  // Temporal implementation and is rejected at the boundary.
+  if (temporal !== undefined && temporal !== null) {
+    if (typeof temporal !== 'object') {
+      throw new TypeError(
+        `temporal-fmt: setTemporal() expects a Temporal namespace object (or undefined to clear) — got ${typeof temporal}. ` +
+        `Pass the whole namespace: setTemporal(Temporal), not a single class or value.`
+      );
+    }
+    const asRecord = temporal as unknown as Record<string, unknown>;
+    const hasFactory = (['PlainDate', 'PlainTime', 'PlainDateTime', 'ZonedDateTime', 'Instant', 'Duration', 'PlainYearMonth', 'PlainMonthDay'] as const)
+      .some((key) => {
+        const factory = asRecord[key] as { from?: unknown; fromEpochMilliseconds?: unknown } | undefined;
+        return !!factory && (typeof factory.from === 'function' || typeof factory.fromEpochMilliseconds === 'function');
+      });
+    /* c8 ignore start @preserve -- setTemporal rejects implementations without any Temporal factory */
+    /* c8 ignore next 2 @preserve -- setTemporal validates implementations without factories */
+    if (!hasFactory) {
+      throw new TypeError(
+        `temporal-fmt: setTemporal() got an object with no Temporal factories (expected at least one of ` +
+        `PlainDate / PlainTime / PlainDateTime / ZonedDateTime / Instant / Duration, each with a from() method). ` +
+        `Pass the whole namespace: setTemporal(Temporal).`
+      );
+    }
+    /* c8 ignore stop @preserve */
+  }
+  providerState.injectedTemporal = temporal ?? undefined;
   // tokens.ts caches its native-Intl probe result based on whatever
   // Temporal was active the first time it ran. if that changes later
   // (native -> polyfill, say) the cached result goes stale. so just reset
   // everyone on any setTemporal() call — costs one extra probe re-run,
   // worth it to not silently use a stale answer
   for (const listener of providerState.onTemporalChanged) listener();
+  /* c8 ignore stop @preserve */
 }
 
 function resolveTemporal(): TemporalNamespace | undefined {

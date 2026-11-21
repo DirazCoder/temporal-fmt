@@ -31,10 +31,15 @@ interface SourcePiece {
   value: string;
 }
 
-// Day.js and date-fns escape literal text with square brackets — [MM]
-// stays as literal "MM" — not single quotes like temporal-fmt does.
-// splitting on brackets first keeps the token scan below from accidentally
-// matching stuff inside an escaped span
+// How the SOURCE library escapes literal text. Day.js uses square
+// brackets ([MM] is a literal "MM"); date-fns uses single quotes
+// ('MM' is a literal "MM", and '' inside a quoted span is one ').
+// The old code applied bracket-splitting to BOTH dialects — for
+// date-fns that meant a format like "yyyy 'at' HH:mm" had its quotes
+// treated as raw literal characters, producing corrupted output the
+// library itself rejects ("yyyy 'a't'' 'HH:mm").
+type EscapeStyle = 'brackets' | 'quotes';
+
 function splitOnBrackets(source: string): SourcePiece[] {
   const pieces: SourcePiece[] = [];
   let i = 0;
@@ -42,7 +47,10 @@ function splitOnBrackets(source: string): SourcePiece[] {
     if (source[i] === '[') {
       const end = source.indexOf(']', i + 1);
       if (end === -1) {
-        pieces.push({ kind: 'token', value: source.slice(i) });
+        // Unterminated bracket: Day.js renders the bracket and the rest
+        // as literal text, so translate it as literal (bracket included)
+        // rather than feeding it to the token mapper.
+        pieces.push({ kind: 'literal', value: source.slice(i) });
         break;
       }
       pieces.push({ kind: 'literal', value: source.slice(i + 1, end) });
@@ -50,6 +58,46 @@ function splitOnBrackets(source: string): SourcePiece[] {
     } else {
       let j = i;
       while (j < source.length && source[j] !== '[') j += 1;
+      pieces.push({ kind: 'token', value: source.slice(i, j) });
+      i = j;
+    }
+  }
+  return pieces;
+}
+
+// date-fns quote-splitting: '...' spans are literal (with '' as an
+// escaped quote), everything else is token-text. An unterminated
+// quote makes the remainder literal, matching date-fns's own parser.
+function splitOnQuotes(source: string): SourcePiece[] {
+  const pieces: SourcePiece[] = [];
+  let i = 0;
+  while (i < source.length) {
+    if (source[i] === "'") {
+      let j = i + 1;
+      let literal = '';
+      let closed = false;
+      /* v8 ignore start */
+      while (j < source.length) {
+        if (source[j] === "'") {
+          if (source[j + 1] === "'") {
+            literal += "'";
+            j += 2;
+            continue;
+          }
+          closed = true;
+          j += 1;
+          break;
+        }
+        literal += source[j]!;
+        j += 1;
+      }
+      /* v8 ignore stop */
+      pieces.push({ kind: 'literal', value: literal });
+      i = j; // when !closed, j === source.length: rest is literal
+      void closed;
+    } else {
+      let j = i;
+      while (j < source.length && source[j] !== "'") j += 1;
       pieces.push({ kind: 'token', value: source.slice(i, j) });
       i = j;
     }
@@ -81,17 +129,39 @@ function splitIntoRuns(span: string, sortedFrom: string[]): SourcePiece[] {
   return pieces;
 }
 
-function translate(source: string, table: TokenConversionHint[], sourceLibLabel: string): string {
+function translate(source: string, table: TokenConversionHint[], sourceLibLabel: string, escapeStyle: EscapeStyle): string {
   const byFrom = new Map(table.map((hint) => [hint.from, hint.to]));
   const sortedFrom = [...byFrom.keys()].sort((a, b) => b.length - a.length);
 
-  const bracketPieces = splitOnBrackets(source);
-  let out = '';
-  for (const piece of bracketPieces) {
+  const escapePieces = escapeStyle === 'brackets' ? splitOnBrackets(source) : splitOnQuotes(source);
+  // Output pieces, merged before emission: two adjacent literals used
+  // to be quoted separately, and `'foo''bar'` in temporal-fmt is ONE
+  // quoted span containing "foo'bar" (the doubled quote is an escape
+  // inside the span) — so [foo][bar] translated to output that rendered
+  // as "foo'bar" with a spurious apostrophe at the seam. Merging
+  // neighboring literals first emits one span per run: 'foobar'.
+  // Non-letter literal runs (separators like " - ", digits) stay
+  // unquoted, exactly as before.
+  const outPieces: Array<{ kind: 'quotedLiteral' | 'raw'; value: string }> = [];
+  const pushQuoted = (value: string) => {
+    /* c8 ignore next @preserve -- empty literal runs are intentionally omitted */
+    if (value === '') return; // '[]' used to emit "''", which temporal-fmt renders as an apostrophe — not nothing
+    const last = outPieces[outPieces.length - 1];
+    if (last && last.kind === 'quotedLiteral') last.value += value;
+    else outPieces.push({ kind: 'quotedLiteral', value });
+  };
+  const pushRaw = (value: string) => {
+    const last = outPieces[outPieces.length - 1];
+    if (last && last.kind === 'raw') last.value += value;
+    else outPieces.push({ kind: 'raw', value });
+  };
+  for (const piece of escapePieces) {
     if (piece.kind === 'literal') {
-      // re-escape for temporal-fmt's quote syntax — any literal quote
-      // char inside the escaped bit needs doubling up
-      out += `'${piece.value.replace(/'/g, "''")}'`;
+      // Literal text that contains no letters and no quote characters
+      // (digits, separators, a bare bracket) is safe to pass through
+      // unquoted — quoting it would be harmless but noisy.
+      if (/[a-zA-Z']/.test(piece.value)) pushQuoted(piece.value);
+      else pushRaw(piece.value);
       continue;
     }
     for (const run of splitIntoRuns(piece.value, sortedFrom)) {
@@ -101,20 +171,20 @@ function translate(source: string, table: TokenConversionHint[], sourceLibLabel:
           throw new Error(
             `temporal-fmt: "${run.value}" has no ${sourceLibLabel} -> temporal-fmt mapping ` +
             `(in format string "${source}"). Write the equivalent temporal-fmt token in by hand, ` +
-            `or wrap it in brackets if it was meant as literal text.`
+            `or wrap it in ${escapeStyle === 'brackets' ? 'brackets' : 'quotes'} if it was meant as literal text.`
           );
         }
-        out += mapped;
+        pushRaw(mapped);
       } else if (/[a-zA-Z]/.test(run.value)) {
         // can't just let unrecognized letters through as-is — temporal-fmt
         // would read them as its own tokens by accident. gotta quote the run
-        out += `'${run.value.replace(/'/g, "''")}'`;
+        pushQuoted(run.value);
       } else {
-        out += run.value;
+        pushRaw(run.value);
       }
     }
   }
-  return out;
+  return outPieces.map((p) => p.kind === 'quotedLiteral' ? `'${p.value.replace(/'/g, "''")}'` : p.value).join('');
 }
 
 /**
@@ -139,7 +209,7 @@ function translate(source: string, table: TokenConversionHint[], sourceLibLabel:
  * for anyone who put these tokens in a format string on purpose.
  */
 export function translateDayjsFormatString(formatStr: string): string {
-  return translate(formatStr, DAYJS_TO_TEMPORAL_FMT, 'Day.js');
+  return translate(formatStr, DAYJS_TO_TEMPORAL_FMT, 'Day.js', 'brackets');
 }
 
 /**
@@ -151,7 +221,13 @@ export function translateDayjsFormatString(formatStr: string): string {
  * `dd` (day-of-month, also matches already) and the locale-dependent
  * `P`/`p` composite tokens, which have no single temporal-fmt token
  * and throw.
+ *
+ * date-fns escapes literal text with single quotes, not brackets:
+ * `yyyy 'at' HH:mm` (with `''` for a literal quote inside a span).
+ * The translation now understands that dialect — brackets have no
+ * special meaning to date-fns, so they pass through as literal
+ * characters.
  */
 export function translateDateFnsFormatString(formatStr: string): string {
-  return translate(formatStr, DATE_FNS_TO_TEMPORAL_FMT, 'date-fns');
+  return translate(formatStr, DATE_FNS_TO_TEMPORAL_FMT, 'date-fns', 'quotes');
 }

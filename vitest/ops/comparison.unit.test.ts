@@ -34,6 +34,11 @@ describe('compare / isBefore', () => {
     expect(compare(early, early)).toBe(0);
     expect(isBefore(early, late)).toBe(true);
   });
+
+  it('compares epochNanoseconds and epochMilliseconds instant bags', () => {
+    expect(compare({ epochNanoseconds: 10n, year: 2026, month: 1, day: 1 }, { epochNanoseconds: 20n, year: 2026, month: 1, day: 1 })).toBe(-1);
+    expect(compare({ epochMilliseconds: 10, year: 2026, month: 1, day: 1 }, { epochMilliseconds: 20, year: 2026, month: 1, day: 1 })).toBe(-1);
+  });
 });
 
 describe('min / max / clamp', () => {

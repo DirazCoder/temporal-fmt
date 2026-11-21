@@ -51,6 +51,23 @@ export function interval(start: unknown, end: unknown, bounds: IntervalBounds = 
   return { start, end, bounds };
 }
 
+// Inverted hand-built intervals ({ start, end } literals with
+// start > end, which skip interval()'s validation) used to make the
+// span predicates contradict themselves: isBefore(a, b) AND
+// isAfter(a, b) both returned true for the same pair, because each
+// read a different endpoint of the inverted interval. interval()
+// already rejects them at construction; the set operations now do the
+// same, so a hand-built literal fails fast with the same message
+// instead of producing nonsense.
+function assertWellFormed(iv: Interval, op: string): void {
+  if (compare(iv.start, iv.end) > 0) {
+    throw new Error(
+      `temporal-fmt: ${op}() got an inverted interval (start > end). ` +
+      `Pass endpoints in chronological order, or build it with interval().`
+    );
+  }
+}
+
 // Inclusive containment check accounting for bounds semantics.
 // - 'closed': [start, end] — both endpoints included
 // - 'open': (start, end) — neither endpoint included
@@ -72,6 +89,7 @@ function endIncluded(bounds: IntervalBounds): boolean {
 }
 
 export function contains(iv: Interval, value: unknown): boolean {
+  assertWellFormed(iv, 'contains');
   const startCmp = compare(value, iv.start);
   const endCmp = compare(value, iv.end);
   const afterStart = startIncluded(iv.bounds) ? startCmp >= 0 : startCmp > 0;
@@ -87,6 +105,8 @@ export function overlaps(a: Interval, b: Interval): boolean {
 }
 
 export function intersects(a: Interval, b: Interval): boolean {
+  assertWellFormed(a, 'intersects');
+  assertWellFormed(b, 'intersects');
   // Two intervals intersect iff they share at least one point. The old
   // version returned true whenever the spans touched, regardless of
   // bounds — so (Jan 1, Jan 5) and (Jan 5, Jan 10), which share no point
@@ -108,10 +128,14 @@ export function intersects(a: Interval, b: Interval): boolean {
 }
 
 export function isBefore(a: Interval, b: Interval): boolean {
+  assertWellFormed(a, 'isBefore');
+  assertWellFormed(b, 'isBefore');
   return compare(a.end, b.start) < 0;
 }
 
 export function isAfter(a: Interval, b: Interval): boolean {
+  assertWellFormed(a, 'isAfter');
+  assertWellFormed(b, 'isAfter');
   return compare(a.start, b.end) > 0;
 }
 
@@ -121,6 +145,8 @@ export function isAfter(a: Interval, b: Interval): boolean {
 // both intervals supply the same endpoint, intersection inclusivity is
 // the AND of the two (a point is in a∩b only if it's in both).
 export function intersection(a: Interval, b: Interval): Interval | null {
+  assertWellFormed(a, 'intersection');
+  assertWellFormed(b, 'intersection');
   if (!intersects(a, b)) return null;
   const aStartLater = compare(a.start, b.start) > 0;
   const start = aStartLater ? a.start : b.start;
@@ -152,6 +178,8 @@ export function intersection(a: Interval, b: Interval): Interval | null {
 // interval that extends further, or the disjunction when both reach the
 // same endpoint.
 export function union(a: Interval, b: Interval): Interval | null {
+  assertWellFormed(a, 'union');
+  assertWellFormed(b, 'union');
   if (!intersects(a, b)) return null;
   const aStartEarlier = compare(a.start, b.start) < 0;
   const start = aStartEarlier ? a.start : b.start;
@@ -184,6 +212,8 @@ export function union(a: Interval, b: Interval): Interval | null {
 // endpoints were right, but the bounds metadata was stricter than the
 // actual remainder for open/half-open inputs.
 export function difference(a: Interval, b: Interval): Interval[] {
+  assertWellFormed(a, 'difference');
+  assertWellFormed(b, 'difference');
   if (!intersects(a, b)) return [a];
   const result: Interval[] = [];
   // Part of `a` before `b` starts. Its end is b.start; that point stays
@@ -272,13 +302,28 @@ export function mergeIntervals(intervals: Interval[]): Interval[] {
 // instead.
 const MAX_DATE_MS = 8.64e15;
 
+// Upper bound on splitInterval's slice count. splitInterval(day, 1e8)
+// used to push a hundred million endpoint objects and kill the process
+// with an uncatchable heap-OOM abort. Same cap style as skip()/take()
+// in recurrence.ts.
+const MAX_SPLIT = 100_000;
+
 // Splits an interval into N equal sub-intervals. Throws if N ≤ 0.
 // Equality is by ms-distance between start and end — for date ranges
 // this approximates "equal time slices", which is the most useful
 // interpretation. For calendar-bound splits (e.g. "split this month
 // into weeks"), callers should use recurrence() instead.
 export function splitInterval(iv: Interval, n: number): Interval[] {
-  if (n <= 0) throw new Error(`temporal-fmt: splitInterval requires n > 0 (got ${n}).`);
+  assertWellFormed(iv, 'splitInterval');
+  if (!Number.isSafeInteger(n) || n <= 0) {
+    throw new RangeError(`temporal-fmt: splitInterval requires a positive safe integer n (got ${String(n)}).`);
+  }
+  if (n > MAX_SPLIT) {
+    throw new RangeError(
+      `temporal-fmt: splitInterval caps at ${MAX_SPLIT} slices (got ${n}) — ` +
+      `split into stages, or use recurrence() for calendar-bound slices.`
+    );
+  }
   if (n === 1) return [iv];
   const startFields = asDateFieldView(iv.start) as DateFieldView & { hour?: number; minute?: number; second?: number; millisecond?: number };
   const endFields = asDateFieldView(iv.end) as DateFieldView & { hour?: number; minute?: number; second?: number; millisecond?: number };

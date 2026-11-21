@@ -51,7 +51,7 @@ test('nextBusinessDay: throws when every candidate within the search window is e
   const cal = createBusinessCalendar({ weekend: [1, 2, 3, 4, 5, 6, 7] });
   assert.throws(
     () => nextBusinessDay(cal, Temporal.PlainDate.from('2026-08-04')),
-    /gave up after 14 days/,
+    /found no business day within 732 days/,
   );
 });
 
@@ -59,7 +59,7 @@ test('previousBusinessDay: throws when every candidate within the search window 
   const cal = createBusinessCalendar({ weekend: [1, 2, 3, 4, 5, 6, 7] });
   assert.throws(
     () => previousBusinessDay(cal, Temporal.PlainDate.from('2026-08-04')),
-    /gave up after 14 days/,
+    /found no business day within 732 days/,
   );
 });
 

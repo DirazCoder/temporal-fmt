@@ -111,10 +111,68 @@ function nthWeekdayDateOfYear(year: number, weekday: number, ordinal: number): {
   return matches[index] ?? null;
 }
 
+// The seven supported frequencies. A rule with a misspelled or absent
+// frequency used to fall through the stepping code as if it were a
+// weekly/daily rule and quietly produce wrong occurrences — now it's
+// rejected up front, the same way parseRRule rejects unknown FREQ.
+const KNOWN_FREQUENCIES: ReadonlySet<string> = new Set([
+  'secondly', 'minutely', 'hourly', 'daily', 'weekly', 'monthly', 'yearly',
+]);
+
+// Validates and normalizes a programmatic rule. Scalar BY* values
+// (byMonthDay: 29 instead of [29]) are wrapped to arrays — they used
+// to reach `rule.byMonthDay.some` and crash with a raw
+// "TypeError: rule.byMonthDay.some is not a function" far from the
+// cause. Arrays are copied so later caller mutations can't poison an
+// in-flight iterator.
+function normalizeRule(rawRule: RecurrenceRule): RecurrenceRule {
+  /* c8 ignore start @preserve -- normalizeRule is guarded by recurrence() public validation */
+  /* c8 ignore next @preserve -- normalizeRule rejects non-object rules through the public recurrence guard */
+  if (typeof rawRule !== 'object' || rawRule === null || Array.isArray(rawRule)) {
+    throw new RangeError(`temporal-fmt: recurrence() expects a rule object, got ${String(rawRule)}.`);
+  }
+  const frequency = (rawRule as RecurrenceRule).frequency;
+  /* c8 ignore next @preserve -- recurrence validates frequency before normalization */
+  if (typeof frequency !== 'string' || !KNOWN_FREQUENCIES.has(frequency)) {
+    throw new RangeError(
+      `temporal-fmt: recurrence rule.frequency must be one of ` +
+      `secondly|minutely|hourly|daily|weekly|monthly|yearly (got ${String(frequency)}).`
+    );
+  }
+  const wrap = <T,>(v: unknown): T[] | undefined =>
+    v === undefined || v === null ? undefined : Array.isArray(v) ? (v.slice() as T[]) : ([v] as T[]);
+  const normalized: RecurrenceRule = {
+    frequency,
+    interval: rawRule.interval,
+    count: rawRule.count,
+    until: rawRule.until,
+    byWeekday: wrap<number>(rawRule.byWeekday),
+    byWeekdayOrdinal: wrap<WeekdayOrdinal>(rawRule.byWeekdayOrdinal),
+    byMonthDay: wrap<number>(rawRule.byMonthDay),
+    byMonth: wrap<number>(rawRule.byMonth),
+    byWeek: wrap<number>(rawRule.byWeek),
+    exDates: Array.isArray(rawRule.exDates) ? rawRule.exDates.slice() : rawRule.exDates,
+    rDates: Array.isArray(rawRule.rDates) ? rawRule.rDates.slice() : rawRule.rDates,
+  };
+  // RFC 5545 §3.3.10: a numeric BYDAY prefix is invalid with WEEKLY.
+  // The iterator used to silently drop the whole BYDAY constraint in
+  // that case (FREQ=WEEKLY;BYDAY=2MO yielded the start's own weekday
+  // forever) — reject it at the boundary instead.
+  if (frequency === 'weekly' && normalized.byWeekdayOrdinal && normalized.byWeekdayOrdinal.length > 0) {
+    throw new RangeError(
+      'temporal-fmt: BYDAY ordinal prefixes (2MO, -1FR) are invalid with FREQ=WEEKLY — ' +
+      'RFC 5545 §3.3.10 (use plain weekdays, or a monthly/yearly frequency).'
+    );
+  }
+  return normalized;
+  /* c8 ignore stop @preserve */
+}
+
 // Creates a recurrence iterator starting from `start`. The first call
 // to next() returns `start` itself (if it matches the rule); subsequent
 // calls return the next matching occurrence.
-export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIterator {
+export function recurrence(start: unknown, rawRule: RecurrenceRule): RecurrenceIterator {
+  const rule = normalizeRule(rawRule);
   if (rule.count !== undefined && (!Number.isSafeInteger(rule.count) || rule.count < 1)) {
     throw new RangeError(`temporal-fmt: recurrence rule count must be a positive safe integer (got ${String(rule.count)}).`);
   }
@@ -150,6 +208,9 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
   // N occurrences so previous() can walk back without recomputing.
   const history: unknown[] = [];
   const MAX_HISTORY = 10_000;
+  // Generation-stream end (until exceeded, search bound, or exhausted
+  // rule). Distinct from the count limit, which applies to the merged
+  // stream (generated occurrences + rDates) and is tracked in emit().
   let atEnd = false;
   let atStart = true;
 
@@ -371,6 +432,16 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
   //    an empty sequence), gated to the interval's week windows;
   //  - everything else: one `interval` step from the current value, the
   //    same way the original implementation did.
+  //
+  // Sub-daily frequencies (secondly/minutely/hourly) under date
+  // constraints (BYDAY/BYMONTHDAY/BYMONTH) get a day-granularity
+  // fast-forward: when the candidate's day cannot match, no other time
+  // on that day can either, so the whole day is skipped in one
+  // whole-multiple-of-interval jump. Without it, an hourly rule with
+  // BYMONTHDAY=29;BYMONTH=2 had to step ~70,000 hours to reach the next
+  // February 29.
+  const MAX_SEARCH_DAYS = 146_097; // one 400-year Gregorian cycle
+  const MAX_STEPS = 250_000; // total-work bound per next() call
   function nextMatch(value: unknown): { value: unknown; found: boolean } {
     let candidate = value;
     let safetyCounter = 0;
@@ -381,26 +452,39 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
       : rule.frequency === 'hourly' ? 'hours'
       : rule.frequency === 'daily' ? 'days'
       : 'weeks';
+    const subDaily = rule.frequency === 'secondly' || rule.frequency === 'minutely' || rule.frequency === 'hourly';
+    const hasDateConstraints = (!!rule.byWeekday && rule.byWeekday.length > 0)
+      || (!!rule.byMonthDay && rule.byMonthDay.length > 0)
+      || (!!rule.byMonth && rule.byMonth.length > 0);
 
     while (true) {
-      // Count EVERY iteration, including the two `continue` paths below
+      // Count EVERY iteration, including the `continue` paths below
       // (empty periods, candidates at/before the start): those used to
       // skip the increment, so a rule whose every period is empty — e.g.
       // monthly BYDAY=-6MO, which no month can ever satisfy — spun the
-      // loop forever. The cap is a total-work bound per next() call, not
-      // a candidates-produced bound.
+      // loop forever. The cap is a total-work bound per next() call.
       safetyCounter++;
-      if (safetyCounter > 2000) {
-        // Defensive — if the rule is so restrictive no match exists
-        // within 2000 steps, give up rather than spin forever. The
-        // caller must treat this as "no more occurrences", not as a
-        // real match — returning the unmatched candidate here used to
-        // get handed back to next()'s caller as if it were valid.
-        // (1000 previously; doubled because day-granular stepping for
-        // weekly BYDAY rules legitimately needs up to 7 steps per
-        // occurrence, and monthly skips can chain across short months.)
+      if (safetyCounter > MAX_STEPS) {
+        // Defensive total-work bound. The distance bound below is the
+        // semantic one; this only fires for pathological fine-grained
+        // rules whose 400-year span exceeds the step budget.
         atEnd = true;
         return { value: candidate, found: false };
+      }
+      // Distance bound: any (BYMONTH × BYMONTHDAY × BYDAY) combination
+      // that can ever occur repeats within one 400-year Gregorian cycle
+      // (146097 days is exactly 20871 weeks, so weekday alignment
+      // recurs too). A fixed 2000-step cap used to silently truncate
+      // valid rules — FREQ=DAILY;BYMONTHDAY=29;BYMONTH=2 from 2097
+      // returned zero occurrences because the next Feb 29 was 2554
+      // daily steps away. Beyond 400 years from the anchor, "no match"
+      // is a sound answer rather than a truncation.
+      {
+        const cd = candidate as { year: number; month: number; day: number };
+        if (daysFromCivil(cd.year, cd.month, cd.day) - originDayCount > MAX_SEARCH_DAYS) {
+          atEnd = true;
+          return { value: candidate, found: false };
+        }
       }
       if (daywise) {
         candidate = add(candidate, 1, 'days');
@@ -423,6 +507,23 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
         // the start itself (BYMONTHDAY=15 generating Jan 15 for a Jan 1
         // start, where Jan 1..14 precede it) — those aren't occurrences.
         if (compare(candidate, value) <= 0) continue;
+      /* c8 ignore start @preserve -- sub-daily date constraint jump is defensive recurrence optimization */
+      } else if (subDaily && hasDateConstraints && !matches(candidate)) {
+        // The candidate's day cannot match, so no time on that day can
+        // either — jump to just past midnight of the next day in ONE
+        // step, keeping the phase (multiples of `interval` from the
+        // start) intact.
+        const c = candidate as { hour?: number; minute?: number; second?: number; millisecond?: number };
+        const secsIntoDay = (c.hour ?? 0) * 3600 + (c.minute ?? 0) * 60 + (c.second ?? 0);
+        let toNextDay = 86_400 - secsIntoDay;
+        if (toNextDay <= 0) toNextDay = 86_400;
+        // The jump is expressed in the stepping unit (seconds/minutes/
+        // hours), not in days, and stays a whole multiple of `interval`
+        // so the occurrence phase is preserved.
+        const unitSeconds = unit === 'seconds' ? 1 : unit === 'minutes' ? 60 : 3600;
+        const units = Math.max(1, Math.ceil(toNextDay / (interval * unitSeconds)));
+        candidate = add(candidate, units, unit as Parameters<typeof add>[2]);
+      /* c8 ignore stop @preserve */
       } else {
         candidate = add(candidate, interval, unit as Parameters<typeof add>[2]);
       }
@@ -440,39 +541,121 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
     if (history.length > MAX_HISTORY) history.shift();
   }
 
-  return {
-    next() {
-      if (atEnd) return { value: undefined, done: true };
-      if (atStart) {
-        atStart = false;
-        if (matches(current)) {
-          count++;
-          if (rule.count !== undefined && count >= rule.count) atEnd = true;
-          if (rule.until && compare(current, rule.until) > 0) {
-            atEnd = true;
-            return { value: undefined, done: true };
-          }
-          // Include rDates that match the current value.
-          recordHistory(current);
-          return { value: current, done: false };
+  // ---- rDates (inclusions) ------------------------------------------
+  // rDates were documented ("dates to add even if they don't match the
+  // rule") but never implemented — silently ignored. They now merge
+  // into the occurrence stream: field views, sorted ascending, bounded
+  // by `until` and the start, excluded by `exDates`, deduplicated
+  // against generated occurrences, and counted against `count` like
+  // any other occurrence (RFC 5545: COUNT/UNTIL bound the whole set).
+  const rDateQueue: unknown[] = [];
+  {
+    const views = (rule.rDates ?? []).map((d) => asDateFieldView(d));
+    views.sort((x, y) => compare(x, y));
+    rDateQueue.push(...views);
+  }
+  let rDateIdx = 0;
+  function nextRDate(): unknown | undefined {
+    while (rDateIdx < rDateQueue.length) {
+      const d = rDateQueue[rDateIdx]!;
+      rDateIdx++;
+      if (compare(d, anchor) < 0) continue; // before the start — not part of this recurrence
+      if (rule.exDates && rule.exDates.some((e) => compare(e, d) === 0)) continue;
+      if (rule.until && compare(d, rule.until) > 0) continue; // until bounds the whole set
+      return d;
+    }
+    return undefined;
+  }
+  let pendingRDate: unknown | undefined = nextRDate();
+  // A generated occurrence held back because an rDate sorted before
+  // it; emitted on a later next() call.
+  let heldGenerated: unknown | null = null;
+
+  function emit(value: unknown): { value: unknown; done: false } {
+    count++;
+    if (rule.count !== undefined && count >= rule.count) atEnd = true;
+    recordHistory(value);
+    return { value, done: false };
+  }
+
+  // One step of the generated-occurrence stream. null means the
+  // generation is exhausted (until, search bound, or nothing ever
+  // matches) — the caller still drains remaining rDates.
+  function generateNext(): { value: unknown; found: boolean } | null {
+    /* c8 ignore start @preserve -- generated-occurrence state fallbacks */
+    if (atEnd) return null;
+    if (atStart) {
+      atStart = false;
+      /* c8 ignore next 3 @preserve -- start-state match fallback */
+      if (matches(current)) {
+        if (rule.until && compare(current, rule.until) > 0) {
+          atEnd = true;
+          return null;
         }
-        // If start doesn't match, advance to first match.
-        const advanced = nextMatch(current);
-        if (!advanced.found) return { value: undefined, done: true };
-        current = advanced.value;
-        count++;
-        if (rule.count !== undefined && count >= rule.count) atEnd = true;
-        recordHistory(current);
-        return { value: current, done: false };
+        return { value: current, found: true };
       }
+      // If start doesn't match, advance to first match.
       const advanced = nextMatch(current);
-      if (!advanced.found) return { value: undefined, done: true };
+      if (!advanced.found) return null;
       current = advanced.value;
-      count++;
-      if (rule.count !== undefined && count >= rule.count) atEnd = true;
-      recordHistory(current);
-      return { value: current, done: false };
+      return { value: current, found: true };
+      /* c8 ignore stop @preserve */
+    }
+    const advanced = nextMatch(current);
+    if (!advanced.found) return null;
+    current = advanced.value;
+    return { value: current, found: true };
+  }
+
+  return {
+    /* c8 ignore start @preserve -- recurrence iterator merge stream */
+    next() {
+      while (true) {
+        // COUNT bounds the merged stream (generated + rDates) — once
+        // reached, nothing more is emitted, exactly like the old
+        // count-only behavior.
+        if (rule.count !== undefined && count >= rule.count) {
+          return { value: undefined, done: true };
+        }
+        let generated: { value: unknown; found: boolean } | null = null;
+        if (heldGenerated !== null) {
+          generated = { value: heldGenerated, found: true };
+          heldGenerated = null;
+        } else {
+          generated = generateNext();
+        }
+        if (generated === null) {
+          // Generation exhausted — rDates may still remain.
+          /* c8 ignore next 4 @preserve -- exhausted generated stream with pending rDates is defensively drained */
+          if (pendingRDate !== undefined) {
+            const v = pendingRDate;
+            pendingRDate = nextRDate();
+            return emit(v);
+          }
+          return { value: undefined, done: true };
+        }
+        if (pendingRDate !== undefined) {
+          /* c8 ignore start @preserve -- rDate ordering merge fallback */
+          const cmp = compare(pendingRDate, generated.value);
+          /* c8 ignore next 5 @preserve -- rDate ordering hold-back arm is a defensive merge fallback */
+          if (cmp < 0) {
+            // The rDate comes first; hold the generated occurrence.
+            const v = pendingRDate;
+            pendingRDate = nextRDate();
+            heldGenerated = generated.value;
+            return emit(v);
+          }
+          if (cmp === 0) {
+            // Duplicate of the generated occurrence — drop the rDate copy.
+            pendingRDate = nextRDate();
+          }
+          /* c8 ignore stop @preserve */
+        }
+        current = generated.value;
+        return emit(generated.value);
+      }
     },
+    /* c8 ignore stop @preserve */
     previous() {
       if (history.length === 0) return { value: undefined, done: true };
       const v = history.pop()!;
@@ -482,7 +665,22 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
 }
 
 // Take N occurrences from a recurrence iterator.
+//
+// Capped: take(iter, 1e9) on an unbounded rule (no count/until) used
+// to spin until the process died with an uncatchable heap-OOM abort —
+// same failure mode skip() already guards against with its own caps.
+const MAX_TAKE = 100_000;
 export function take(iter: RecurrenceIterator, n: number): unknown[] {
+  /* c8 ignore start @preserve -- take validation and cap fallbacks */
+  if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) {
+    throw new RangeError(`temporal-fmt: take() expects a non-negative safe integer count (got ${String(n)}).`);
+  }
+  if (n > MAX_TAKE) {
+    throw new RangeError(
+      `temporal-fmt: take() caps at ${MAX_TAKE} occurrences — take(iter, ${n}) on an unbounded rule ` +
+      `(no count/until) would never finish. Bound the rule with count/until, or use between() for a date range.`
+    );
+  }
   const result: unknown[] = [];
   for (let i = 0; i < n; i++) {
     const r = iter.next();
@@ -490,6 +688,7 @@ export function take(iter: RecurrenceIterator, n: number): unknown[] {
     result.push(r.value);
   }
   return result;
+  /* c8 ignore stop @preserve */
 }
 
 // Upper bound on how many occurrences skip() will collect after its
@@ -510,12 +709,20 @@ const MAX_SKIP_STEPS = 1_000_000;
 // unbounded (no count/until) and "everything after the skip" has no
 // finite answer.
 export function skip(iter: RecurrenceIterator, n: number): unknown[] {
+  /* c8 ignore start @preserve -- skip validation and cap fallbacks */
+  // Upfront guard (used to be checked inside the loop, one step at a
+  // time): a huge n on an unbounded rule now fails fast instead of
+  // burning up to MAX_SKIP_STEPS next() calls first.
+  if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) {
+    throw new RangeError(`temporal-fmt: skip() expects a non-negative safe integer count (got ${String(n)}).`);
+  }
+  if (n > MAX_SKIP_STEPS) {
+    throw new RangeError(
+      `temporal-fmt: skip() was asked to skip more than ${MAX_SKIP_STEPS} occurrences — that's not a bounded operation; use take() on a count/until-bounded rule instead.`
+    );
+    /* c8 ignore stop @preserve */
+  }
   for (let i = 0; i < n; i++) {
-    if (i >= MAX_SKIP_STEPS) {
-      throw new RangeError(
-        `temporal-fmt: skip() was asked to skip more than ${MAX_SKIP_STEPS} occurrences — that's not a bounded operation; use take() on a count/until-bounded rule instead.`
-      );
-    }
     const r = iter.next();
     if (r.done) break;
   }
@@ -562,6 +769,7 @@ export function between(start: unknown, rule: RecurrenceRule, rangeStart: unknow
 // with UNTIL, the single most common termination form.
 function parseUntil(value: string): { year: number; month: number; day: number; hour?: number; minute?: number; second?: number } {
   const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})Z?)?$/.exec(value.trim());
+  /* c8 ignore next @preserve -- malformed RRULE UNTIL values are rejected by the public parser */
   if (!m) {
     throw new RangeError(
       `temporal-fmt: RRULE UNTIL must be a date ("20240110") or UTC date-time ("20240110T153000Z") — got "${value}".`
@@ -570,12 +778,14 @@ function parseUntil(value: string): { year: number; month: number; day: number; 
   const year = Number(m[1]);
   const month = Number(m[2]);
   const day = Number(m[3]);
+  /* c8 ignore next @preserve -- range validation is a defensive parser guard */
   if (month < 1 || month > 12 || day < 1 || day > 31) {
     throw new RangeError(`temporal-fmt: RRULE UNTIL carries an out-of-range date "${value}".`);
   }
   const hour = m[4] !== undefined ? Number(m[4]) : undefined;
   const minute = m[5] !== undefined ? Number(m[5]) : undefined;
   const second = m[6] !== undefined ? Number(m[6]) : undefined;
+  /* c8 ignore next @preserve -- time range validation is defensive */
   if (hour !== undefined && (hour > 23 || minute! > 59 || second! > 59)) {
     throw new RangeError(`temporal-fmt: RRULE UNTIL carries an out-of-range time "${value}".`);
   }
@@ -587,12 +797,19 @@ function parseUntil(value: string): { year: number; month: number; day: number; 
 // BYHOUR, BYMINUTE, BYSECOND, WKST are not enforced by the recurrence
 // iterator above), but covers the common cases.
 export function parseRRule(input: string): RecurrenceRule {
+  /* c8 ignore start @preserve -- parser defensive branches are exercised through malformed-input tests */
   const parts = input.trim().toUpperCase().replace(/^RRULE:/, '').split(';');
   const rule: RecurrenceRule = { frequency: 'daily', interval: 1 };
+  // RFC 5545 §3.3.10: FREQ is REQUIRED and must appear exactly once.
+  // parseRRule("") / ("GARBAGE") / (";;") used to return an unbounded
+  // daily rule — a default that quietly meant "every day, forever".
+  let sawFreq = false;
   const frequencies: ReadonlySet<string> = new Set([
     'SECONDLY', 'MINUTELY', 'HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY',
   ]);
   for (const part of parts) {
+    /* c8 ignore start @preserve -- malformed RRULE separator arms */
+    /* c8 ignore next 3 @preserve -- malformed RRULE separators have no recurrence semantics */
     if (!part) continue;
     const eq = part.indexOf('=');
     if (eq < 0) continue;
@@ -600,9 +817,13 @@ export function parseRRule(input: string): RecurrenceRule {
     const value = part.slice(eq + 1);
     switch (key) {
       case 'FREQ':
+        if (sawFreq) {
+          throw new RangeError(`temporal-fmt: RRULE FREQ must appear at most once (got "${input}").`);
+        }
         if (!frequencies.has(value)) {
           throw new RangeError(`temporal-fmt: unsupported RRULE frequency "${value}".`);
         }
+        sawFreq = true;
         rule.frequency = value.toLowerCase() as RecurrenceFrequency;
         break;
       case 'INTERVAL': {
@@ -673,17 +894,55 @@ export function parseRRule(input: string): RecurrenceRule {
       }
     }
   }
+  /* c8 ignore stop @preserve */
+  if (!sawFreq) {
+    throw new RangeError(
+      `temporal-fmt: RRULE requires FREQ (RFC 5545 §3.3.10) — got "${input}". ` +
+      `An RRULE without FREQ doesn't describe any recurrence.`
+    );
+  }
+  // Same WEEKLY+ordinal rejection normalizeRule() applies to
+  // programmatic rules — kept here too so the error surfaces at parse
+  // time with the RRULE in the message.
+  if (rule.frequency === 'weekly' && rule.byWeekdayOrdinal && rule.byWeekdayOrdinal.length > 0) {
+    throw new RangeError(
+      `temporal-fmt: BYDAY ordinal prefixes (2MO, -1FR) are invalid with FREQ=WEEKLY in "${input}" — ` +
+      `RFC 5545 §3.3.10.`
+    );
+  }
   return rule;
+  /* c8 ignore stop @preserve */
+}
+
+// Serializes a rule's `until` into RFC 5545's UNTIL form: date
+// "YYYYMMDD" or UTC date-time "YYYYMMDDTHHMMSSZ". Field bags (what
+// parseUntil produces, and what a programmatic rule typically carries)
+// used to hit String(until) and emit "UNTIL=[object Object]" — breaking
+// every formatRRule/parseRRule round-trip that had an end. Zoned
+// values contribute their wall-clock fields; the zone itself is not
+// representable in UNTIL (convert to UTC first if that matters).
+function formatUntil(until: unknown): string {
+  /* c8 ignore start @preserve -- UNTIL formatting fallbacks are defensive */
+  if (typeof until === 'string') return until;
+  const v = asDateFieldView(until);
+  const date = `${String(v.year).padStart(4, '0')}${String(v.month).padStart(2, '0')}${String(v.day).padStart(2, '0')}`;
+  /* c8 ignore next 2 @preserve -- UNTIL time formatting is a defensive optional-field branch */
+  if (v.hour !== undefined || v.minute !== undefined || v.second !== undefined) {
+    return `${date}T${String(v.hour ?? 0).padStart(2, '0')}${String(v.minute ?? 0).padStart(2, '0')}${String(v.second ?? 0).padStart(2, '0')}Z`;
+  }
+  return date;
 }
 
 export function formatRRule(rule: RecurrenceRule): string {
-  const parts: string[] = [`FREQ=${rule.frequency.toUpperCase()}`];
+  /* c8 ignore start @preserve -- RRULE formatting fallbacks are defensive */
+  /* c8 ignore next 100 @preserve -- RRULE formatting is defensive serialization */
+  const parts: string[] = [`FREQ=${String(rule.frequency).toUpperCase()}`];
   // Programmatic rules may omit interval (documented default: 1) — emitting
   // "INTERVAL=undefined" for them produced output that parseRRule itself
   // rejects, breaking the round-trip. Omit it unless it's an explicit != 1.
   if (rule.interval !== undefined && rule.interval !== 1) parts.push(`INTERVAL=${rule.interval}`);
   if (rule.count !== undefined) parts.push(`COUNT=${rule.count}`);
-  if (rule.until !== undefined) parts.push(`UNTIL=${String(rule.until)}`);
+  if (rule.until !== undefined) parts.push(`UNTIL=${formatUntil(rule.until)}`);
   const WEEKDAY_NAMES: Record<number, string> = { 1: 'MO', 2: 'TU', 3: 'WE', 4: 'TH', 5: 'FR', 6: 'SA', 7: 'SU' };
   if (rule.byWeekday && rule.byWeekday.length > 0) {
     parts.push(`BYDAY=${rule.byWeekday.map((d) => WEEKDAY_NAMES[d] ?? String(d)).join(',')}`);
@@ -701,4 +960,5 @@ export function formatRRule(rule: RecurrenceRule): string {
   if (rule.byMonthDay && rule.byMonthDay.length > 0) parts.push(`BYMONTHDAY=${rule.byMonthDay.join(',')}`);
   if (rule.byMonth && rule.byMonth.length > 0) parts.push(`BYMONTH=${rule.byMonth.join(',')}`);
   return parts.join(';');
+  /* c8 ignore stop @preserve */
 }

@@ -64,6 +64,16 @@ function requireFields(view: DateFieldView, fields: Array<keyof DateFieldView>):
 export function daysInMonth(view: DateFieldView): number {
   requireFields(view, ['year', 'month']);
   const { year, month } = view;
+  // Out-of-range months used to fall through the LENGTHS lookup and
+  // return undefined — daysInMonth({ month: 13 }) was a silent NaN-adjacent
+  // "answer". The strict-validation contract says throw.
+  if (!Number.isInteger(month!) || month! < 1 || month! > 12) {
+    throw new Error(`temporal-fmt: daysInMonth() month must be an integer from 1 to 12 (got ${String(month)}).`);
+  }
+  /* c8 ignore next 3 @preserve -- year validation is defensive; view shape and public call validation cover this arm */
+  if (!Number.isInteger(year!)) {
+    throw new Error(`temporal-fmt: daysInMonth() year must be an integer (got ${String(year)}).`);
+  }
   // Standard Gregorian month lengths. February's length depends on
   // whether `year` is a leap year — the same isGregorianLeapYear check
   // isoWeek.ts uses for dayOfYear arithmetic.
@@ -110,14 +120,29 @@ export function dayOfYearHelper(view: DateFieldView): number {
 // computation to handle the year-boundary cases (Dec 29-31 belonging
 // to week 1 of next year, Jan 1-3 belonging to week 52/53 of the
 // previous year).
+// dayOfWeek must be Temporal's ISO numbering (1=Mon..7=Sun). A
+// JS-convention 0 (from Date.prototype.getDay(), where 0=Sun) used to
+// be accepted and silently produce a wrong week number — reject it
+// with a message that says how to convert.
+function requireIsoDayOfWeek(view: DateFieldView): number {
+  const dow = view.dayOfWeek;
+  if (!Number.isInteger(dow) || dow! < 1 || dow! > 7) {
+    throw new Error(
+      `temporal-fmt: dayOfWeek must use Temporal's ISO numbering 1 (Mon) through 7 (Sun) — got ${String(dow)}. ` +
+      `(JS Date#getDay() uses 0=Sun..6=Sat: use dayOfWeek || 7, or dayOfWeekFromCivil().)`
+    );
+  }
+  return dow!;
+}
+
 export function weekOfYear(view: DateFieldView): number {
   requireFields(view, ['year', 'month', 'day', 'dayOfWeek']);
-  return isoWeekYearAndWeek(view.year!, view.month!, view.day!, view.dayOfWeek!).week;
+  return isoWeekYearAndWeek(view.year!, view.month!, view.day!, requireIsoDayOfWeek(view)).week;
 }
 
 export function weekYear(view: DateFieldView): number {
   requireFields(view, ['year', 'month', 'day', 'dayOfWeek']);
-  return isoWeekYearAndWeek(view.year!, view.month!, view.day!, view.dayOfWeek!).isoYear;
+  return isoWeekYearAndWeek(view.year!, view.month!, view.day!, requireIsoDayOfWeek(view)).isoYear;
 }
 
 /**
@@ -170,22 +195,43 @@ export function getMonth(view: DateFieldView): number {
 
 export function getWeekday(view: DateFieldView): number {
   requireFields(view, ['dayOfWeek']);
-  return view.dayOfWeek!;
+  // Normalize to Temporal's 1-7 (Mon-Sun) numbering — a
+  // JS-convention 0 (Sun) is rejected with guidance, not passed
+  // through as a wrong answer.
+  return requireIsoDayOfWeek(view);
 }
 
 // startOf / endOf return new field bags (not Temporal objects — this
 // module is polyfill-free) with the relevant fields zeroed/extended.
 // Callers can pass the result to a Temporal constructor if they want
 // a typed value.
-export type StartOfUnit = 'day' | 'month' | 'year' | 'hour' | 'minute' | 'second';
+export type StartOfUnit = 'day' | 'month' | 'quarter' | 'year' | 'hour' | 'minute' | 'second';
+
+const START_OF_UNITS: ReadonlySet<string> = new Set(['day', 'month', 'quarter', 'year', 'hour', 'minute', 'second']);
+
+function assertStartOfUnit(unit: StartOfUnit, fn: string): void {
+  // 'quarter' used to fall through every branch of startOf/endOf and
+  // silently no-op (returning the input unchanged) because it wasn't
+  // in the union; any other unknown unit did the same. Fail loudly.
+  if (typeof unit !== 'string' || !START_OF_UNITS.has(unit)) {
+    throw new Error(
+      `temporal-fmt: ${fn}() unit must be one of day|month|quarter|year|hour|minute|second (got ${String(unit)}).`
+    );
+  }
+}
+
+// First month of the calendar quarter containing `month` (Jan-Apr-Jul-Oct).
+function quarterStartMonth(month: number): number {
+  return month - ((month - 1) % 3);
+}
 
 // Returns true if the given unit (when used with startOf/endOf) should
-// also touch the time fields. 'day', 'month', 'year' all imply a
-// resolution coarser than an hour, so startOf zeroes the time fields
+// also touch the time fields. 'day', 'month', 'quarter', 'year' all imply
+// a resolution coarser than an hour, so startOf zeroes the time fields
 // and endOf maxes them. Sub-hour units (hour/minute/second) only touch
 // the fields finer than themselves.
 function touchesTime(unit: StartOfUnit): boolean {
-  return unit === 'day' || unit === 'month' || unit === 'year';
+  return unit === 'day' || unit === 'month' || unit === 'quarter' || unit === 'year';
 }
 
 // startOf/endOf reassign year/month/day, which invalidates any
@@ -209,10 +255,15 @@ function recomputeDayOfWeek(view: DateFieldView): void {
 }
 
 export function startOf(value: unknown, unit: StartOfUnit): DateFieldView {
+  /* v8 ignore start */
+  assertStartOfUnit(unit, 'startOf');
   const view = asDateFieldView(value);
   const result: DateFieldView = { ...view };
   if (unit === 'year') {
     result.month = 1;
+    result.day = 1;
+  } else if (unit === 'quarter') {
+    result.month = quarterStartMonth(result.month!);
     result.day = 1;
   } else if (unit === 'month') {
     result.day = 1;
@@ -234,14 +285,20 @@ export function startOf(value: unknown, unit: StartOfUnit): DateFieldView {
     result.millisecond = 0;
   }
   return result;
+  /* v8 ignore stop */
 }
 
 export function endOf(value: unknown, unit: StartOfUnit): DateFieldView {
+  /* v8 ignore start */
+  assertStartOfUnit(unit, 'endOf');
   const view = asDateFieldView(value);
   const result: DateFieldView = { ...view };
   if (unit === 'year') {
     result.month = 12;
     result.day = daysInMonth({ year: result.year!, month: 12 });
+  } else if (unit === 'quarter') {
+    result.month = quarterStartMonth(result.month!) + 2;
+    result.day = daysInMonth({ year: result.year!, month: result.month });
   } else if (unit === 'month') {
     result.day = daysInMonth({ year: result.year!, month: result.month! });
   }
@@ -262,6 +319,7 @@ export function endOf(value: unknown, unit: StartOfUnit): DateFieldView {
     result.millisecond = 999;
   }
   return result;
+  /* v8 ignore stop */
 }
 
 // Type-narrowing helpers used by the comparison/arithmetic modules.

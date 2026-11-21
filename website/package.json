@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "node build.js",
-    "start": "npx serve public"
+    "start": "npx serve@14.2.8 public"
   },
   "devDependencies": {
     "nitpicky-md": "^0.1.1"

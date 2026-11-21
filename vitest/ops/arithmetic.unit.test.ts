@@ -246,3 +246,9 @@ describe('difference (sub-day units)', () => {
     expect(differenceInHours(kolkata, Temporal.PlainDateTime.from('2026-08-04T18:45:30'))).toBe(3);
   });
 });
+
+describe('add validation branches', () => {
+  it('rejects fractional amounts', () => {
+    expect(() => add(tue, 0.5, 'days')).toThrow(/whole number/);
+  });
+});

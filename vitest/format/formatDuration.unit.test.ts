@@ -113,3 +113,9 @@ describe('formatDuration: additional tokenizer/readUnit branches', () => {
     expect(formatDuration({ hours: null }, 'hhh', { showZeroValues: true })).toBe('0 hours');
   });
 });
+
+describe('formatDuration remaining tokenizer guards', () => {
+  it('rejects runs longer than three duration letters', () => {
+    expect(() => formatDuration({ years: 2 }, 'yyyy')).toThrow(/longer than three/);
+  });
+});
