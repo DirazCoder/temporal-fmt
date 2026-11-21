@@ -97,7 +97,9 @@ describe('mergeIntervals / splitInterval', () => {
   it('n=1 returns the original interval unchanged, and n<=0 throws', () => {
     const iv = interval(d('2026-01-01'), d('2026-12-31'));
     expect(splitInterval(iv, 1)).toEqual([iv]);
-    expect(() => splitInterval(iv, 0)).toThrow(/requires n > 0/);
+    // SECURITY BACKPORT: the message names the safe-integer requirement now
+    // (and a >100,000 slice count throws instead of OOM-aborting).
+    expect(() => splitInterval(iv, 0)).toThrow(/positive safe integer n/);
   });
 });
 

@@ -189,8 +189,22 @@ export function mergeIntervals(intervals: Interval[]): Interval[] {
 // this approximates "equal time slices", which is the most useful
 // interpretation. For calendar-bound splits (e.g. "split this month
 // into weeks"), callers should use recurrence() instead.
+// SECURITY BACKPORT (0.8.x): upper bound on splitInterval's slice
+// count. splitInterval(day, 1e8) used to push a hundred million
+// endpoint objects and kill the process with an uncatchable heap-OOM
+// abort. Same cap style as skip() in recurrence.ts.
+const MAX_SPLIT = 100_000;
+
 export function splitInterval(iv: Interval, n: number): Interval[] {
-  if (n <= 0) throw new Error(`temporal-fmt: splitInterval requires n > 0 (got ${n}).`);
+  if (!Number.isSafeInteger(n) || n <= 0) {
+    throw new RangeError(`temporal-fmt: splitInterval requires a positive safe integer n (got ${String(n)}).`);
+  }
+  if (n > MAX_SPLIT) {
+    throw new RangeError(
+      `temporal-fmt: splitInterval caps at ${MAX_SPLIT} slices (got ${n}) — ` +
+      `split into stages, or use recurrence() for calendar-bound slices.`
+    );
+  }
   if (n === 1) return [iv];
   const startFields = asDateFieldView(iv.start) as DateFieldView & { hour?: number; minute?: number; second?: number; millisecond?: number };
   const endFields = asDateFieldView(iv.end) as DateFieldView & { hour?: number; minute?: number; second?: number; millisecond?: number };

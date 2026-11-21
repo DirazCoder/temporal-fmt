@@ -130,6 +130,18 @@ test('parseDuration: throws when input does not match the compiled format patter
   assert.throws(() => parseDuration('not a duration', 'h:mm'), /does not match duration format/);
 });
 
+test('parseDuration: rejects non-string input and format values', () => {
+  assert.throws(() => parseDuration(null, 'h'), /expects \(input: string, formatStr: string/);
+  assert.throws(() => parseDuration('2', null), /expects \(input: string, formatStr: string/);
+});
+
+test('parseDuration: evicts the oldest compiled pattern when the cache is full', () => {
+  for (let i = 1; i <= 205; i++) {
+    const literal = '#'.repeat(i);
+    assert.deepEqual(parseDuration(`2-${literal}`, `h-${literal}`), { hours: 2 });
+  }
+});
+
 test('balanceDuration: carries seconds up through minutes, hours, and days', () => {
   const balanced = balanceDuration({ seconds: 90_000 });
   // 90000s = 25h = 1d1h

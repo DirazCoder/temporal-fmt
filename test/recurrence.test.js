@@ -384,6 +384,17 @@ test('recurrence + take: returns N occurrences', () => {
   assert.equal(`${occurrences[4].year}-${String(occurrences[4].month).padStart(2,'0')}-${String(occurrences[4].day).padStart(2,'0')}`, '2026-01-05');
 });
 
+test('take: rejects non-integer, negative, and non-number counts', () => {
+  const makeIterator = () => recurrence(Temporal.PlainDate.from('2026-01-01'), {
+    frequency: 'daily',
+    interval: 1,
+  });
+
+  assert.throws(() => take(makeIterator(), '1'), /non-negative safe integer count/);
+  assert.throws(() => take(makeIterator(), 1.5), /non-negative safe integer count/);
+  assert.throws(() => take(makeIterator(), -1), /non-negative safe integer count/);
+});
+
 test('recurrence: respects interval', () => {
   const start = Temporal.PlainDate.from('2026-01-01');
   const rule = { frequency: 'daily', interval: 7 }; // weekly

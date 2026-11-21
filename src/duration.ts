@@ -33,6 +33,103 @@ import { roundDuration, type DurationFields } from './rounding.js';
 import { getTemporal } from './temporalProvider.js';
 import { formatDuration } from './formatDuration.js';
 import { InvalidDurationError, FormatSyntaxError } from './errors.js';
+import { MAX_FORMAT_LENGTH, MAX_INPUT_LENGTH } from './constants.js';
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// SECURITY BACKPORT (0.8.x): unit text accepted after the digits of a
+// short/long-form token. The old fragment `(\d+)\s*\w*` consumed ANY
+// trailing word characters and, far worse, made every token boundary a
+// regex ambiguity point (\d is a subset of \w): a 66-character
+// near-miss input against a 32-token format hung for 116 seconds,
+// scaling exponentially. The alternation below is a fixed, finite list
+// of literals, so nothing in the pattern can absorb the next token's
+// digits and matching is linear. It is the UNION of every unit word the
+// English rendering path can emit ("unit text is matched but not
+// captured" is the documented behavior — parseDuration('5hrs', 'hh')
+// is a supported case).
+const ENGLISH_UNIT_WORDS = [
+  'milliseconds', 'millisecond', 'seconds', 'minutes', 'hours', 'months',
+  'weeks', 'years', 'second', 'minute', 'hour', 'month', 'week', 'year',
+  'days', 'day', 'yrs', 'yr', 'hrs', 'hr', 'mins', 'min', 'secs', 'sec',
+  'mos', 'mo', 'wks', 'wk', 'ms',
+  'd', 'h', 'm', 's',
+].sort((a, b) => b.length - a.length);
+
+interface CompiledDurationPattern {
+  re: RegExp;
+  groupSpecs: Array<{ unit: keyof DurationFields; form: 'numeric' | 'short' | 'long' }>;
+}
+
+// Compiled patterns are cached per format string — the same policy
+// parse() applies to its capturing patterns.
+const durationPatternCache = new Map<string, CompiledDurationPattern>();
+const MAX_DURATION_PATTERN_CACHE = 200;
+
+function compileDurationPattern(formatStr: string): CompiledDurationPattern {
+  const tokens = tokenizeDurationFormat(formatStr);
+  const groupSpecs: CompiledDurationPattern['groupSpecs'] = [];
+  const unitAlternation = ENGLISH_UNIT_WORDS.map(escapeRe).join('|');
+  let regex = '';
+  let prevWasToken = false;
+  for (const tok of tokens) {
+    if (tok.kind === 'literal') {
+      regex += escapeRe(tok.value);
+      prevWasToken = false;
+      continue;
+    }
+    // Two value tokens with no literal between them ('hhmm') leave the
+    // digit split between the two (\d+) groups ambiguous — a
+    // combinatorial backtrack on near-miss input. Require a separator.
+    if (prevWasToken) {
+      throw new FormatSyntaxError({
+        format: formatStr,
+        token: tok.value,
+        reason: 'adjacent value tokens with no separating literal — the split between them is ambiguous. ' +
+          'Add a separator (e.g. "h:mm", not "hmm") or quote the literal text.',
+      });
+    }
+    const unit = tok.unit!;
+    const form = tok.value.length === 1 ? 'numeric' : tok.value.length === 2 ? 'short' : 'long';
+    // Map token letter to DurationFields key.
+    /* c8 ignore start @preserve -- the final `: null` branch, and the
+       `if (key === null)` throw it feeds, are both unreachable: tok.unit
+       is always one of the 8 letters in DURATION_TOKEN_STRINGS (the same
+       source set this ternary checks against), so `null` can't be
+       produced by any token the tokenizer emits. Kept as a guard against
+       a future letter being added to one set without the other. */
+    const key: keyof DurationFields | null = (
+      unit === 'y' ? 'years'
+      : unit === 'o' ? 'months'
+      : unit === 'w' ? 'weeks'
+      : unit === 'd' ? 'days'
+      : unit === 'h' ? 'hours'
+      : unit === 'm' ? 'minutes'
+      : unit === 's' ? 'seconds'
+      : unit === 'S' ? 'milliseconds'
+      : null
+    );
+    if (key === null) {
+      throw new FormatSyntaxError({ format: formatStr, token: tok.value, reason: 'unknown duration token' });
+    }
+    /* c8 ignore stop @preserve */
+    // Numeric form: digits with an optional sign. Short/long form:
+    // digits, optional whitespace, and — when present — unit text that
+    // must be one of the known words. Because the alternation contains
+    // no digits and no unbounded wildcard, the pattern is unambiguous
+    // and matches in linear time.
+    if (form === 'numeric') {
+      regex += '(-?\\d+)';
+    } else {
+      regex += `(\\d+)\\s*(?:${unitAlternation})?`;
+    }
+    groupSpecs.push({ unit: key, form });
+    prevWasToken = true;
+  }
+  return { re: new RegExp(`^${regex}$`, 'u'), groupSpecs };
+}
 
 // Re-export roundDuration here so callers can import everything duration-
 // related from one place.
@@ -249,53 +346,40 @@ export function formatISODuration(duration: DurationFields): string {
 export function parseDuration(input: string, formatStr: string, options: { locale?: string } = {}): DurationFields {
   // Build a capturing regex from the format string. Each token
   // captures a number; literals are matched literally.
-  const tokens = tokenizeDurationFormat(formatStr);
-  const fields: DurationFields = {};
-  const groupSpecs: Array<{ unit: keyof DurationFields; form: 'numeric' | 'short' | 'long' }> = [];
-  let regex = '';
-  for (const tok of tokens) {
-    if (tok.kind === 'literal') {
-      regex += tok.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    } else {
-      const unit = tok.unit!;
-      const form = tok.value.length === 1 ? 'numeric' : tok.value.length === 2 ? 'short' : 'long';
-      // Map token letter to DurationFields key.
-      /* c8 ignore start @preserve -- the final `: null` branch, and the
-         `if (key === null)` throw it feeds, are both unreachable: tok.unit
-         is always one of the 8 letters in DURATION_TOKEN_STRINGS (the same
-         source set this ternary checks against), so `null` can't be
-         produced by any token the tokenizer emits. Kept as a guard against
-         a future letter being added to one set without the other. */
-      const key: keyof DurationFields | null = (
-        unit === 'y' ? 'years'
-        : unit === 'o' ? 'months'
-        : unit === 'w' ? 'weeks'
-        : unit === 'd' ? 'days'
-        : unit === 'h' ? 'hours'
-        : unit === 'm' ? 'minutes'
-        : unit === 's' ? 'seconds'
-        : unit === 'S' ? 'milliseconds'
-        : null
-      );
-      if (key === null) {
-        throw new FormatSyntaxError({ format: formatStr, token: tok.value, reason: 'unknown duration token' });
-      }
-      /* c8 ignore stop @preserve */
-      // Numeric form: capture digits (and optional sign).
-      // Short/long form: capture digits followed by optional unit text.
-      // We'll handle unit-text stripping after the match.
-      if (form === 'numeric') {
-        regex += '(-?\\d+)';
-      } else {
-        // Short form like "2y" or "2yrs"; long form like "2 years" or "2 year".
-        // Capture the number; unit text is matched but not captured.
-        regex += '(\\d+)\\s*\\w*';
-      }
-      groupSpecs.push({ unit: key, form });
-    }
+  if (typeof input !== 'string' || typeof formatStr !== 'string') {
+    throw new FormatSyntaxError({
+      input: String(input),
+      format: String(formatStr),
+      reason: 'parseDuration() expects (input: string, formatStr: string[, options])',
+    });
   }
-  const re = new RegExp(`^${regex}$`, 'u');
-  const m = re.exec(input);
+  // SECURITY BACKPORT (0.8.x): length caps matching parse()'s policy —
+  // format and input were previously unbounded.
+  if (formatStr.length > MAX_FORMAT_LENGTH) {
+    throw new FormatSyntaxError({
+      format: formatStr,
+      reason: `format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters (got ${formatStr.length})`,
+    });
+  }
+  if (input.length > MAX_INPUT_LENGTH) {
+    throw new FormatSyntaxError({
+      input,
+      format: formatStr,
+      reason: `input exceeds maximum length of ${MAX_INPUT_LENGTH} characters (got ${input.length})`,
+    });
+  }
+  let compiled = durationPatternCache.get(formatStr);
+  if (!compiled) {
+    compiled = compileDurationPattern(formatStr);
+    if (durationPatternCache.size >= MAX_DURATION_PATTERN_CACHE) {
+      const oldestKey = durationPatternCache.keys().next().value;
+      if (oldestKey !== undefined) durationPatternCache.delete(oldestKey);
+    }
+    durationPatternCache.set(formatStr, compiled);
+  }
+  const fields: DurationFields = {};
+  const groupSpecs = compiled.groupSpecs;
+  const m = compiled.re.exec(input);
   if (!m) {
     throw new FormatSyntaxError({ input, format: formatStr, reason: 'does not match duration format' });
   }

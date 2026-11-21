@@ -167,7 +167,20 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
 }
 
 // Take N occurrences from a recurrence iterator.
+// SECURITY BACKPORT (0.8.x): take(iter, 1e9) on an unbounded rule (no
+// count/until) used to spin until the process died with an uncatchable
+// heap-OOM abort — same failure mode skip() already guards against.
+const MAX_TAKE = 100_000;
 export function take(iter: RecurrenceIterator, n: number): unknown[] {
+  if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) {
+    throw new RangeError(`temporal-fmt: take() expects a non-negative safe integer count (got ${String(n)}).`);
+  }
+  if (n > MAX_TAKE) {
+    throw new RangeError(
+      `temporal-fmt: take() caps at ${MAX_TAKE} occurrences — take(iter, ${n}) on an unbounded rule ` +
+      `(no count/until) would never finish. Bound the rule with count/until, or use between() for a date range.`
+    );
+  }
   const result: unknown[] = [];
   for (let i = 0; i < n; i++) {
     const r = iter.next();
