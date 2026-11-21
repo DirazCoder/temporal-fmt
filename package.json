@@ -147,6 +147,7 @@
     "build:publish": "cross-env TSUP_MINIFY=true npm run build",
     "dev": "tsup --watch",
     "test": "node scripts/run-tests.mjs",
+    "test:conformance": "node --test conformance/temporal-fmt.test.js",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "test:browser": "playwright test --config=smoke-test/playwright.config.mjs",

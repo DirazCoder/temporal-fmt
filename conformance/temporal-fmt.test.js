@@ -2,13 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { format, parse, setTemporal } from '../../dist/index.js';
+import { format, parse, setTemporal } from '../dist/index.js';
 import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 setTemporal(Temporal);
 
-const FIXTURES_URL = new URL('../../conformance/fixtures.json', import.meta.url);
+const FIXTURES_URL = new URL('./fixtures.json', import.meta.url);
 const fixtures = JSON.parse(readFileSync(fileURLToPath(FIXTURES_URL), 'utf8'));
 
 // Everything in this set is a known, understood divergence from the

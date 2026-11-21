@@ -7,9 +7,12 @@ data, not code. Each case names an `op` (`format` / `parse` /
 `roundtrip`), an input, a pattern, and an expected result, so any
 library with a `format`/`parse` pair can be pointed at it.
 
-`test/conformance.test.js` is the temporal-fmt-specific adapter. It
+`temporal-fmt.test.js` is the temporal-fmt-specific adapter. It
 translates fixture patterns into temporal-fmt's actual tokens, runs
 the cases against `format()`/`parse()`, and checks the result.
+Run it separately with `npm run test:conformance`; it is intentionally
+not part of `npm test`'s classic `node:test` suite. `npm run test:all`
+runs it as a separate step.
 
 ## Why this is separate from `test/adversarial.test.js` and `test/fuzz.test.js`
 
@@ -63,7 +66,7 @@ contradiction throws. Intentional, and already covered by
 These are real behavior differences. The fixture doesn't call them
 out as design choices, and they weren't predicted going in — they
 turned up from actually running the adapter. Each one lives in
-`KNOWN_FAILURES` at the top of `test/conformance.test.js`, and the
+`KNOWN_FAILURES` at the top of `temporal-fmt.test.js`, and the
 harness asserts they *stay* failing, so a genuine fix removes them
 automatically instead of the test quietly starting to lie.
 

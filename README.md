@@ -940,7 +940,7 @@ The suites run 3,000+ test and smoke checks across `test/`, `vitest/`, and a con
 
 Both the classic Node `node:test` suite (`npm run test:coverage`, using c8 against `dist/`) and the full Vitest suite (`npx vitest run --coverage`, using V8 against `src/`) enforce 100% statement, branch, function, and line coverage.
 
-Run the suites independently with `npm test` (`test/`), `npm run test:unit` (`vitest/`), `npm run test:smoke` (`smoke-test/`), `npm run test:browser:unit` (the full Vitest suite in a browser), and `npm run test:browser` (Playwright against the built package). `npm run test:all` runs all of these checks, including the browser suites in Chromium, Firefox, and WebKit. Install the Playwright browsers first with `npx playwright install` (Linux also needs `npx playwright install-deps`). To run everything except browser tests, use `npm run test:all -- --no-browser`; CI uses this option because it runs the browser tests in a separate matrix.
+Run the suites independently with `npm test` (`test/`), `npm run test:conformance` (`conformance/`), `npm run test:unit` (`vitest/`), `npm run test:smoke` (`smoke-test/`), `npm run test:browser:unit` (the full Vitest suite in a browser), and `npm run test:browser` (Playwright against the built package). `npm run test:all` runs all of these checks, including conformance as a separate step and browser suites in Chromium, Firefox, and WebKit. Install the Playwright browsers first with `npx playwright install` (Linux also needs `npx playwright install-deps`). To run everything except browser tests, use `npm run test:all -- --no-browser`; CI uses this option because it runs the browser tests in a separate matrix.
 
 CI runs the Node and package tests on Node 20, 22, 24, and 26 across Ubuntu, Windows, and macOS. The full `vitest/` suite runs in each browser/platform combination using Chromium, Firefox (Gecko), or WebKit; a separate Playwright suite tests the built `dist/` package with the latest Playwright release. The non-browser CI job uses `npm run test:all -- --no-browser` to avoid duplicating the browser matrix. GitHub also runs CodeQL for GitHub Actions and JavaScript/TypeScript, along with repository dependency checks.
 
@@ -948,7 +948,7 @@ CI runs the Node and package tests on Node 20, 22, 24, and 26 across Ubuntu, Win
 
 `fixtures.json` is a portable test-vector set for token-based Temporal formatters, written against a different library's token vocabulary. Each case names an `op` (`format` / `parse` / `roundtrip`), an input, a pattern, and an expected result — any library with a `format`/`parse` pair can use it.
 
-`test/conformance.test.js` is the temporal-fmt adapter. It translates fixture patterns into temporal-fmt tokens, runs them against `format()`/`parse()`, and checks results.
+`conformance/temporal-fmt.test.js` is the temporal-fmt adapter. It translates fixture patterns into temporal-fmt tokens, runs them against `format()`/`parse()`, and checks results. Run it independently with `npm run test:conformance`; it is not included in `npm test`.
 
 ### Why this is separate from adversarial and fuzz tests
 

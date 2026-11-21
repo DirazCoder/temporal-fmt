@@ -29,6 +29,7 @@ function runNpm(npmArgs, env = {}) {
 const checks = [
   ['run', 'build'],
   ['run', 'test:coverage'],
+  ['run', 'test:conformance'],
   ['run', 'test:unit', '--', '--coverage'],
   ['run', 'test:types'],
   ['run', 'test:pack'],
