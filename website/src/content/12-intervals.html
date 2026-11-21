@@ -1,0 +1,13 @@
+<section id="intervals" data-group="Extras" data-title="Intervals and recurrence">
+<h2>Intervals and recurrence</h2>
+<pre><code>const iv = interval(start, end, 'closed');   // or open, half-open-start, half-open-end
+contains(iv, someDate);
+overlaps(ivA, ivB);
+formatRange(iv, 'MMM d');
+
+const rule = { freq: 'weekly', interval: 1, count: 10 };
+take(recurrence(startDate, rule), 5);
+between(startDate, rule, rangeStart, rangeEnd);</code></pre>
+<p>Intervals also have <code>intersection</code>, <code>union</code> (<code>null</code> when they can’t combine), <code>mergeIntervals</code> and <code>splitInterval</code>. Where names clash with the date functions, the main entry exports <code>intervalIsBefore</code>, <code>intervalDifference</code> and so on.</p>
+<p>Recurrence follows the RFC 5545 RRULE model: <code>freq</code> from secondly to yearly, <code>interval</code>, <code>count</code>, <code>until</code>, weekday and month-day constraints, exclusions. <code>parseRRule</code> and <code>formatRRule</code> read and write RRULE text, and the iterator has <code>next()</code> and <code>previous()</code>.</p>
+</section>

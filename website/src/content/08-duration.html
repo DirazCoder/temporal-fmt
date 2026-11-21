@@ -1,0 +1,16 @@
+<section id="duration" data-group="Extras" data-title="Durations">
+<h2>Durations</h2>
+<p><code>formatDuration(duration, formatStr, options?)</code> takes a <code>Temporal.Duration</code> or a plain field bag. Every unit has numeric, short and long forms, and the short and long ones are plural-aware.</p>
+<div class="tablewrap"><table>
+<tr><th>Unit</th><th>Numeric / short / long</th></tr>
+<tr><td>years</td><td><code>y</code> <code>yy</code> <code>yyy</code> → 2 / 2yr / 2 years</td></tr>
+<tr><td>months</td><td><code>o</code> <code>oo</code> <code>ooo</code></td></tr>
+<tr><td>weeks, days</td><td><code>w ww www</code>, <code>d dd ddd</code></td></tr>
+<tr><td>hours, minutes, seconds</td><td><code>h hh hhh</code>, <code>m mm mmm</code>, <code>s ss sss</code></td></tr>
+<tr><td>milliseconds</td><td><code>S SS SSS</code></td></tr>
+</table></div>
+<pre><code>formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm')                       // "2 hours 30 minutes"
+formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm', { locale: 'de-DE' })  // "2 Stunden 30 Minuten"</code></pre>
+<p>Zero-value units are omitted unless you pass <code>{ showZeroValues: true }</code>, and cleaning up leftover separators is on you. An explicit <code>locale: 'en-US'</code> isn’t the same as omitting it, because <code>Intl</code> spaces things differently (<code>"2 hr"</code> vs <code>"2h"</code>).</p>
+<p>Also: <code>formatDurationToParts</code>, <code>parseDuration</code>, <code>parseISODuration</code>, <code>formatISODuration</code>, <code>balanceDuration</code>, <code>totalDuration</code>, <code>compareDuration</code>, <code>addDuration</code>, <code>subtractDuration</code>, <code>roundDuration</code> (months and years need a <code>relativeTo</code>).</p>
+</section>

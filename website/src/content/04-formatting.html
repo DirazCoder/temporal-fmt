@@ -1,0 +1,12 @@
+<section id="formatting" data-group="Core" data-title="Formatting">
+<h2>Formatting</h2>
+<pre><code>format(date, 'MMMM d, yyyy');            // "August 4, 2026"
+format(dt, "MMM d, yyyy 'at' h:mm a");   // "Aug 4, 2026 at 3:45 PM"
+format(zdt, 'yyyy-MM-dd HH:mm zzz');     // "2026-08-04 15:45 America/New_York"</code></pre>
+<p>Wrap literal text in single quotes. For a literal single quote, write <code>''</code>. Using a token the value can’t support (<code>HH</code> on a <code>PlainDate</code>) throws a descriptive error instead of emitting <code>undefined</code>.</p>
+<ul>
+<li><code>format(temporal, formatStr, options?)</code> returns a string.</li>
+<li><code>formatToParts(...)</code> returns <code>{ type: 'literal' | 'token', value, token? }[]</code>, handy for styling individual pieces.</li>
+<li><code>compileFormat(formatStr)</code> pre-tokenizes once. Format strings are already LRU-cached (500 entries), so this mostly buys up-front validation: a bad string throws at compile time.</li>
+</ul>
+</section>

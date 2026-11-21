@@ -1,0 +1,26 @@
+<section id="tokens" data-group="Core" data-title="Tokens">
+<h2>Tokens</h2>
+<div class="tablewrap"><table>
+<tr><th>Token</th><th>Meaning</th><th>Example</th></tr>
+<tr><td><code>yyyy</code> <code>yy</code></td><td>Year (four-digit, two-digit)</td><td>2026 / 26</td></tr>
+<tr><td><code>MMMM</code> <code>MMM</code> <code>MM</code> <code>M</code></td><td>Month: long name, short name, padded, plain</td><td>August / Aug / 08 / 8</td></tr>
+<tr><td><code>dd</code> <code>d</code></td><td>Day of month</td><td>04 / 4</td></tr>
+<tr><td><code>do</code></td><td>Ordinal day, English only. Format-only</td><td>4th</td></tr>
+<tr><td><code>EEEE</code> <code>EEE</code></td><td>Weekday. Cross-checked on parse</td><td>Tuesday / Tue</td></tr>
+<tr><td><code>HH</code> <code>H</code> <code>hh</code> <code>h</code></td><td>Hour, 24-hour and 12-hour (12-hour needs <code>a</code> to parse)</td><td>15 / 03</td></tr>
+<tr><td><code>mm</code> <code>m</code> <code>ss</code> <code>s</code></td><td>Minute, second</td><td>45 / 30</td></tr>
+<tr><td><code>S</code>…<code>SSSSSSSSS</code></td><td>Fractional second, 1 to 9 digits</td><td>SSS → 000</td></tr>
+<tr><td><code>a</code></td><td>Day period, locale-aware</td><td>PM</td></tr>
+<tr><td><code>zzz</code></td><td>IANA zone ID or fixed offset</td><td>America/New_York</td></tr>
+<tr><td><code>zzzz</code> <code>z</code></td><td>Long and short zone name. Format-only</td><td>Eastern Standard Time / EST</td></tr>
+<tr><td><code>X</code> <code>XX</code> <code>XXX</code></td><td>UTC offset, <code>Z</code> for UTC</td><td>+05 / +0500 / +05:00</td></tr>
+<tr><td><code>x</code> <code>xx</code> <code>xxx</code></td><td>Same, never <code>Z</code></td><td>+00:00</td></tr>
+<tr><td><code>Q</code> <code>QQQ</code></td><td>Quarter. Cross-checked against month on parse</td><td>3 / Q3</td></tr>
+<tr><td><code>ww</code> <code>RRRR</code></td><td>ISO week number, ISO week-year. Format-only</td><td>32 / 2026</td></tr>
+<tr><td><code>D</code> <code>DD</code> <code>DDD</code></td><td>Day of year. Format-only</td><td>216</td></tr>
+<tr><td><code>LLLL</code> <code>LLL</code> <code>cccc</code> <code>ccc</code></td><td>Stand-alone month and weekday names (matter in Slavic locales)</td><td>August / Tue</td></tr>
+<tr><td><code>GGGG</code> <code>G</code></td><td>Era. Format-only</td><td>Anno Domini / AD</td></tr>
+</table></div>
+<p><code>RRRR</code> is the ISO week-numbering year, not the calendar year, and the two disagree around New Year: <code>2027-01-01</code> formats as <code>ww RRRR</code> → <code>"53 2026"</code>.</p>
+<p>Every token’s metadata (round-trip safety, locale and timezone sensitivity, supported types) is available through <code>tokenInfo(name)</code> or <code>TOKEN_METADATA</code>. <code>yy</code> isn’t round-trip safe because the century gets re-derived.</p>
+</section>

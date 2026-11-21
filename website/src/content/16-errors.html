@@ -1,0 +1,24 @@
+<section id="errors" data-group="Reference" data-title="Errors">
+<h2>Errors and type guards</h2>
+<p>Errors are <code>TemporalFmtError</code> subclasses carrying <code>code</code>, <code>input</code>, <code>format</code>, <code>token</code>, <code>position</code>, <code>expected</code>, <code>actual</code> and <code>reason</code>.</p>
+<div class="tablewrap"><table>
+<tr><th>Class</th><th>Fires when</th></tr>
+<tr><td><code>FormatSyntaxError</code></td><td>Unterminated quote, over-long format string</td></tr>
+<tr><td><code>UnknownTokenError</code></td><td>Unrecognized letter run</td></tr>
+<tr><td><code>ParseMismatchError</code></td><td>Input doesn’t match the format’s shape</td></tr>
+<tr><td><code>InvalidDateError</code> / <code>InvalidTimeError</code></td><td>Feb 30, hour 25, or a weekday or quarter that contradicts the date</td></tr>
+<tr><td><code>InvalidOffsetError</code> / <code>InvalidTimeZoneError</code></td><td>Bad offset (outside -12:00 to +14:00) or unknown zone</td></tr>
+<tr><td><code>InvalidCalendarError</code> / <code>InvalidLocaleError</code></td><td>Unsupported calendar, bad BCP-47 tag or numbering system</td></tr>
+<tr><td><code>AmbiguousInputError</code></td><td>More than one valid reading</td></tr>
+<tr><td><code>InvalidDurationError</code></td><td>Not ISO 8601 grammar, or a non-finite field</td></tr>
+</table></div>
+<h3>Messages you’ll probably hit</h3>
+<ul>
+<li><strong>“no valid pattern matches the format string and input shape”</strong>: usually a missing separator, a wrong digit count, or <code>zzz</code> grabbing something that isn’t a zone ID.</li>
+<li><strong>“token X requires Y, which this Temporal object doesn’t have”</strong>: like <code>HH</code> on a <code>PlainDate</code>.</li>
+<li><strong>“incomplete date”</strong>: year, month and day must all be present together.</li>
+<li><strong>“X is ambiguous”</strong>: add a separator, zero-pad, or use <code>{ lenient: true }</code>.</li>
+<li><strong>“falls in a DST gap”</strong>: pick another time, or pass a <code>disambiguation</code> to <code>resolveZoned</code>.</li>
+</ul>
+<p>Type guards (<code>isPlainDate</code>, <code>isZonedDateTime</code>, …) and matching <code>assert*</code> functions cover every Temporal type and narrow what <code>parse()</code> returns. If you still depend on plain-<code>Error</code> identity, <code>temporal-fmt/legacy</code> is a deprecated compatibility layer with no removal date. Don’t use it in new code.</p>
+</section>

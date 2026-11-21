@@ -1,0 +1,15 @@
+<section id="arithmetic" data-group="Extras" data-title="Arithmetic and comparison">
+<h2>Arithmetic, comparison and rounding</h2>
+<pre><code>add(date, 3, 'days');        // or addDays(date, 3)
+difference(a, b, 'hours');   // integer unit boundaries crossed
+compare(a, b);               // -1 / 0 / 1
+startOf(date, 'month');
+getQuarter({ month: 8 }, { startMonth: 10 });   // 4, Apple's fiscal year</code></pre>
+<ul>
+<li><strong>Arithmetic:</strong> <code>add</code>, <code>subtract</code>, <code>difference</code>, plus per-unit wrappers like <code>addMonths</code> and <code>differenceInDays</code>.</li>
+<li><strong>Comparison:</strong> <code>isEqual</code>, <code>isBefore</code>, <code>isAfter</code>, <code>min</code>, <code>max</code>, <code>clamp</code>, <code>isBetween</code>, <code>isToday</code>, <code>isSameDay</code>, <code>isSameWeek</code>, <code>isWeekend</code> and friends.</li>
+<li><strong>Rounding:</strong> <code>round</code>, <code>floor</code>, <code>ceil</code>, <code>truncate</code>.</li>
+<li><strong>Calendar:</strong> <code>daysInMonth</code>, <code>isLeapYear</code>, <code>dayOfYear</code>, <code>weekOfYear</code>, <code>startOf</code>, <code>endOf</code>, <code>getQuarter</code>.</li>
+</ul>
+<div class="note"><strong>Gregorian only.</strong> <code>daysInMonth</code>, <code>daysInYear</code>, <code>isLeapYear</code>, <code>monthsInYear</code>, <code>dayOfYear</code>, <code>weekOfYear</code> and <code>weekYear</code> use Gregorian rules and are wrong on other calendars. For those, read the Temporal object’s own properties (<code>pd.daysInMonth</code>).</div>
+</section>

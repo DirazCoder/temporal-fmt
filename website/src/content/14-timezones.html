@@ -1,0 +1,10 @@
+<section id="timezones" data-group="Extras" data-title="Time zones">
+<h2>Time zones</h2>
+<pre><code>resolveZoned(
+  { year: 2026, month: 3, day: 8, hour: 2, minute: 30 },
+  'America/New_York',
+  { disambiguation: 'compatible' }   // or earlier, later, reject
+);</code></pre>
+<p><code>resolveZoned</code> makes you pick what happens in a DST gap or overlap. <code>possibleInstantsFor</code> returns none for a gap, two for an overlap, one otherwise. Also: <code>getTimeZone</code>, <code>getOffset</code>, <code>getNextTransition</code>, <code>getPreviousTransition</code> and <code>getTransitions(start, end)</code>.</p>
+<div class="note"><code>isDST</code> compares the current offset to January’s. That’s right in the Northern Hemisphere and can read backwards in the Southern one, where January is summer.</div>
+</section>

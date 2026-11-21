@@ -1,0 +1,24 @@
+<section id="parsing" data-group="Core" data-title="Parsing">
+<h2>Parsing</h2>
+<p><code>parse()</code> returns a <code>PlainDate</code>, <code>PlainTime</code>, <code>PlainDateTime</code> or <code>ZonedDateTime</code>, depending on which tokens are in the format. In TypeScript you’ll narrow the result with a type guard.</p>
+<pre><code>parse('yyyy-MM', '2026-08-04T15:45:30');          // throws: shape mismatch
+parse('yyyy-MM-dd', '2026-02-30');                // throws: not a real date
+parse('EEEE, yyyy-MM-dd', 'Monday, 2026-08-04');  // throws: it's a Tuesday</code></pre>
+<p>Other entry points: <code>safeParse</code> (returns <code>{ ok, value | error }</code>), <code>tryParse</code> (value or <code>undefined</code>), <code>parseToParts</code> (matched groups with positions) and <code>compileParser</code> (precompiled, for repeated use).</p>
+<h3>Rules worth knowing</h3>
+<ul>
+<li><code>yy</code> follows POSIX strptime: 00–68 is 2000–2068, 69–99 is 1900–1999.</li>
+<li><code>hh</code>/<code>h</code> without <code>a</code> throws, and so does mixing <code>HH</code> with <code>hh</code>.</li>
+<li><code>HH</code> with <code>a</code> is allowed and cross-checked: <code>'13:05 PM'</code> passes, <code>'01:05 PM'</code> throws.</li>
+<li><code>a</code> is case-insensitive. Month and weekday names are case-sensitive.</li>
+<li><code>S</code> to <code>SSSSSSSSS</code> go up to nanoseconds. Parse right-pads short input.</li>
+<li><code>MMMM</code>/<code>MMM</code> assume a 12-month calendar.</li>
+</ul>
+<h3>Ambiguity and lenient mode</h3>
+<p>When a glued numeric run has more than one valid split, parse throws. Zero-pad (<code>MM</code>/<code>dd</code>) or add a separator, or opt in:</p>
+<pre><code>parse('yyyy-Md', '2026-121')                              // throws: ambiguous
+parse('yyyy-Md', '2026-121', { lenient: true })           // 2026-12-01</code></pre>
+<p>The lenient heuristic prefers the split where day ≤ 12, then falls back to the first valid split.</p>
+<h3>Offsets</h3>
+<p>Uppercase <code>X</code>/<code>XX</code>/<code>XXX</code> collapse <code>+00:00</code> to <code>Z</code>. Lowercase never emits <code>Z</code>. On parse, an offset needs a full date and time <em>and</em> a <code>zzz</code>, because an offset is a UTC distance, not a time zone. If both are present they’re cross-checked and a mismatch throws. Range is -12:00 to +14:00, and sub-minute offsets only pass through <code>xxx</code>.</p>
+</section>

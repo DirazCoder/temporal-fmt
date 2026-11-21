@@ -1,22 +1,30 @@
-.logo { display: inline-flex; align-items: center; gap: .6rem; font: 600 .95rem var(--mono); text-decoration: none; letter-spacing: -.01em; }
-
-.btn { display: inline-block; padding: .6rem 1.1rem; border-radius: 999px; font: 500 .9rem var(--sans); text-decoration: none; border: 1px solid var(--fg); transition: background .15s, color .15s, border-color .15s; }
-.btn--solid { background: var(--fg); color: var(--bg); }
-.btn--solid:hover { background: transparent; color: var(--fg); }
-.btn--ghost { border-color: var(--line); }
-.btn--ghost:hover { border-color: var(--fg); }
-
-.badge { display: inline-block; padding: .15rem .6rem; border: 1px solid var(--line); border-radius: 999px; font: .75rem var(--mono); color: var(--muted); }
-
-.eyebrow { font: .72rem var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
-
-.code { margin: 0; padding: 1rem 1.1rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); font: .84rem/1.65 var(--mono); overflow-x: auto; }
-.code code { font: inherit; }
-.tk-c { color: var(--muted); }
-.tk-s { color: var(--cold); }
-.tk-k { color: var(--warm); }
-
-.copy { appearance: none; background: none; border: 1px solid var(--line); border-radius: 6px; padding: .15rem .55rem; color: var(--muted); font: .72rem var(--mono); cursor: pointer; transition: color .15s, border-color .15s; }
-.copy:hover { color: var(--fg); border-color: var(--fg); }
-.copy[data-done] { color: var(--cold); border-color: var(--cold); }
-:focus-visible { outline: 2px solid var(--cold); outline-offset: 2px; }
+code,pre{font-family:var(--mono);font-size:.875em}
+code{background:var(--surface);border:1px solid var(--line);border-radius:5px;padding:.1em .35em}
+.lede{font-size:1.1rem;color:var(--muted);margin:0 0 1.2rem}
+.badges{display:flex;flex-wrap:wrap;gap:.5rem;margin:1.2rem 0 0;padding:0;list-style:none}
+.badges li{font-size:.8rem;border:1px solid var(--line);border-radius:99px;padding:.15rem .7rem;color:var(--muted)}
+pre{position:relative;margin:.9rem 0;padding:1rem;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow-x:auto;line-height:1.55}
+pre code{background:none;border:0;padding:0;font-size:inherit}
+.copy{position:absolute;top:.5rem;right:.5rem;font:.72rem var(--sans);background:var(--bg);color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:.15rem .5rem;cursor:pointer}
+.copy:hover{color:var(--fg)}
+.install{display:flex;align-items:center;gap:.6rem;padding:.7rem 1rem;background:var(--surface);border:1px solid var(--line);border-radius:10px;font-family:var(--mono);width:fit-content;max-width:100%}
+.install span{color:var(--warm)}
+.install code{background:none;border:0;padding:0}
+.note{border-left:3px solid var(--warm);background:var(--surface);padding:.6rem 1rem;border-radius:0 8px 8px 0;margin:1rem 0}
+.tablewrap{overflow-x:auto;margin:.9rem 0}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{text-align:left;padding:.45rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.live{display:none;margin:1.1rem 0 0;padding:.9rem 1.1rem;border:1px solid var(--line);border-radius:10px;background:var(--surface);gap:.4rem 2rem;flex-wrap:wrap}
+.live.on{display:flex}
+.live div{min-width:6.5rem}
+.live dt{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.live dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums}
+.tag{font-size:.7rem;font-weight:600;color:var(--warm);border:1px solid var(--warm);border-radius:99px;padding:0 .45rem;margin-left:.4rem}
+.rel td:last-child{color:var(--muted);text-align:right;white-space:nowrap}
+.empty{display:none;color:var(--muted);padding:3rem 0;text-align:center}
+.theme{position:fixed;top:calc(.9rem + env(safe-area-inset-top,0px));right:1rem;z-index:20;display:grid;place-items:center;width:2.4rem;height:2.4rem;padding:0;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:10px;cursor:pointer}
+.theme:hover,.theme:focus-visible{border-color:var(--cold)}
+.theme svg{width:1.15rem;height:1.15rem}
+.theme::after{content:attr(data-tip);position:absolute;top:calc(100% + .5rem);right:0;width:max-content;max-width:min(15rem,70vw);padding:.5rem .7rem;font:.8rem/1.4 var(--sans);text-align:left;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:8px;opacity:0;pointer-events:none;transition:opacity .15s}
+.theme:hover::after,.theme:focus-visible::after{opacity:1}

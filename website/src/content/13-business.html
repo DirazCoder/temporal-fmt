@@ -1,0 +1,13 @@
+<section id="business" data-group="Extras" data-title="Business calendars">
+<h2>Business calendars and holidays</h2>
+<p>These are two separate things. A business calendar covers weekends, working hours and half days. A holiday calendar is a set of specific dates. Compose them by passing the holidays into the business calendar’s options.</p>
+<pre><code>const holidays = createHolidayCalendar([
+  { month: 1, day: 1, name: "New Year's Day" },
+  { compute: (year) => ({ month: 5, day: lastMondayOf(year, 5) }), name: 'Memorial Day' },
+]);
+
+const cal = createBusinessCalendar({ /* weekend days, holidays, hours, half days */ });
+addBusinessDays(cal, someDate, 5);</code></pre>
+<p>Business: <code>isBusinessDay</code>, <code>addBusinessDays</code>, <code>subtractBusinessDays</code>, <code>differenceInBusinessDays</code>, <code>nextBusinessDay</code>, <code>previousBusinessDay</code>. Holidays: <code>isHoliday</code>, <code>holidaysBetween</code>, <code>nextHoliday</code>, <code>previousHoliday</code> (capped at five years each way).</p>
+<p>Country holiday datasets are out of scope. <code>createHolidayCalendar</code> is the abstraction, and filling it is your job.</p>
+</section>

@@ -14,7 +14,7 @@ try {
 } catch {}
 
 // Order matters: tokens first, then components, sections, layout.
-const css = ['styles/tokens.css', 'components/ui.css', 'components/cards.css', 'sections/sections.css', 'layout/layout.css']
+const css = ['styles/tokens.css', 'components/ui.css', 'sections/sections.css', 'layout/layout.css']
   .map((f) => readFileSync(join(here, 'src', f), 'utf8'))
   .join('\n');
 

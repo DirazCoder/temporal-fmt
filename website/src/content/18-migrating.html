@@ -1,0 +1,25 @@
+<section id="migrating" data-group="Reference" data-title="Migrating from Day.js or date-fns">
+<h2>Migrating from Day.js or date-fns</h2>
+<div class="tablewrap"><table>
+<tr><th>Day.js / date-fns</th><th>temporal-fmt</th></tr>
+<tr><td><code>YYYY</code> <code>YY</code></td><td><code>yyyy</code> <code>yy</code></td></tr>
+<tr><td><code>DD</code> <code>D</code></td><td><code>dd</code> <code>d</code></td></tr>
+<tr><td><code>dddd</code> <code>ddd</code></td><td><code>EEEE</code> <code>EEE</code></td></tr>
+<tr><td><code>A</code> <code>a</code></td><td><code>a</code></td></tr>
+<tr><td><code>Z</code> <code>ZZ</code></td><td><code>XXX</code> <code>XX</code></td></tr>
+<tr><td><code>X</code> <code>x</code> (unix)</td><td>not supported, use <code>fromUnixSeconds</code> / <code>fromUnixMilliseconds</code></td></tr>
+<tr><td><code>P</code> (localized)</td><td>not supported, write the format out</td></tr>
+</table></div>
+<p><code>MMMM MMM MM M</code>, <code>HH H mm m ss s</code> and all the <code>add</code>, <code>isBefore</code>, <code>isToday</code> style functions keep their names.</p>
+<h3>What will bite you</h3>
+<ul>
+<li><strong>Parsing is strict.</strong> Day.js silently picks one reading of ambiguous input. This throws.</li>
+<li><strong>Cross-field validation.</strong> A wrong weekday label throws.</li>
+<li><strong>No “now” fallback.</strong> Missing input doesn’t become the current time.</li>
+<li><strong>Types matter.</strong> <code>format(plainDate, 'HH:mm')</code> throws. Day.js would quietly use 0.</li>
+<li><strong>It’s Temporal-native, not <code>Date</code>-native.</strong> Convert at the boundary.</li>
+<li><strong>Locales are per call</strong> (BCP-47 strings), not global like <code>dayjs.locale('fr')</code>.</li>
+<li><strong>Audit anything leaning on Day.js’s <code>customParseFormat</code></strong>, since that plugin parses leniently.</li>
+</ul>
+<p>You can migrate file by file by wrapping both libraries behind one function and dropping the wrapper once nothing uses the old path.</p>
+</section>

@@ -1,6 +1,6 @@
 # website
 
-The temporal-fmt landing page. Plain HTML and CSS, no framework, no dependencies.
+The temporal-fmt docs site: sidebar, search, and live npm stats. Plain HTML, CSS and JS, no framework, no dependencies.
 
     cd website
     npm run build     # writes public/
@@ -10,14 +10,15 @@ The temporal-fmt landing page. Plain HTML and CSS, no framework, no dependencies
 
     src/
       styles/       colours, fonts, spacing (tokens.css)
-      components/   small reusable bits: buttons, code blocks, cards
-      sections/     the page sections: header, hero, examples, features...
-      layout/       the HTML shell every page shares
-      pages/        home.js, which puts the sections together
-      script.js     the copy button, the only client-side JS
+      components/   small reusable bits: logo, buttons, code blocks, tables
+      content/      the docs themselves, one HTML file per section (edit these)
+      sections/     sections.js, which reads content/ in filename order
+      layout/       the HTML shell: head, sidebar, main column
+      pages/        home.js, which puts the shell and sections together
+      script.js     sidebar nav, search, copy buttons, live npm stats
     build.js        turns src/ into public/
 
-Each folder only imports from the ones listed above it. To add a page, make a new file in `src/pages/` and call it from `build.js`.
+Each folder only imports from the ones listed above it. To add a docs section, drop a new file in `src/content/` (`NN-name.html`, a `<section>` with `id`, `data-group` and `data-title`); the sidebar and search pick it up on their own. The live stats call the npm registry from the browser, so they only work on a real host, not in sandboxed previews.
 
 ## Deploying
 

@@ -1,0 +1,12 @@
+<section id="start" data-group="Start" data-title="Quick start">
+<h2>Quick start</h2>
+<pre><code>import { format } from 'temporal-fmt/format';
+import { parse } from 'temporal-fmt/parse';
+
+const date = Temporal.PlainDate.from('2026-08-04');
+format(date, 'yyyy-MM-dd');                      // "2026-08-04"
+
+parse('yyyy-MM-dd HH:mm', '2026-08-04 15:45');   // Temporal.PlainDateTime</code></pre>
+<p><code>format(temporal, formatStr)</code> in, <code>parse(formatStr, input)</code> out. Same shape as date-fns or Day.js.</p>
+<p>Import from the subpaths, not the bare package. The package is big on npm (locales, recurrence, calendars, an analyzer), but a bundler only ships what you call. Measured with esbuild, <code>format</code> alone is about 27KB via the subpath and about 68KB from the bare entry.</p>
+</section>

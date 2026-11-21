@@ -1,0 +1,9 @@
+<section id="relative" data-group="Extras" data-title="Relative time">
+<h2>Relative time</h2>
+<pre><code>formatDistance(today, yesterday)                         // "yesterday"
+formatDistance(today, yesterday, { numeric: 'always' })  // "1 day ago"
+formatDistance(today, today.add({ days: 2 }), { locale: 'fr-FR' })  // "dans 2 jours"
+formatDistanceToNow(threeHoursAgo)                       // "3 hours ago"</code></pre>
+<p>The direction is <code>date1 - date2</code>, so positive means “in X” and negative means “X ago”. Units switch at 60 seconds, 60 minutes, 24 hours, 30 days and 365 days. Override any of them with <code>{ cutoffs }</code>. The months cutoff is in days because a month has no fixed length, and non-monotonic or non-positive values throw. It accepts <code>PlainDate</code>, <code>PlainDateTime</code> and <code>ZonedDateTime</code>, and throws on <code>PlainTime</code>.</p>
+<p><code>formatRelative</code> and <code>formatRelativeToNow</code> give calendar labels (“yesterday”, “last week”) instead of counts.</p>
+</section>

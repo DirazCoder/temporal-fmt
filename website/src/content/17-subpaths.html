@@ -1,0 +1,15 @@
+<section id="subpaths" data-group="Reference" data-title="Subpath imports">
+<h2>Subpath imports</h2>
+<pre><code>import { format } from 'temporal-fmt/format';
+import { parse } from 'temporal-fmt/parse';
+import { formatDuration } from 'temporal-fmt/duration';
+import { formatRelative } from 'temporal-fmt/relative';
+import { interval } from 'temporal-fmt/interval';
+import { daysInMonth } from 'temporal-fmt/calendar';
+import { resolveZoned } from 'temporal-fmt/timezone';
+import { recurrence } from 'temporal-fmt/recurrence';
+import { registerLocale } from 'temporal-fmt/locale';</code></pre>
+<p>Arithmetic, comparison, rounding, business calendars, holidays, serialization, config, type guards, errors and the analyzer only come from the main <code>temporal-fmt</code> entry for now. <code>sideEffects: false</code> is set, so tree-shaking works.</p>
+<h3>Tooling extras</h3>
+<p><code>analyzeFormat</code>, <code>explainFormat</code>, <code>validateFormat</code> and <code>tokenInfo</code> inspect a format string before you use it. <code>createConfig</code> bundles defaults (locale, zone, rounding and so on). <code>createFormatter</code> adds custom tokens. <code>getAutocompleteData</code>, <code>getHoverDocs</code> and <code>getInlineDiagnostics</code> exist for editor tooling.</p>
+</section>

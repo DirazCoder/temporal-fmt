@@ -1,0 +1,15 @@
+<section id="locales" data-group="Core" data-title="Locales">
+<h2>Locales</h2>
+<p>Pass a BCP 47 tag as <code>options.locale</code>. The default is <code>'en-US'</code>.</p>
+<pre><code>format(date, 'MMMM d, yyyy', { locale: 'fr-FR' });   // "août 4, 2026"
+format(dt, 'h:mm a', { locale: 'ja-JP' });            // "3:45 午後"</code></pre>
+<p>Named tokens (<code>MMMM</code>, <code>MMM</code>, <code>EEEE</code>, <code>EEE</code>, <code>a</code>) go through <code>Intl.DateTimeFormat</code>, so non-Gregorian calendars work when the value already carries one: <code>date.withCalendar('hebrew')</code> formats as <code>"Av 21, 5786"</code>. Numeric tokens read fields directly and never touch <code>Intl</code>.</p>
+<h3>Digits</h3>
+<p>Numeric output is Western digits by default, whatever the locale. Opt in per call:</p>
+<pre><code>format(date, 'yyyy-MM-dd', { numberingSystem: 'arab' });   // "٢٠٢٦-٠٨-٠٤"
+format(date, 'yyyy-MM-dd', { numberingSystem: 'auto', locale: 'bn-BD' });
+parse('yyyy-MM-dd', '٢٠٢٦-٠٨-٠٤', { parseNumberingSystem: 'arab' });</code></pre>
+<p>The two options are separate on purpose: you may want localized digits out without expecting them back in. <code>'auto'</code> uses the locale’s own system and falls back to <code>'latn'</code> if it isn’t supported. Helpers: <code>convertDigits</code>, <code>convertDigitsToAscii</code>.</p>
+<h3>Custom vocabulary</h3>
+<p><code>Intl</code> misses some cases, a 13-month Hebrew leap year being the usual one. <code>registerLocaleVocab(locale, vocab)</code> takes months, weekdays and day periods. <code>registerLocale(locale, vocab)</code> also takes quarters, eras, ordinals, duration units and relative-time wording. Validation is strict (wrong lengths, empty strings, duplicates, identical AM/PM all throw at registration), and registering clears that locale’s cache. <code>getLocale</code> and <code>hasLocale</code> read it back.</p>
+</section>

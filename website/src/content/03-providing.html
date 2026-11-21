@@ -1,0 +1,13 @@
+<section id="providing" data-group="Start" data-title="Providing Temporal">
+<h2>Providing Temporal</h2>
+<p><strong>Node 26+:</strong> it’s native and picked up automatically.</p>
+<p><strong>Polyfill:</strong></p>
+<pre><code>import 'temporal-polyfill/global'
+import { format } from 'temporal-fmt/format';</code></pre>
+<p><strong>Bring your own.</strong> Call <code>setTemporal()</code> once, before your first <code>format()</code> or <code>parse()</code>. It wins over a native or global <code>Temporal</code>, and calling it with no argument clears the override. Handy for libraries that don’t want to touch the global namespace.</p>
+<pre><code>import { Temporal } from 'temporal-polyfill/full';
+import { setTemporal } from 'temporal-fmt';
+
+setTemporal(Temporal);</code></pre>
+<p>Only functions that build a value from scratch need this: <code>parse()</code>, <code>parseISO()</code>, <code>resolveZoned()</code> and a few others. Functions that just read fields off an existing value (<code>format()</code>, <code>compare()</code>, <code>add()</code>) never touch the namespace.</p>
+</section>

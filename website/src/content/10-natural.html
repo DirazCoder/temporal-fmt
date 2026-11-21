@@ -1,0 +1,17 @@
+<section id="natural" data-group="Extras" data-title="Natural-language dates">
+<h2>Natural-language dates</h2>
+<p><code>parseRelative(input, referenceDate, options?)</code> turns phrases into a <code>PlainDate</code>. English by default, plus <code>es</code>, <code>fr</code> and <code>de</code>.</p>
+<pre><code>const today = Temporal.PlainDate.from('2026-08-04');   // a Tuesday
+parseRelative('next Tuesday', today)    // 2026-08-11
+parseRelative('last Friday', today)     // 2026-07-31
+parseRelative('in 3 days', today)       // 2026-08-07
+parseRelative('March 5th', today)       // 2027-03-05
+parseRelative('mañana', today, { locale: 'es-ES' })   // 2026-08-05</code></pre>
+<p>It handles weekday references, today/tomorrow/yesterday, “in 3 days” and “2 weeks ago”, and month-day with no year. The calls it makes on ambiguous input:</p>
+<ul>
+<li>“next Tuesday” on a Tuesday is 7 days out. Use “this Tuesday” for the same week.</li>
+<li>“March 5th” with no year means the next occurrence, so a past date rolls to next year.</li>
+<li>A bare “5 days” with no “in” or “ago” throws, same strict contract as <code>parse()</code>.</li>
+</ul>
+<p>Diacritics are stripped before matching, so <code>miercoles</code> works. <code>{ fuzzy: true }</code> fixes typos like <code>tommorow</code> using edit distance 2. It’s English-only, and pairing it with another locale throws instead of silently skipping the correction. Numbers are never corrected. Add your own language with <code>registerRelativeGrammar</code>.</p>
+</section>

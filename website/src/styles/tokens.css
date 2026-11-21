@@ -1,44 +1,9 @@
-/* Design tokens. Everything else reads from here, nothing hardcodes a colour. */
-:root {
-  --bg: #fbfbfa;
-  --surface: #f3f3f1;
-  --fg: #14161a;
-  --muted: #666c74;
-  --line: #e4e4df;
-  --cold: #0e7490;
-  --warm: #c2410c;
-
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-  --sans: ui-sans-serif, -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
-
-  --radius: 10px;
-  --width: 960px;
-  --gap: clamp(1rem, 3vw, 1.5rem);
-  color-scheme: light dark;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0b0d10;
-    --surface: #11141a;
-    --fg: #ecedee;
-    --muted: #8a9099;
-    --line: #1e232b;
-    --cold: #67e8f9;
-    --warm: #fb923c;
-  }
-}
-
-*, *::before, *::after { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--fg);
-  font: 16px/1.6 var(--sans);
-  -webkit-font-smoothing: antialiased;
-}
-h1, h2, h3, p, ul, pre { margin: 0; }
-ul { padding: 0; list-style: none; }
-a { color: inherit; }
-::selection { background: color-mix(in srgb, var(--cold) 30%, transparent); }
+/* Design tokens and the page reset. Everything else reads from here. */
+:root{--bg:#fbfbfa;--surface:#f3f3f1;--fg:#14161a;--muted:#666c74;--line:#e4e4df;--cold:#0e7490;--warm:#c2410c;--mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;--sans:ui-sans-serif,-apple-system,"Segoe UI",Inter,system-ui,sans-serif;color-scheme:light dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b0d10;--surface:#11141a;--fg:#ecedee;--muted:#8a9099;--line:#1e232b;--cold:#67e8f9;--warm:#fb923c}}
+:root[data-theme="light"]{color-scheme:light}
+:root[data-theme="dark"]{--bg:#0b0d10;--surface:#11141a;--fg:#ecedee;--muted:#8a9099;--line:#1e232b;--cold:#67e8f9;--warm:#fb923c;color-scheme:dark}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:calc(1.5rem + env(safe-area-inset-top,0px))}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.65 var(--sans);-webkit-font-smoothing:antialiased}
+a{color:var(--cold)}
