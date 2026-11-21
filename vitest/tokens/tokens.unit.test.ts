@@ -184,6 +184,11 @@ describe('pre-1582 cutover guard (isBeforeGregorianCutover)', () => {
 });
 
 describe('intlPart input arms', () => {
+  it('extracts the era from a PlainDateTime on the polyfill path', () => {
+    const dateTime = Temporal.PlainDateTime.from('2020-02-29T16:05:09');
+    expect(format(dateTime, 'G')).toBe('AD');
+  });
+
   it('formats a PlainYearMonth by rendering its toPlainDate({ day: 1 })', () => {
     // year but no day + iso8601 calendar + toPlainDate → convert to the
     // first of the month, which Intl accepts with the forced gregory

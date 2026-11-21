@@ -117,6 +117,9 @@ export interface TemporalLike {
   calendarId?: string;
   toInstant?: () => unknown;
   toPlainDate?: (fields: { day: number }) => TemporalLike;
+  toZonedDateTime?: (timeZone: string) => {
+    toInstant: () => { epochMilliseconds: number };
+  };
   toLocaleString?: (locale: string, options: Intl.DateTimeFormatOptions) => string;
 }
 
@@ -381,26 +384,9 @@ function intlPart(
     return preCutoverGregorianName(temporal, locale, formatterOptions, partType);
   }
 
-  // Temporal.prototype.toLocaleString() can't isolate a single field any
-  // more reliably than Date#toLocaleString can (see dayPeriodPart above):
-  // asking a PlainDateTime or ZonedDateTime for just `timeZoneName` or
-  // just `era` doesn't trim the output down to that field — it falls back
-  // to ICU's default date+time resolution and hands back the whole
-  // formatted string with the requested field tacked on (e.g. a lone
-  // `{ timeZoneName: 'short' }` on a ZonedDateTime returns
-  // "11/20/2026, 2:32:16 PM CST", not "CST"). PlainDate happens to look
-  // fine for month/era-only requests only because it has no time fields
-  // for ICU to default in — that's a coincidence of which type is being
-  // formatted, not evidence the single-field contract actually holds.
-  // So every path below goes through formatToParts() and the same
-  // part-extraction logic, on a real (global) Intl.DateTimeFormat, rather
-  // than trusting any toLocaleString() call to isolate partType — the
-  // native-Temporal branch already worked this way, and the polyfill
-  // branch needs the same treatment instead of calling ls.call() directly.
-  //
   // formatToParts() throws on ZonedDateTime directly (per spec, and
-  // true of polyfilled ZonedDateTime too), so convert to Instant and pass
-  // the zone via `timeZone` instead. Don't convert to PlainDateTime —
+  // true of polyfilled ZonedDateTime too), so convert it to an Instant and
+  // pass the zone via `timeZone` instead. Don't convert to PlainDateTime —
   // that drops the zone, which breaks 'MMMM' + 'zzz' combos.
   const { toInstant, timeZoneId } = temporal;
   const isZoned = typeof toInstant === 'function' && typeof timeZoneId === 'string';
@@ -417,19 +403,12 @@ function intlPart(
   // Everything from here to the end of this function depends on whether
   // Intl.DateTimeFormat.formatToParts() recognizes the Temporal instance
   // (or its derived Instant) directly. That's real, observed to vary
-  // across Node versions: absent on the Node 22/24 builds this suite has
-  // been run against, present on at least one Node 26 build. On a build
-  // without native recognition, formatToParts() needs a Date or an
-  // epoch-millisecond number instead — epochMilliseconds is part of the
-  // Temporal spec itself (so it's available whether Temporal is native or
-  // polyfilled) and carries the same instant a PlainDate/PlainDateTime's
-  // own fields already resolve to once isZoned is false... except a plain
-  // (non-zoned) PlainDate/PlainDateTime has no epochMilliseconds of its
-  // own (it's wall-clock, not an instant) and *does* need to go through
-  // formatToParts() as the Temporal object itself on a native build, or
-  // through toLocaleString() as a last resort on a polyfilled one where
-  // formatToParts() won't recognize it and there's no instant to convert
-  // to. normalizeLocaleTag: the active Temporal implementation's
+  // across Node versions: absent on Node 22/24 builds, present on at least
+  // one Node 26 build. Polyfilled PlainDate/PlainDateTime values have no
+  // instant of their own, so project their wall-clock fields into UTC
+  // before extracting a part; toLocaleString() can append default
+  // date/time fields when asked for only an era. normalizeLocaleTag: the
+  // active Temporal implementation's
   // toLocaleString forwards the locale to Intl.DateTimeFormat, which
   // (unlike this library's cache keys) rejects underscore-separated tags
   // like 'en_US' outright.
@@ -459,23 +438,22 @@ function intlPart(
     parts = formatter.formatToParts(temporal as unknown as Date);
   /* c8 ignore stop */
   } else {
-    // Plain types on a polyfilled engine (Node 22/24): formatToParts()
-    // won't recognise the polyfill instance. Fall back to the object's
-    // own toLocaleString(), which every spec-compliant implementation
-    // provides. This can't isolate a single field for PlainDateTime-shaped
-    // values with a field-only options object, but that combination is
-    // unusual in practice (every multi-part token combines several
-    // options together, landing on ICU's normal date+time resolution).
-    try {
-      return ls.call(temporal, normalizeLocaleTag(locale), formatterOptions);
-    } catch (lsErr) {
-      // Intl throws a bare RangeError for a malformed tag, but also for
-      // unrelated things (calendar mismatch, etc.). Only blame the locale
-      // if it really is the problem: getFormatter throws the typed
-      // InvalidLocaleError for a bad tag and returns for a good one, in
-      // which case the original error is rethrown.
-      if (lsErr instanceof RangeError) getFormatter(locale, {});
-      throw lsErr;
+    // Polyfilled plain types are not accepted by formatToParts(). Convert
+    // them to UTC instants so Intl can return the requested part alone.
+    const toZonedDateTime = temporal.toZonedDateTime;
+    if (typeof toZonedDateTime === 'function') {
+      const utcInstant = toZonedDateTime.call(temporal, 'UTC').toInstant();
+      const utcFormatter = getFormatter(locale, { ...formatterOptions, timeZone: 'UTC' });
+      parts = utcFormatter.formatToParts(utcInstant.epochMilliseconds);
+    } else {
+      try {
+        return ls.call(temporal, normalizeLocaleTag(locale), formatterOptions);
+      } catch (lsErr) {
+        // Intl also throws RangeError for unrelated issues. Only blame the
+        // locale if it is invalid; getFormatter validates it otherwise.
+        if (lsErr instanceof RangeError) getFormatter(locale, {});
+        throw lsErr;
+      }
     }
   }
 
