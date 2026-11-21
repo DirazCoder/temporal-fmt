@@ -108,12 +108,10 @@
 
   // swap the plain "3 hours ago" text for the library's own output, full date on hover
   function useLibForDates(api) {
-    // same zone as "now": the library compares wall-clock time, so mixed zones give wrong answers
-    var zone = api.T.Now.timeZoneId();
     document.querySelectorAll('[data-iso]').forEach(function (el) {
-      var when = api.T.Instant.from(el.dataset.iso).toZonedDateTimeISO(zone);
+      var when = api.T.Instant.from(el.dataset.iso).toZonedDateTimeISO(api.T.Now.timeZoneId());
       el.textContent = api.lib.formatDistanceToNow(when, { numeric: 'always' });
-      el.title = api.lib.format(when, "MMM d, yyyy 'at' h:mm a zzz");
+      el.title = api.lib.format(when, "MMM d, yyyy 'at' h:mm a z");
     });
     if (live.classList.contains('on')) stat('Dates by', 'temporal-fmt itself');
   }

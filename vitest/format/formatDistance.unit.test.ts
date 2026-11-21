@@ -272,3 +272,63 @@ describe('formatDistanceToNow', () => {
     expect(() => formatDistanceToNow('2026-08-04')).toThrow(/expects Temporal values/);
   });
 });
+
+// Regression tests for the cross-zone wall-clock comparison bug.
+//
+// Before the fix, formatDistance() compared local year/month/day/hour/…
+// fields from each ZonedDateTime's calendar projection, so the same
+// absolute instant shown in different time zones produced different
+// distance strings — "1 day ago" in America/Chicago vs "9 hours ago"
+// in Asia/Tokyo, even though both referred to the same point in time.
+//
+// The fix: when a value exposes epochMilliseconds (ZonedDateTime and any
+// compatible duck-type), toEpochMs() returns that directly instead of
+// reconstructing ms from local fields. The diff is then always between
+// two UTC-anchored instants, making the result zone-independent.
+describe('formatDistance: ZonedDateTime cross-zone correctness', () => {
+  // A fixed reference now (UTC noon on 2026-08-04) and an instant 18 h before
+  // it. CST is UTC-6, so 18 h ago in UTC is "today" locally but yesterday in
+  // Tokyo (UTC+9), which used to flip the unit to "1 day ago".
+  const nowEpochMs    = Date.UTC(2026, 7, 4, 12, 0, 0, 0);   // 2026-08-04T12:00:00Z
+  const minus18hMs    = nowEpochMs - 18 * 60 * 60 * 1000;    // 2026-08-03T18:00:00Z
+
+  function zdtAt(epochMs: number, tz: string) {
+    return Temporal.ZonedDateTime.from(
+      Temporal.Instant.fromEpochMilliseconds(epochMs).toZonedDateTimeISO(tz)
+    );
+  }
+
+  const nowZdt = zdtAt(nowEpochMs, 'UTC');
+
+  it('gives the same result regardless of the ZonedDateTime\'s time zone', () => {
+    const zdtChicago = zdtAt(minus18hMs, 'America/Chicago');
+    const zdtTokyo   = zdtAt(minus18hMs, 'Asia/Tokyo');
+    const zdtUtc     = zdtAt(minus18hMs, 'UTC');
+
+    const rChicago = formatDistance(zdtChicago, nowZdt);
+    const rTokyo   = formatDistance(zdtTokyo,   nowZdt);
+    const rUtc     = formatDistance(zdtUtc,     nowZdt);
+
+    // All three represent the same absolute instant, so the result must be
+    // identical across zones and must be hours-scale (not "1 day ago").
+    expect(rChicago).toBe(rTokyo);
+    expect(rChicago).toBe(rUtc);
+    expect(rChicago).toMatch(/hour/);
+  });
+
+  it('reports 18 hours ago for an instant exactly 18 h before the reference', () => {
+    const zdt18hAgo = zdtAt(minus18hMs, 'America/Chicago');
+    expect(formatDistance(zdt18hAgo, nowZdt)).toBe('18 hours ago');
+  });
+
+  it('formatDistanceToNow uses an absolute-instant "now" for ZonedDateTime', () => {
+    vi.useFakeTimers({ now: nowEpochMs });
+    // The same instant represented in America/Chicago and Asia/Tokyo must
+    // give the same distance-to-now string.
+    const zdtChicago = zdtAt(minus18hMs, 'America/Chicago');
+    const zdtTokyo   = zdtAt(minus18hMs, 'Asia/Tokyo');
+    expect(formatDistanceToNow(zdtChicago)).toBe(formatDistanceToNow(zdtTokyo));
+    expect(formatDistanceToNow(zdtChicago)).toMatch(/hour/);
+    vi.useRealTimers();
+  });
+});

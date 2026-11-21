@@ -25,6 +25,12 @@ import { InvalidLocaleError, InvalidDateError } from '../core/errors.js';
 // expose year/month/day). PlainTime has no date fields; formatDistance()
 // between two PlainTime values isn't really meaningful and isn't
 // supported — it'll throw below when the field read fails.
+//
+// ZonedDateTime also exposes epochMilliseconds (a UTC-anchored instant).
+// When present we use that directly in toEpochMs() rather than
+// re-assembling from local year/month/day/hour/… fields, which would
+// discard the UTC offset and make two ZonedDateTimes in different zones
+// compare wall-clock time instead of absolute time.
 interface DateFieldView {
   year?: number;
   month?: number;
@@ -33,6 +39,8 @@ interface DateFieldView {
   minute?: number;
   second?: number;
   millisecond?: number;
+  /** Set only for ZonedDateTime (or any ZDT-shaped duck-type value). */
+  epochMilliseconds?: number;
 }
 
 function readFields(value: unknown, label: string): DateFieldView {
@@ -94,6 +102,10 @@ function readFields(value: unknown, label: string): DateFieldView {
     minute: typeof obj.minute === 'number' ? (obj.minute as number) : undefined,
     second: typeof obj.second === 'number' ? (obj.second as number) : undefined,
     millisecond: typeof obj.millisecond === 'number' ? (obj.millisecond as number) : undefined,
+    // ZonedDateTime carries epochMilliseconds (a real UTC instant). Read it
+    // so toEpochMs() can skip the local-field reconstruction entirely and
+    // compare absolute time instead of wall-clock time across zones.
+    epochMilliseconds: typeof obj.epochMilliseconds === 'number' ? (obj.epochMilliseconds as number) : undefined,
   };
 }
 
@@ -124,6 +136,21 @@ function daysSinceReference(year: number, month: number, day: number): number {
 }
 
 function toEpochMs(fields: DateFieldView): number {
+  // ZonedDateTime provides epochMilliseconds — a UTC-anchored absolute
+  // instant. Use it directly so two ZDTs in different time zones compare
+  // the same point in time, not their local wall-clock readings.
+  // (Without this, a ZDT 18 hours ago displayed as America/Chicago would
+  // give a different distance than the same ZDT displayed as Asia/Tokyo,
+  // because their local hour/day fields differ even though the instant is
+  // identical.)
+  if (typeof fields.epochMilliseconds === 'number') {
+    return fields.epochMilliseconds;
+  }
+
+  // Plain types (PlainDate, PlainDateTime) have no time-zone offset, so
+  // their year/month/day/hour/… fields already express the intended
+  // calendar moment. Reconstruct ms-since-reference from those fields.
+  //
   // A PlainDate has no time fields — treat as midnight. A PlainDateTime
   // has them all. Comparing two PlainDates is a day-resolution diff;
   // comparing two PlainDateTimes is millisecond-resolution. Mixing the
@@ -378,6 +405,44 @@ export function formatDistanceToNow(
   date: unknown,
   options: FormatDistanceOptions = {},
 ): string {
+  // Use epochMilliseconds for "now" so the comparison is always between
+  // UTC instants. If `date` is a ZonedDateTime, toEpochMs() will also
+  // return its epochMilliseconds (a UTC instant), so the two sides are
+  // on the same absolute timeline regardless of what time zone `date`
+  // was constructed in.
+  //
+  // If `date` is a PlainDate or PlainDateTime (no epochMilliseconds),
+  // toEpochMs() uses the local-field reconstruction path instead — but
+  // the "now" side then also falls into that same path (epochMilliseconds
+  // is not undefined here, so toEpochMs() uses it directly). That would
+  // mix UTC ms with reconstructed local ms, which is wrong.
+  //
+  // However, mixing ZonedDateTime and plain types in a single
+  // formatDistance() call is itself undefined behaviour: they live on
+  // different timelines (absolute vs. calendar). The existing docs
+  // already document this as unsupported. So:
+  //   • ZDT vs ZDT  → both use epochMs, correct.
+  //   • Plain vs Plain → both use field reconstruction, correct.
+  //   • ZDT vs Plain → still undefined; callers shouldn't do this.
+  //
+  // formatDistanceToNow(plainDate) is a common, correct use case.
+  // For that, we need "now" to be on the plain-fields timeline too.
+  // We detect which path `date` will take by checking for epochMilliseconds
+  // on the value, and pick the matching representation for "now".
+  const dateObj = date as Record<string, unknown> | null;
+  const dateIsZoned =
+    dateObj !== null &&
+    typeof dateObj === 'object' &&
+    typeof dateObj.epochMilliseconds === 'number';
+
+  if (dateIsZoned) {
+    // ZDT path: compare absolute instants.
+    return formatDistance(date, { epochMilliseconds: Date.now() }, options);
+  }
+
+  // Plain path: compare local-field reconstructions. Use the server's
+  // local time fields — same as before — so PlainDate/PlainDateTime
+  // "distance to now" behaves the way callers have always expected.
   const now = new Date();
   const nowFields = {
     year: now.getFullYear(),
