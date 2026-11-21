@@ -650,7 +650,7 @@ test('format: throws when Intl returns no requested part', () => {
   };
   try {
     assert.throws(
-      () => format(Temporal.PlainDate.from('2026-08-04'), 'MMMM', { locale: 'en-US-x-no-parts' }),
+      () => format(Temporal.ZonedDateTime.from('2026-08-04T00:00[UTC]'), 'MMMM', { locale: 'en-US-x-no-parts' }),
       /produced no "month" part/,
     );
   } finally {
