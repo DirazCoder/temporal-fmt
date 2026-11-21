@@ -10,6 +10,25 @@ import { Temporal as PolyfillTemporal } from 'temporal-polyfill/full';
 // at a time.
 const Temporal = globalThis.Temporal ?? PolyfillTemporal;
 
+test('locale-aware era tokens extract a single part from a plain Temporal-like value', () => {
+  let timeZone;
+  const dateTime = {
+    year: 2020,
+    month: 2,
+    day: 29,
+    hour: 16,
+    minute: 5,
+    second: 9,
+    toLocaleString: () => 'unused fallback',
+    toZonedDateTime(zone) {
+      timeZone = zone;
+      return { toInstant: () => ({ epochMilliseconds: Date.UTC(2020, 1, 29, 16, 5, 9) }) };
+    },
+  };
+  assert.equal(format(dateTime, 'G'), 'AD');
+  assert.equal(timeZone, 'UTC');
+});
+
 test('pad() puts the sign before the padded digits, not after, for every negative-year width', () => {
   const date = Temporal.PlainDate.from({ year: -1, month: 1, day: 1 });
   assert.equal(format(date, 'yyyy'), '-0001');
