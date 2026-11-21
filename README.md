@@ -64,6 +64,7 @@ The package is large on npm (locales, recurrence, business calendars, timezone d
 - [Migrating from Day.js or date-fns](#migrating-from-dayjs-or-date-fns)
 - [Related tools](#related-tools)
 - [Testing](#testing)
+- [Benchmarks](#benchmarks)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -987,6 +988,19 @@ Everything below was once in `KNOWN_FAILURES`. That list is now empty.
 - `parse(formatStr, input, options)` takes `(formatStr, input)` — reversed from the fixture's field order.
 - The fixture's three `expect.throws` values (`"ParseError"`, `"FormatError"`, `"InvalidPatternError"`) don't map cleanly onto temporal-fmt's subclasses. The adapter just checks that something extending `Error` was thrown.
 - `target` in the fixture is informational. temporal-fmt's `parse()` infers the result shape from tokens, so the adapter never passes `target` as input.
+
+## Benchmarks
+
+`benchmarks/` contains a tinybench suite covering the main hot paths: format, parse, arithmetic, relative distance, serialization, comparison, and rounding.
+
+```sh
+npm run bench              # all suites
+npm run bench:format       # format suite only
+npm run bench:parse        # parse suite only
+node benchmarks/run.mjs --suite=arithmetic,rounding
+```
+
+Each suite runs with a warmup pass before measuring, so the numbers reflect cached-pattern throughput rather than cold-start cost. The format and parse suites include both cold calls and pre-compiled handles (`compileFormat`/`compileParser`) side by side, so you can see the actual cache benefit for your use case.
 
 ## Contributing
 
