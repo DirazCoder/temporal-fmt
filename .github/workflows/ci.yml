@@ -30,7 +30,7 @@ jobs:
           node-version: ${{ matrix.node-version }}
 
       - run: npm ci
-      - run: npm run test:all
+      - run: npm run test:all -- --no-browser
 
   browser-smoke:
     name: Playwright ${{ matrix.browser }} / ${{ matrix.os }}

@@ -32,7 +32,7 @@
   <p class="lede">yyyy-MM-dd in, string out. Bad input throws instead of quietly handing you garbage. Locale-aware, zero dependencies.</p>
   <div class="install"><span>$</span><code>npm install temporal-fmt</code></div>
   <dl class="live" id="live" aria-label="Live from the npm registry"></dl>
-  <ul class="badges"><li>100% coverage (c8)</li><li>0 dependencies</li><li>Node 20+</li><li>Apache 2.0</li></ul>
+  <ul class="badges"><li>100% coverage (Node + Vitest)</li><li>0 dependencies</li><li>Node 20+</li><li>Apache 2.0</li></ul>
   <p>Node 26 shipped <code>Temporal</code> without a string formatter. TC39’s position is to use <code>Intl.DateTimeFormat</code> and leave token-style formatting to userland. Fair enough, but if <code>'yyyy-MM-dd'</code> is muscle memory from date-fns or Day.js, this exists so you don’t have to give that up.</p>
   <p>Native on Node 26+. Below that, bring a polyfill or call <code>setTemporal()</code>. Locale-aware tokens need Node 20+ either way, and anything older is untested.</p>
   <div class="note"><strong>Only want format and parse?</strong> <a href="https://github.com/DirazCoder/temporal-fmt-lite">temporal-fmt-lite</a> is a frozen snapshot of the 0.8.2 surface: the same two functions and locale support, without recurrence or business calendars. Security and correctness fixes only, no LTS promise. Moving up to the full package later is additive, not a rewrite.</div>
@@ -350,12 +350,15 @@ import { registerLocale } from 'temporal-fmt/locale';</code></pre>
 <section id="testing" data-group="Reference" data-title="Testing and contributing">
 <h2>Testing and contributing</h2>
 <p>3,000+ tests across <code>test/</code>, <code>vitest/</code> and a consumer suite. The smoke runner packs and installs the package, checks every public subpath in CJS and ESM, and runs type probes under both <code>bundler</code> and <code>nodenext</code> resolution. CI covers Node 20, 22, 24 and 26 on Ubuntu, Windows and macOS, plus the Vitest suite and a Playwright suite in Chromium, Firefox and WebKit.</p>
+<p>Both the classic Node <code>node:test</code> suite (<code>npm run test:coverage</code>, c8 against <code>dist/</code>) and the full Vitest suite (<code>npm run test:unit -- --coverage</code>, V8 against <code>src/</code>) enforce 100% statement, branch, function and line coverage.</p>
 <pre><code>npm test               # classic node:test suite
 npm run test:unit      # vitest
 npm run test:smoke     # packed-package smoke suite
 npm run test:browser   # Playwright against dist/
-npm run test:all       # everything except the browser matrix
+npm run test:all       # all checks, including browser tests
+npm run test:all -- --no-browser  # all checks except browser tests
 npm run bench          # tinybench suites</code></pre>
+<p>Install the Playwright browsers before running browser tests with <code>npx playwright install</code>; Linux also needs <code>npx playwright install-deps</code>.</p>
 <p>A portable <code>fixtures.json</code> conformance set checks DST, leap years, offsets and calendar limits against cases from outside this library. Hacking on it: <code>git clone</code>, <code>npm install</code>, <code>npm run build</code>, <code>npm run test:all</code>. The build needs TypeScript 7.0.2+, and <code>.d.ts</code> files come from a separate <code>tsc</code> pass because <code>tsup</code>’s dts step isn’t stable on 7.x. Licensed Apache 2.0.</p>
 <p>The ESLint plugin and jscodeshift codemod are deprecated and archived. The last published versions still work.</p>
 </section>
@@ -1631,8 +1634,9 @@ function formatDate(date, formatStr, opts) {
 </ul>
 <h2>Testing</h2>
 <p>The suites run 3,000+ test and smoke checks across <code>test/</code>, <code>vitest/</code>, and a consumer suite. The smoke runner packs and installs the package, checks public subpaths in CJS and ESM, and runs consumer type probes with both <code>bundler</code> and <code>nodenext</code> resolution. If it's in this README, it has a test. CI also runs the full <code>vitest/</code> suite in real browsers and a separate Playwright suite against the built package in Chromium, Firefox (Gecko), and WebKit across Linux, Windows, and macOS.</p>
-<p>Run the suites independently with <code>npm test</code> (<code>test/</code>), <code>npm run test:unit</code> (<code>vitest/</code>), <code>npm run test:smoke</code> (<code>smoke-test/</code>), <code>npm run test:browser:unit</code> (the full Vitest suite in a browser), and <code>npm run test:browser</code> (Playwright against the built package). For browser tests locally, install the Playwright browsers first with <code>npx playwright install</code> (Linux also needs <code>npx playwright install-deps</code>). <code>npm run test:all</code> runs the Node, Vitest, type, package, and consumer smoke checks; CI additionally runs the browser matrix.</p>
-<p>CI runs the Node and package tests on Node 20, 22, 24, and 26 across Ubuntu, Windows, and macOS. The full <code>vitest/</code> suite runs in each browser/platform combination using Chromium, Firefox (Gecko), or WebKit; a separate Playwright suite tests the built <code>dist/</code> package with the latest Playwright release. Browser tests run separately from <code>npm run test:all</code>. GitHub also runs CodeQL for GitHub Actions and JavaScript/TypeScript, along with repository dependency checks.</p>
+<p>Both the classic Node <code>node:test</code> suite (<code>npm run test:coverage</code>, using c8 against <code>dist/</code>) and the full Vitest suite (<code>npx vitest run --coverage</code>, using V8 against <code>src/</code>) enforce 100% statement, branch, function, and line coverage.</p>
+<p>Run the suites independently with <code>npm test</code> (<code>test/</code>), <code>npm run test:unit</code> (<code>vitest/</code>), <code>npm run test:smoke</code> (<code>smoke-test/</code>), <code>npm run test:browser:unit</code> (the full Vitest suite in a browser), and <code>npm run test:browser</code> (Playwright against the built package). <code>npm run test:all</code> runs all of these checks, including the browser suites in Chromium, Firefox, and WebKit. Install the Playwright browsers first with <code>npx playwright install</code> (Linux also needs <code>npx playwright install-deps</code>). To run everything except browser tests, use <code>npm run test:all -- --no-browser</code>; CI uses this option because it runs the browser tests in a separate matrix.</p>
+<p>CI runs the Node and package tests on Node 20, 22, 24, and 26 across Ubuntu, Windows, and macOS. The full <code>vitest/</code> suite runs in each browser/platform combination using Chromium, Firefox (Gecko), or WebKit; a separate Playwright suite tests the built <code>dist/</code> package with the latest Playwright release. The non-browser CI job uses <code>npm run test:all -- --no-browser</code> to avoid duplicating the browser matrix. GitHub also runs CodeQL for GitHub Actions and JavaScript/TypeScript, along with repository dependency checks.</p>
 <h2>Conformance fixtures</h2>
 <p><code>fixtures.json</code> is a portable test-vector set for token-based Temporal formatters, written against a different library's token vocabulary. Each case names an <code>op</code> (<code>format</code> / <code>parse</code> / <code>roundtrip</code>), an input, a pattern, and an expected result — any library with a <code>format</code>/<code>parse</code> pair can use it.</p>
 <p><code>test/conformance.test.js</code> is the temporal-fmt adapter. It translates fixture patterns into temporal-fmt tokens, runs them against <code>format()</code>/<code>parse()</code>, and checks results.</p>
@@ -1694,7 +1698,7 @@ npm install
 npm run build
 npm run test:all
 </code></pre>
-<p><code>npm test</code> runs only the classic <code>node:test</code> suite; it does not run <code>vitest/</code> or the packed-package smoke suite. Run <code>npm run test:all</code> for everything CI runs (build + both unit suites + package/type checks + smoke suite).</p>
+<p><code>npm test</code> runs only the classic <code>node:test</code> suite; it does not run <code>vitest/</code> or the packed-package smoke suite. Run <code>npm run test:all</code> for the build, both coverage gates, type/package/smoke checks, and browser suites; use <code>npm run test:all -- --no-browser</code> to skip browsers.</p>
 <p>Build notes if you're touching the toolchain:</p>
 <ul>
 <li>Requires TypeScript 7.0.2+. <code>.d.ts</code> generation runs as a separate <code>tsc</code> pass rather than through <code>tsup</code> — <code>tsup</code>'s dts step uses <code>rollup-plugin-dts</code>, which calls into TypeScript's compiler API and isn't stable on 7.x. <code>tsup.config.ts</code> sets <code>dts: false</code>; <code>npm run build</code> runs <code>tsup &amp;&amp; tsc --declaration --emitDeclarationOnly</code>. Side effect: <code>dist/</code> has one <code>.d.ts</code> per source file rather than a single rolled-up <code>index.d.ts</code>.</li>

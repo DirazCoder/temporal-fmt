@@ -938,9 +938,11 @@ Both are deprecated and archived — single-maintainer bandwidth, no further upd
 
 The suites run 3,000+ test and smoke checks across `test/`, `vitest/`, and a consumer suite. The smoke runner packs and installs the package, checks public subpaths in CJS and ESM, and runs consumer type probes with both `bundler` and `nodenext` resolution. If it's in this README, it has a test. CI also runs the full `vitest/` suite in real browsers and a separate Playwright suite against the built package in Chromium, Firefox (Gecko), and WebKit across Linux, Windows, and macOS.
 
-Run the suites independently with `npm test` (`test/`), `npm run test:unit` (`vitest/`), `npm run test:smoke` (`smoke-test/`), `npm run test:browser:unit` (the full Vitest suite in a browser), and `npm run test:browser` (Playwright against the built package). For browser tests locally, install the Playwright browsers first with `npx playwright install` (Linux also needs `npx playwright install-deps`). `npm run test:all` runs the Node, Vitest, type, package, and consumer smoke checks; CI additionally runs the browser matrix.
+Both the classic Node `node:test` suite (`npm run test:coverage`, using c8 against `dist/`) and the full Vitest suite (`npx vitest run --coverage`, using V8 against `src/`) enforce 100% statement, branch, function, and line coverage.
 
-CI runs the Node and package tests on Node 20, 22, 24, and 26 across Ubuntu, Windows, and macOS. The full `vitest/` suite runs in each browser/platform combination using Chromium, Firefox (Gecko), or WebKit; a separate Playwright suite tests the built `dist/` package with the latest Playwright release. Browser tests run separately from `npm run test:all`. GitHub also runs CodeQL for GitHub Actions and JavaScript/TypeScript, along with repository dependency checks.
+Run the suites independently with `npm test` (`test/`), `npm run test:unit` (`vitest/`), `npm run test:smoke` (`smoke-test/`), `npm run test:browser:unit` (the full Vitest suite in a browser), and `npm run test:browser` (Playwright against the built package). `npm run test:all` runs all of these checks, including the browser suites in Chromium, Firefox, and WebKit. Install the Playwright browsers first with `npx playwright install` (Linux also needs `npx playwright install-deps`). To run everything except browser tests, use `npm run test:all -- --no-browser`; CI uses this option because it runs the browser tests in a separate matrix.
+
+CI runs the Node and package tests on Node 20, 22, 24, and 26 across Ubuntu, Windows, and macOS. The full `vitest/` suite runs in each browser/platform combination using Chromium, Firefox (Gecko), or WebKit; a separate Playwright suite tests the built `dist/` package with the latest Playwright release. The non-browser CI job uses `npm run test:all -- --no-browser` to avoid duplicating the browser matrix. GitHub also runs CodeQL for GitHub Actions and JavaScript/TypeScript, along with repository dependency checks.
 
 ## Conformance fixtures
 
@@ -1014,7 +1016,7 @@ npm run build
 npm run test:all
 ```
 
-`npm test` runs only the classic `node:test` suite; it does not run `vitest/` or the packed-package smoke suite. Run `npm run test:all` for everything CI runs (build + both unit suites + package/type checks + smoke suite).
+`npm test` runs only the classic `node:test` suite; it does not run `vitest/` or the packed-package smoke suite. Run `npm run test:all` for the build, both coverage gates, type/package/smoke checks, and browser suites; use `npm run test:all -- --no-browser` to skip browsers.
 
 Build notes if you're touching the toolchain:
 

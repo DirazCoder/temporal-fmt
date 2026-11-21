@@ -155,7 +155,7 @@
     "test:types": "vitest run --typecheck",
     "test:pack": "attw --pack . && publint .",
     "test:smoke": "node smoke-test/run.mjs",
-    "test:all": "npm run build && npm test && npm run test:coverage && npm run test:unit && npm run test:types && npm run test:pack && npm run test:smoke",
+    "test:all": "node scripts/test-all.mjs",
     "prepublishOnly": "npm run build && npm test",
     "bench": "node benchmarks/run.mjs",
     "bench:format": "node benchmarks/run.mjs --suite=format",

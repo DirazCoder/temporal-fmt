@@ -254,6 +254,31 @@ describe('intlPart input arms', () => {
     expect(format(zoned, 'MMMM', { locale: 'ja-JP' })).toBe('8月');
   });
 
+  it('merges a non-whitespace literal before a ZonedDateTime part', () => {
+    const originalDateTimeFormat = Intl.DateTimeFormat;
+    const zoned = Temporal.ZonedDateTime.from('2026-08-04T00:00[UTC]');
+    Object.defineProperty(Intl, 'DateTimeFormat', {
+      configurable: true,
+      value: class {
+        formatToParts() {
+          return [
+            { type: 'literal', value: 'prefix' },
+            { type: 'month', value: '8' },
+          ];
+        }
+      },
+    });
+    try {
+      expect(format(zoned, 'MMMM', { locale: 'en-US-x-prefix' })).toBe('prefix8');
+    } finally {
+      Object.defineProperty(Intl, 'DateTimeFormat', {
+        configurable: true,
+        writable: true,
+        value: originalDateTimeFormat,
+      });
+    }
+  });
+
   it('rethrows a RangeError from toLocaleString after ruling the locale out', () => {
     // toLocaleString threw a RangeError, but the locale is fine, so the
     // original error is rethrown rather than blamed on the locale
@@ -262,6 +287,14 @@ describe('intlPart input arms', () => {
       toLocaleString: () => { throw new RangeError('boom'); },
     };
     expect(() => format(mock, 'MMMM')).toThrow(RangeError);
+  });
+
+  it('rethrows non-RangeErrors from toLocaleString unchanged', () => {
+    const mock: TemporalLike = {
+      year: 2020, month: 5, dayOfWeek: 2,
+      toLocaleString: () => { throw new TypeError('boom'); },
+    };
+    expect(() => format(mock, 'MMMM')).toThrow(new TypeError('boom'));
   });
 
   it('era parts skip the month/weekday cutover guard entirely', () => {

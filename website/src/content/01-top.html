@@ -3,7 +3,7 @@
   <p class="lede">yyyy-MM-dd in, string out. Bad input throws instead of quietly handing you garbage. Locale-aware, zero dependencies.</p>
   <div class="install"><span>$</span><code>npm install temporal-fmt</code></div>
   <dl class="live" id="live" aria-label="Live from the npm registry"></dl>
-  <ul class="badges"><li>100% coverage (c8)</li><li>0 dependencies</li><li>Node 20+</li><li>Apache 2.0</li></ul>
+  <ul class="badges"><li>100% coverage (Node + Vitest)</li><li>0 dependencies</li><li>Node 20+</li><li>Apache 2.0</li></ul>
   <p>Node 26 shipped <code>Temporal</code> without a string formatter. TC39’s position is to use <code>Intl.DateTimeFormat</code> and leave token-style formatting to userland. Fair enough, but if <code>'yyyy-MM-dd'</code> is muscle memory from date-fns or Day.js, this exists so you don’t have to give that up.</p>
   <p>Native on Node 26+. Below that, bring a polyfill or call <code>setTemporal()</code>. Locale-aware tokens need Node 20+ either way, and anything older is untested.</p>
   <div class="note"><strong>Only want format and parse?</strong> <a href="https://github.com/DirazCoder/temporal-fmt-lite">temporal-fmt-lite</a> is a frozen snapshot of the 0.8.2 surface: the same two functions and locale support, without recurrence or business calendars. Security and correctness fixes only, no LTS promise. Moving up to the full package later is additive, not a rewrite.</div>

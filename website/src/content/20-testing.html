@@ -1,12 +1,15 @@
 <section id="testing" data-group="Reference" data-title="Testing and contributing">
 <h2>Testing and contributing</h2>
 <p>3,000+ tests across <code>test/</code>, <code>vitest/</code> and a consumer suite. The smoke runner packs and installs the package, checks every public subpath in CJS and ESM, and runs type probes under both <code>bundler</code> and <code>nodenext</code> resolution. CI covers Node 20, 22, 24 and 26 on Ubuntu, Windows and macOS, plus the Vitest suite and a Playwright suite in Chromium, Firefox and WebKit.</p>
+<p>Both the classic Node <code>node:test</code> suite (<code>npm run test:coverage</code>, c8 against <code>dist/</code>) and the full Vitest suite (<code>npm run test:unit -- --coverage</code>, V8 against <code>src/</code>) enforce 100% statement, branch, function and line coverage.</p>
 <pre><code>npm test               # classic node:test suite
 npm run test:unit      # vitest
 npm run test:smoke     # packed-package smoke suite
 npm run test:browser   # Playwright against dist/
-npm run test:all       # everything except the browser matrix
+npm run test:all       # all checks, including browser tests
+npm run test:all -- --no-browser  # all checks except browser tests
 npm run bench          # tinybench suites</code></pre>
+<p>Install the Playwright browsers before running browser tests with <code>npx playwright install</code>; Linux also needs <code>npx playwright install-deps</code>.</p>
 <p>A portable <code>fixtures.json</code> conformance set checks DST, leap years, offsets and calendar limits against cases from outside this library. Hacking on it: <code>git clone</code>, <code>npm install</code>, <code>npm run build</code>, <code>npm run test:all</code>. The build needs TypeScript 7.0.2+, and <code>.d.ts</code> files come from a separate <code>tsc</code> pass because <code>tsup</code>’s dts step isn’t stable on 7.x. Licensed Apache 2.0.</p>
 <p>The ESLint plugin and jscodeshift codemod are deprecated and archived. The last published versions still work.</p>
 </section>

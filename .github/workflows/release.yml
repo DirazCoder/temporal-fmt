@@ -136,7 +136,7 @@ jobs:
             exit 1
           fi
 
-      - run: npm run test:all
+      - run: npm run test:all -- --no-browser
 
       # Minification disabled for now — Socket.dev's registry scanner flags
       # minified npm packages as a Quality issue regardless of source maps,
