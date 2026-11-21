@@ -609,29 +609,54 @@ test('PlainMonthDay: year tokens still throw', () => {
   assert.throws(() => format(new Temporal.PlainMonthDay(8, 4), 'yyyy'), /token "yyyy" requires "year"/);
 });
 
+test('format: a duck-typed locale name uses its toLocaleString fallback', () => {
+  const mock = {
+    year: 2026, month: 8, day: 4,
+    toLocaleString(_locale, options) {
+      return options.month === 'long' ? 'Mock August' : 'Mock Aug';
+    },
+  };
+  assert.equal(format(mock, 'MMMM'), 'Mock August');
+});
+
 // A malformed tag and a calendar mismatch both reach us as a RangeError
 // from toLocaleString. Only the first one is the locale's fault.
-const intlTakesTemporal = (() => {
-  try {
-    new Intl.DateTimeFormat('en-US').format(Temporal.PlainDate.from('2026-08-04'));
-    return true;
-  } catch {
-    return false;
-  }
-})();
+test('format: a RangeError that is not about the locale is not reported as InvalidLocaleError', () => {
+  const mismatched = {
+    calendarId: 'iso8601', year: 2026, month: 8, day: 4,
+    toLocaleString() { throw new RangeError('Mismatched calendars'); },
+  };
+  assert.throws(
+    () => format(mismatched, 'MMMM', { locale: 'en-US' }),
+    (err) => err.name === 'RangeError' && /Mismatched calendars/.test(err.message),
+  );
+});
 
-test('format: a RangeError that is not about the locale is not reported as InvalidLocaleError',
-  { skip: intlTakesTemporal && 'only the toLocaleString path wraps errors; native Intl formats directly' },
-  () => {
-    const mismatched = {
-      calendarId: 'iso8601', year: 2026, month: 8, day: 4,
-      toLocaleString() { throw new RangeError('Mismatched calendars'); },
-    };
+test('format: non-RangeErrors from the toLocaleString fallback are rethrown', () => {
+  const mock = {
+    year: 2026, month: 8, day: 4,
+    toLocaleString() { throw new TypeError('unexpected failure'); },
+  };
+  assert.throws(
+    () => format(mock, 'MMMM'),
+    (err) => err instanceof TypeError && /unexpected failure/.test(err.message),
+  );
+});
+
+test('format: throws when Intl returns no requested part', () => {
+  const originalDateTimeFormat = Intl.DateTimeFormat;
+  Intl.DateTimeFormat = class {
+    formatToParts() { return []; }
+  };
+  try {
     assert.throws(
-      () => format(mismatched, 'MMMM', { locale: 'en-US' }),
-      (err) => err.name === 'RangeError' && /Mismatched calendars/.test(err.message),
+      () => format(Temporal.PlainDate.from('2026-08-04'), 'MMMM', { locale: 'en-US-x-no-parts' }),
+      /produced no "month" part/,
     );
-  });
+  } finally {
+    Intl.DateTimeFormat = originalDateTimeFormat;
+  }
+});
 
 test('format: a malformed locale with a locale-aware token still throws InvalidLocaleError', () => {
   assert.throws(

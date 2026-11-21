@@ -1,5 +1,7 @@
 # temporal-fmt 🥶🔥
 
+[Check out my live site](https://dirazcoder.github.io/temporal-fmt/)
+
 ![coverage](https://img.shields.io/badge/coverage-100%25%20(c8)-brightgreen?style=flat-square)
 
 Format and parse `Temporal` values (`PlainDate`, `PlainTime`, `PlainDateTime`, `ZonedDateTime`) using date-fns-style tokens. Bad input throws — no silent garbage. Locale-aware, zero dependencies.

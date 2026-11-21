@@ -77,6 +77,14 @@ test('formatDistanceToNow: accepts a PlainDate (treated as midnight, per formatD
   });
 });
 
+test('formatDistanceToNow: uses the absolute instant for a ZonedDateTime', () => {
+  withMockedNow('2026-08-04T15:45:30.000Z', () => {
+    const threeHoursAgo = Temporal.Instant.fromEpochMilliseconds(Date.now() - 3 * 60 * 60 * 1000)
+      .toZonedDateTimeISO('America/Chicago');
+    assert.equal(formatDistanceToNow(threeHoursAgo), '3 hours ago');
+  });
+});
+
 test('formatDistanceToNow: options (numeric, cutoffs, locale) pass through to formatDistance unchanged', () => {
   withMockedNow('2026-08-04T15:45:30.000', () => {
     const rightNow = Temporal.PlainDateTime.from('2026-08-04T15:45:30');

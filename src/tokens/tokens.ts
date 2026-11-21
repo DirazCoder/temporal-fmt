@@ -440,9 +440,14 @@ function intlPart(
     // ZonedDateTime: always use epoch-ms — a plain number Intl always
     // accepts regardless of whether native Temporal is recognised.
     parts = formatter.formatToParts(instant!.epochMilliseconds);
-  } else if (intlSupportsNativeTemporal()) {
+  } else if (
+    intlSupportsNativeTemporal() &&
+    temporal.toString !== Object.prototype.toString
+  ) {
     // Plain types on a native-Temporal engine (Node 26+): pass the
-    // object directly — Intl recognises it.
+    // object directly — Intl recognises it. Duck-typed objects may expose
+    // toLocaleString without being Temporal values, so leave those on the
+    // fallback path instead of letting Intl coerce them as Dates.
     // The probe above (intlSupportsNativeTemporal) is called once per
     // active implementation and memoized; setTemporal() resets the cache
     // so the next call re-probes against the new implementation (M-02
