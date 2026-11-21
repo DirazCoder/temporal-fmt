@@ -4,6 +4,21 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.88 — 2026-11-21 (`7a15900`)
+
+### Added
+
+- **Separate translated conformance suite.** `npm run test:conformance` runs curated reference vectors independently of `npm test`; `npm run test:all` runs both. Coverage includes date-fns-style format tokens, representative CLDR/Intl locale output, Temporal boundaries, IANA time-zone transitions, the supported RFC 5545 recurrence subset, relative-date phrases, RFC 3339/RFC 2822/HTTP-date parsing, and ISO 8601 durations. These are adapted vectors, not full upstream suites.
+
+### Fixed
+
+- **Yearly ordinal `BYDAY` recurrence rules.** Ordinals without `BYMONTH` now rank matching weekdays across the year; mixed plain and ordinal weekday terms are combined as a union without duplicate occurrences.
+- **RFC 3339 `Z` timestamps.** UTC-suffixed timestamps now pass through ISO parsing as an offset, producing the expected zoned result.
+
+### Tests
+
+- Restored the Vitest coverage gate to 100% across statements, branches, functions, and lines.
+
 ## 0.9.87 — 2026-11-21 (`42d0937`)
 
 ### Changed
