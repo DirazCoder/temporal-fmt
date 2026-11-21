@@ -6,6 +6,7 @@ on:
     paths:
       - 'website/**'
       - 'package.json'
+      - 'README.md'
       - '.github/workflows/website-deployer.yml'
   workflow_dispatch:
 
@@ -30,6 +31,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Install website dependencies
+        run: npm ci
+        working-directory: website
 
       - name: Build the site
         run: node build.js

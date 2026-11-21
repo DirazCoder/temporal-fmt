@@ -21,6 +21,8 @@
     <span>temporal-fmt</span>
   </a> <small>v0.9.87</small>
   <div class="search"><input id="q" type="search" placeholder="Search the docs" aria-label="Search the docs" autocomplete="off"><kbd>/</kbd></div>
+  <p class="readme-prompt">Want to read the full Repo doc?</p>
+  <button class="readme-open" id="readme-open" type="button">Read Repo README</button>
   <button class="menu" id="menu" type="button">Menu</button>
   <nav class="nav" id="nav" aria-label="Docs"></nav>
 </aside>
@@ -358,9 +360,1353 @@ npm run bench          # tinybench suites</code></pre>
 <p>The ESLint plugin and jscodeshift codemod are deprecated and archived. The last published versions still work.</p>
 </section>
 
+<section id="contributors" data-group="Reference" data-title="Contributors">
+<h2>Contributors</h2>
+<ul>
+  <li><a href="https://github.com/FoxxMD">@FoxxMD</a></li>
+  <li><a href="https://github.com/pmwmedia">@pmwmedia</a></li>
+  <li><a href="https://github.com/alisaruh">@alisaruh</a></li>
+</ul>
+</section>
+
 <p class="empty" id="empty">Nothing matches that. Try a token (<code>yyyy</code>), a function name, or a word like “locale”.</p>
 </main>
 </div>
+<dialog class="readme-dialog" id="readme-dialog" aria-labelledby="readme-title">
+  <header class="readme-dialog__header">
+    <h2 id="readme-title">Repository README</h2>
+    <button class="readme-close" id="readme-close" type="button">Close</button>
+  </header>
+  <div class="readme-content"><h1>temporal-fmt 🥶🔥</h1>
+<p><a href="https://dirazcoder.github.io/temporal-fmt/">Check out my live site</a></p>
+<p><img src="https://img.shields.io/badge/coverage-100%25%20(c8)-brightgreen?style=flat-square" alt="coverage" /></p>
+<p>Format and parse <code>Temporal</code> values (<code>PlainDate</code>, <code>PlainTime</code>, <code>PlainDateTime</code>, <code>ZonedDateTime</code>) using date-fns-style tokens. Bad input throws — no silent garbage. Locale-aware, zero dependencies.</p>
+<p>Node 26 shipped <code>Temporal</code> without a string formatter. TC39's position: use <code>Intl.DateTimeFormat</code> and leave token-style formatting to userland. Fair enough — but if <code>'yyyy-MM-dd'</code> is muscle memory from date-fns or Day.js, this exists so you don't have to give that up.</p>
+<p>Native on Node 26+. Below that, bring your own <code>Temporal</code> via a polyfill or <code>setTemporal()</code>. Import from subpaths to pull only what you use — see <a href="#subpath-imports">Subpath imports</a>.</p>
+<p>Locale-aware tokens need Node 20+ regardless of path. Untested below Node 20.</p>
+<blockquote>
+<p><strong>Just want <code>format</code>/<code>parse</code>, nothing else, ever?</strong> <a href="https://github.com/DirazCoder/temporal-fmt-lite"><code>temporal-fmt-lite</code></a> is a frozen snapshot of the 0.8.2 surface: same two functions, same locale support, no recurrence/business-calendar weight, no new tokens or exports coming. Security and correctness fixes only, no LTS promise. If you outgrow it, migrating to the full package is additive, not a rewrite.</p>
+</blockquote>
+<h2>Install</h2>
+<pre><code class="language-sh">npm install temporal-fmt
+</code></pre>
+<h2>Get started</h2>
+<pre><code class="language-js">import { format } from 'temporal-fmt/format';
+import { parse } from 'temporal-fmt/parse';
+
+const date = Temporal.PlainDate.from('2026-08-04');
+format(date, 'yyyy-MM-dd');                      // &quot;2026-08-04&quot;
+
+parse('yyyy-MM-dd HH:mm', '2026-08-04 15:45');   // Temporal.PlainDateTime
+</code></pre>
+<p><code>format(temporal, formatStr)</code> in, <code>parse(formatStr, input)</code> out — same shape as date-fns or Day.js. Import from the subpaths shown above, not the bare package: a bundler only ships what you actually call that way. Measured with esbuild: ~27KB for <code>format</code> alone via the subpath vs. ~68KB pulled from the bare entry.</p>
+<p>Below Node 26, <code>Temporal</code> isn't global — see <a href="#providing-temporal">Providing <code>Temporal</code></a>. On Node 26+ the snippet above just works.</p>
+<p>The package is large on npm (locales, recurrence, business calendars, timezone disambiguation, an analyzer, config layers), but none of that ships in your bundle unless you import it. Everything lives behind its own subpath — see <a href="#subpath-imports">Subpath imports</a>.</p>
+<h2>Contents</h2>
+<ul>
+<li><a href="#get-started">Get started</a></li>
+<li><a href="#providing-temporal">Providing <code>Temporal</code></a></li>
+<li><a href="#formatting">Formatting</a></li>
+<li><a href="#parsing">Parsing</a></li>
+<li><a href="#locales">Locales</a></li>
+<li><a href="#tokens">Tokens</a></li>
+<li><a href="#duration-formatting">Duration formatting</a></li>
+<li><a href="#relative-time">Relative time</a></li>
+<li><a href="#natural-language-date-parsing">Natural-language date parsing</a></li>
+<li><a href="#date-arithmetic-comparison-and-rounding">Date arithmetic, comparison, and rounding</a></li>
+<li><a href="#intervals">Intervals</a></li>
+<li><a href="#recurrence">Recurrence</a></li>
+<li><a href="#business-calendars-and-holidays">Business calendars and holidays</a></li>
+<li><a href="#time-zones">Time zones</a></li>
+<li><a href="#serialization">Serialization</a></li>
+<li><a href="#introspection-and-the-analyzer">Introspection and the analyzer</a></li>
+<li><a href="#typed-errors">Typed errors</a></li>
+<li><a href="#type-guards">Type guards</a></li>
+<li><a href="#config">Config</a></li>
+<li><a href="#extending-with-custom-tokens">Extending with custom tokens</a></li>
+<li><a href="#ide-tooling-data">IDE tooling data</a></li>
+<li><a href="#legacy-mod-documentation">Legacy mod documentation</a></li>
+<li><a href="#subpath-imports">Subpath imports</a></li>
+<li><a href="#migrating-from-dayjs-or-date-fns">Migrating from Day.js or date-fns</a></li>
+<li><a href="#related-tools">Related tools</a></li>
+<li><a href="#testing">Testing</a></li>
+<li><a href="#benchmarks">Benchmarks</a></li>
+<li><a href="#contributing">Contributing</a></li>
+<li><a href="#license">License</a></li>
+</ul>
+<h2>Providing <code>Temporal</code></h2>
+<h3>Node 26+</h3>
+<p><code>Temporal</code> is native and used automatically.</p>
+<h3>Polyfill</h3>
+<pre><code class="language-js">import 'temporal-polyfill/global'
+import { format } from 'temporal-fmt/format';
+import { parse } from 'temporal-fmt/parse';
+</code></pre>
+<h3>Bring your own</h3>
+<p>Call <code>setTemporal()</code> once, before your first <code>format()</code>/<code>parse()</code> call:</p>
+<pre><code class="language-js">import { Temporal } from 'temporal-polyfill/full';
+import { setTemporal } from 'temporal-fmt';
+import { format } from 'temporal-fmt/format';
+import { parse } from 'temporal-fmt/parse';
+
+setTemporal(Temporal);
+</code></pre>
+<p><code>setTemporal()</code> takes precedence over native or global <code>Temporal</code>. Call it with no argument to clear the override. Useful for libraries that don't want to touch the global namespace.</p>
+<p>Functions that construct a value from scratch need this: <code>parse()</code>, <code>parseISO()</code>, <code>resolveZoned()</code>, and a few others. Functions that only read fields off an existing value (<code>format()</code>, <code>compare()</code>, <code>add()</code>) don't touch the namespace at all.</p>
+<h2>Formatting</h2>
+<pre><code class="language-js">import { format } from 'temporal-fmt/format';
+
+const date = Temporal.PlainDate.from('2026-08-04');
+format(date, 'yyyy-MM-dd');            // &quot;2026-08-04&quot;
+format(date, 'MMMM d, yyyy');          // &quot;August 4, 2026&quot;
+
+const dt = Temporal.PlainDateTime.from('2026-08-04T15:45:30');
+format(dt, &quot;MMM d, yyyy 'at' h:mm a&quot;); // &quot;Aug 4, 2026 at 3:45 PM&quot;
+
+const zdt = Temporal.ZonedDateTime.from('2026-08-04T15:45:30-04:00[America/New_York]');
+format(zdt, 'yyyy-MM-dd HH:mm zzz');   // &quot;2026-08-04 15:45 America/New_York&quot;
+</code></pre>
+<p>Wrap literal text in single quotes. For a literal single quote in output, use <code>''</code>.</p>
+<p>Using a token the input type doesn't support — <code>HH</code> on a <code>PlainDate</code>, say — throws a descriptive error instead of silently emitting <code>undefined</code>.</p>
+<ul>
+<li><code>format(temporal, formatStr, options?)</code> — returns a string.</li>
+<li><code>formatToParts(temporal, formatStr, options?)</code> — returns <code>{ type: 'literal' | 'token', value, token? }[]</code>. Mirrors <code>Intl.DateTimeFormat.formatToParts</code>, useful for styling individual pieces.</li>
+<li><code>compileFormat(formatStr)</code> — pre-tokenizes once, returns an object with <code>.format()</code>/<code>.formatToParts()</code>, <code>.pieces</code>, and <code>.formatStr</code>. Format strings are already LRU-cached internally (500 entries), so this mainly buys up-front validation — a bad format string throws at compile time rather than on first use.</li>
+</ul>
+<h2>Parsing</h2>
+<p><code>parse()</code> builds a <code>PlainDate</code>, <code>PlainTime</code>, <code>PlainDateTime</code>, or <code>ZonedDateTime</code> depending on which tokens are present:</p>
+<pre><code class="language-js">import { parse } from 'temporal-fmt/parse';
+
+parse('yyyy-MM-dd HH:mm', '2026-08-04 15:45');   // Temporal.PlainDateTime
+parse('yyyy-MM', '2026-08-04T15:45:30');         // throws — shape mismatch
+parse('yyyy-MM-dd', '2026-02-30');               // throws — not a real date
+</code></pre>
+<p>Because the return type depends on which tokens are present, you'll need <code>instanceof</code> or a type guard to narrow it in TypeScript — see <a href="#type-guards">Type guards</a>.</p>
+<p><code>parse()</code> also catches contradictions a regex would miss:</p>
+<pre><code class="language-js">parse('EEEE, yyyy-MM-dd', 'Tuesday, 2026-08-04');  // fine
+parse('EEEE, yyyy-MM-dd', 'Monday, 2026-08-04');   // throws — it's not a Monday
+</code></pre>
+<p>Other entry points:</p>
+<ul>
+<li><code>safeParse(formatStr, input, options?)</code> — never throws. Returns <code>{ ok: true, value }</code> or <code>{ ok: false, error: TemporalFmtError }</code>.</li>
+<li><code>tryParse(formatStr, input, options?)</code> — never throws. Returns the value or <code>undefined</code>.</li>
+<li><code>parseToParts(formatStr, input, options?)</code> — returns matched token groups with their positions in the input string.</li>
+<li><code>compileParser(formatStr, options?)</code> — pre-compiles a parser for repeated use against the same format string.</li>
+</ul>
+<h3>Parsing notes</h3>
+<ul>
+<li><strong><code>yy</code> (2-digit year)</strong> follows POSIX strptime: <code>00–68</code> → <code>2000–2068</code>, <code>69–99</code> → <code>1900–1999</code>.</li>
+<li><strong><code>hh</code>/<code>h</code> without <code>a</code> throws.</strong> Mixing <code>HH</code>/<code>H</code> with <code>hh</code>/<code>h</code> also throws — <code>parse()</code> won't pick one.</li>
+<li><strong><code>HH</code>/<code>H</code> with <code>a</code> is allowed and cross-checked.</strong> <code>parse('HH:mm a', '13:05 PM')</code> succeeds; <code>parse('HH:mm a', '01:05 PM')</code> throws — the AM/PM contradicts the hour.</li>
+<li><strong><code>a</code> is case-insensitive</strong> — <code>pm</code>, <code>Pm</code>, <code>PM</code> all work. Month and weekday names stay case-sensitive.</li>
+<li><strong><code>S</code>–<code>SSSSSSSSS</code></strong> go to nanosecond precision. Format truncates to the requested width; parse right-pads short input (<code>SSSSSSSSS</code> reading <code>.5</code> → 500ms worth of nanoseconds).</li>
+<li><strong><code>MMMM</code>/<code>MMM</code> assume a 12-month calendar.</strong> Numeric tokens are unaffected.</li>
+</ul>
+<h3>Ambiguous input and lenient mode</h3>
+<p>By default, <code>parse()</code> throws when a glued numeric run has more than one valid split:</p>
+<pre><code class="language-js">parse('yyyy-Md', '2026-121')                               // throws — ambiguous
+parse('yyyy-Md', '2026-121', { lenient: true }).toString() // '2026-12-01'
+</code></pre>
+<p>Lenient heuristic: if one token in the ambiguous run is <code>d</code>, prefer the split where day ≤ 12. When that doesn't narrow it down, falls back to the first valid split. Avoid ambiguity entirely by zero-padding (<code>MM</code>/<code>dd</code>) or adding a separator (<code>M/d</code>).</p>
+<h3>Offset tokens (<code>X</code>/<code>XX</code>/<code>XXX</code>/<code>x</code>/<code>xx</code>/<code>xxx</code>)</h3>
+<p>Uppercase collapses <code>+00:00</code> to <code>Z</code>; lowercase never emits <code>Z</code>. Single-letter forms drop minutes when zero (<code>+05</code>, <code>+0530</code>).</p>
+<p>On parse, an offset token needs a full date and time. Without <code>zzz</code>, the result's <code>timeZoneId</code> is the offset string itself. With both <code>zzz</code> and an offset token, <code>zzz</code> wins for <code>timeZoneId</code> and the offset is cross-checked — a mismatch throws.</p>
+<p>Sub-minute offsets (pre-railway local-mean-time zones): only <code>xxx</code> passes them through. The others throw rather than silently truncating. Range: <code>-12:00</code> to <code>+14:00</code>.</p>
+<h2>Locales</h2>
+<p>Pass a BCP 47 tag via <code>options.locale</code>. Defaults to <code>'en-US'</code>.</p>
+<pre><code class="language-js">format(date, 'MMMM d, yyyy', { locale: 'fr-FR' });   // &quot;août 4, 2026&quot;
+format(date, 'EEEE d MMMM', { locale: 'ar-EG' });    // Arabic weekday/month names
+format(dt, 'h:mm a', { locale: 'ja-JP' });            // &quot;3:45 午後&quot;
+</code></pre>
+<p>Named-vocabulary tokens (<code>MMMM</code>, <code>MMM</code>, <code>EEEE</code>, <code>EEE</code>, <code>a</code>) go through <code>Intl.DateTimeFormat</code>, so non-Gregorian calendars work when the <code>Temporal</code> object already carries one:</p>
+<pre><code class="language-js">const hebrewDate = date.withCalendar('hebrew');
+format(hebrewDate, 'MMMM d, yyyy');   // &quot;Av 21, 5786&quot;
+</code></pre>
+<p>Numeric tokens read directly off the object's fields and never touch <code>Intl</code>. Same locale handling applies to <code>parse()</code>.</p>
+<p><strong>Numeric output is always Western digits by default</strong>, regardless of locale. <code>{ locale: 'ar-EG' }</code> alone doesn't switch <code>yyyy</code>/<code>MM</code>/<code>dd</code> to Arabic-Indic digits — see <a href="#numbering-systems">Numbering systems</a> for the opt-in.</p>
+<h3>Registering custom vocabulary</h3>
+<p><code>Intl</code> doesn't cover every case well — a 13-month Hebrew leap year is the standing example.</p>
+<p><strong><code>registerLocaleVocab(locale, vocab)</code></strong> — months, weekdays, day periods only:</p>
+<pre><code class="language-js">import { registerLocaleVocab } from 'temporal-fmt';
+
+registerLocaleVocab('en-u-ca-hebrew-leap', {
+  monthLong: ['Nisan', 'Iyar', 'Sivan', 'Tammuz', 'Av', 'Elul', 'Tishrei', 'Marcheshvan', 'Kislev', 'Tevet', 'Shevat', 'Adar I', 'Adar II'],
+  monthShort: ['Nis', 'Iyy', 'Siv', 'Tam', 'Av', 'Elu', 'Tish', 'Chesh', 'Kis', 'Tev', 'Shv', 'Ad1', 'Ad2'],
+  weekdayLong: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+  weekdayShort: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+  dayPeriod: ['AM', 'PM'],
+});
+</code></pre>
+<p><strong><code>registerLocale(locale, vocab)</code></strong> — everything above plus quarters, eras, ordinals, duration units, and relative-time language:</p>
+<pre><code class="language-js">import { registerLocale } from 'temporal-fmt';
+
+registerLocale('test-locale-1', {
+  monthLong: [/* 12 entries */],
+  monthShort: [/* 12 entries */],
+  weekdayLong: [/* 7 entries */],
+  weekdayShort: [/* 7 entries */],
+  dayPeriod: ['AM', 'PM'],
+  // optional extended vocab:
+  quartersLong: ['First', 'Second', 'Third', 'Fourth'],
+  quartersShort: ['Q1', 'Q2', 'Q3', 'Q4'],
+  erasLong: ['BCE', 'CE'],
+  erasShort: ['BC', 'AD'],
+  ordinals: ['st', 'nd', 'rd', 'th'],
+  durationUnits: { years: ['year', 'years'] /* , ... */ },
+  relativeTime: { past: 'ago', future: 'in', now: 'now' },
+});
+</code></pre>
+<p><code>getLocale(locale)</code> returns the registered vocab or falls back to <code>Intl</code>. <code>hasLocale(locale)</code> checks without pulling the fallback.</p>
+<p>Validation is strict: wrong array lengths, empty strings, duplicate entries, and identical AM/PM values all throw at registration time. Registering invalidates the cache for that locale key immediately.</p>
+<h2>Tokens</h2>
+<table>
+<thead>
+<tr>
+<th>Token</th>
+<th>Meaning</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>yyyy</code></td>
+<td>Four-digit year (preserves sign for BCE)</td>
+<td><code>2026</code></td>
+</tr>
+<tr>
+<td><code>yy</code></td>
+<td>Two-digit year (<code>year % 100</code>; throws on negative years)</td>
+<td><code>26</code></td>
+</tr>
+<tr>
+<td><code>MMMM</code></td>
+<td>Long month name, locale-aware</td>
+<td><code>August</code></td>
+</tr>
+<tr>
+<td><code>MMM</code></td>
+<td>Short month name, locale-aware</td>
+<td><code>Aug</code></td>
+</tr>
+<tr>
+<td><code>MM</code></td>
+<td>Two-digit month, zero-padded</td>
+<td><code>08</code></td>
+</tr>
+<tr>
+<td><code>M</code></td>
+<td>One- or two-digit month</td>
+<td><code>8</code></td>
+</tr>
+<tr>
+<td><code>dd</code></td>
+<td>Two-digit day-of-month, zero-padded</td>
+<td><code>04</code></td>
+</tr>
+<tr>
+<td><code>d</code></td>
+<td>One- or two-digit day-of-month</td>
+<td><code>4</code></td>
+</tr>
+<tr>
+<td><code>do</code></td>
+<td>Ordinal day-of-month, English suffix. Format-only</td>
+<td><code>4th</code></td>
+</tr>
+<tr>
+<td><code>EEEE</code></td>
+<td>Long weekday name, locale-aware. Cross-checked on parse</td>
+<td><code>Tuesday</code></td>
+</tr>
+<tr>
+<td><code>EEE</code></td>
+<td>Short weekday name, locale-aware. Cross-checked on parse</td>
+<td><code>Tue</code></td>
+</tr>
+<tr>
+<td><code>HH</code></td>
+<td>Two-digit hour, 24-hour, zero-padded</td>
+<td><code>15</code></td>
+</tr>
+<tr>
+<td><code>H</code></td>
+<td>One- or two-digit hour, 24-hour</td>
+<td><code>15</code></td>
+</tr>
+<tr>
+<td><code>hh</code></td>
+<td>Two-digit hour, 12-hour, zero-padded. Needs <code>a</code> on parse</td>
+<td><code>03</code></td>
+</tr>
+<tr>
+<td><code>h</code></td>
+<td>One- or two-digit hour, 12-hour. Needs <code>a</code> on parse</td>
+<td><code>3</code></td>
+</tr>
+<tr>
+<td><code>mm</code></td>
+<td>Two-digit minute, zero-padded</td>
+<td><code>45</code></td>
+</tr>
+<tr>
+<td><code>m</code></td>
+<td>One- or two-digit minute</td>
+<td><code>45</code></td>
+</tr>
+<tr>
+<td><code>ss</code></td>
+<td>Two-digit second, zero-padded</td>
+<td><code>30</code></td>
+</tr>
+<tr>
+<td><code>s</code></td>
+<td>One- or two-digit second</td>
+<td><code>30</code></td>
+</tr>
+<tr>
+<td><code>S</code>…<code>SSSSSSSSS</code></td>
+<td>Fractional second, 1–9 digits (tenths through nanoseconds)</td>
+<td><code>SSS</code> → <code>000</code></td>
+</tr>
+<tr>
+<td><code>a</code></td>
+<td>Day period, locale-aware, case-insensitive on parse</td>
+<td><code>PM</code></td>
+</tr>
+<tr>
+<td><code>zzz</code></td>
+<td>IANA time zone ID, or fixed offset. Needs full date+time on parse</td>
+<td><code>America/New_York</code></td>
+</tr>
+<tr>
+<td><code>zzzz</code></td>
+<td>Localized long time zone name. Format-only</td>
+<td><code>Eastern Standard Time</code></td>
+</tr>
+<tr>
+<td><code>z</code></td>
+<td>Localized short time zone name. Format-only</td>
+<td><code>EST</code></td>
+</tr>
+<tr>
+<td><code>X</code></td>
+<td>UTC offset, short, <code>Z</code> for UTC</td>
+<td><code>+05</code> / <code>+0530</code> / <code>Z</code></td>
+</tr>
+<tr>
+<td><code>XX</code></td>
+<td>UTC offset, no colon, <code>Z</code> for UTC</td>
+<td><code>+0500</code> / <code>Z</code></td>
+</tr>
+<tr>
+<td><code>XXX</code></td>
+<td>UTC offset, with colon, <code>Z</code> for UTC</td>
+<td><code>+05:00</code> / <code>Z</code></td>
+</tr>
+<tr>
+<td><code>x</code></td>
+<td>Same as <code>X</code>, never <code>Z</code></td>
+<td><code>+05</code> / <code>+0530</code> / <code>+00</code></td>
+</tr>
+<tr>
+<td><code>xx</code></td>
+<td>Same as <code>XX</code>, never <code>Z</code></td>
+<td><code>+0500</code> / <code>+0000</code></td>
+</tr>
+<tr>
+<td><code>xxx</code></td>
+<td>Same as <code>XXX</code>, never <code>Z</code></td>
+<td><code>+05:00</code> / <code>+00:00</code></td>
+</tr>
+<tr>
+<td><code>Q</code></td>
+<td>Quarter digit (1–4). Cross-checked against month on parse</td>
+<td><code>3</code></td>
+</tr>
+<tr>
+<td><code>QQQ</code></td>
+<td>Quarter with &quot;Q&quot; prefix. Cross-checked on parse</td>
+<td><code>Q3</code></td>
+</tr>
+<tr>
+<td><code>ww</code></td>
+<td>ISO 8601 week number (01–53). Format-only</td>
+<td><code>32</code></td>
+</tr>
+<tr>
+<td><code>RRRR</code></td>
+<td>ISO 8601 week-numbering year. Format-only</td>
+<td><code>2026</code></td>
+</tr>
+<tr>
+<td><code>D</code></td>
+<td>Day of year, unpadded. Format-only</td>
+<td><code>216</code></td>
+</tr>
+<tr>
+<td><code>DD</code></td>
+<td>Day of year, 2-digit minimum. Format-only</td>
+<td><code>216</code></td>
+</tr>
+<tr>
+<td><code>DDD</code></td>
+<td>Day of year, 3-digit zero-padded. Format-only</td>
+<td><code>216</code></td>
+</tr>
+<tr>
+<td><code>LLLL</code></td>
+<td>Stand-alone long month name (nominative case). Identical to <code>MMMM</code> in most locales</td>
+<td><code>August</code></td>
+</tr>
+<tr>
+<td><code>LLL</code></td>
+<td>Stand-alone short month name. Identical to <code>MMM</code> in most locales</td>
+<td><code>Aug</code></td>
+</tr>
+<tr>
+<td><code>cccc</code></td>
+<td>Stand-alone long weekday name. Identical to <code>EEEE</code> in most locales</td>
+<td><code>Tuesday</code></td>
+</tr>
+<tr>
+<td><code>ccc</code></td>
+<td>Stand-alone short weekday name. Identical to <code>EEE</code> in most locales</td>
+<td><code>Tue</code></td>
+</tr>
+<tr>
+<td><code>GGGG</code></td>
+<td>Long era name, locale-aware. Format-only</td>
+<td><code>Anno Domini</code></td>
+</tr>
+<tr>
+<td><code>G</code></td>
+<td>Short era name, locale-aware. Format-only</td>
+<td><code>AD</code></td>
+</tr>
+</tbody>
+</table>
+<p>Every token's structured metadata (round-trip safety, locale/calendar/timezone sensitivity, supported types) is available via <code>tokenInfo(name)</code> or <code>TOKEN_METADATA</code> — see <a href="#introspection-and-the-analyzer">Introspection and the analyzer</a>.</p>
+<p><strong><code>do</code></strong> is format-only — the ordinal suffix isn't structurally distinguishable from adjacent literal text on parse. English-only by design: <code>Intl.DateTimeFormat</code> has no part type for ordinals.</p>
+<p><strong><code>Q</code>/<code>QQQ</code></strong> format and parse, cross-checking against any month/date tokens in the same string.</p>
+<p><strong><code>ww</code>/<code>RRRR</code></strong> are format-only. <code>RRRR</code> is the ISO week-numbering year, not the calendar year — they diverge at year boundaries:</p>
+<pre><code>format(PlainDate.from('2026-12-31'), 'ww RRRR') // &quot;53 2026&quot;
+format(PlainDate.from('2027-01-01'), 'ww RRRR') // &quot;53 2026&quot; — still ISO year 2026
+format(PlainDate.from('2027-01-04'), 'ww RRRR') // &quot;01 2027&quot;
+</code></pre>
+<p><strong><code>LLLL</code>/<code>LLL</code>/<code>cccc</code>/<code>ccc</code></strong> are stand-alone forms (nominative case in Slavic locales). They render identically to <code>MMMM</code>/<code>MMM</code>/<code>EEEE</code>/<code>EEE</code> in most locales.</p>
+<h2>Duration formatting</h2>
+<p><code>formatDuration(duration, formatStr, options?)</code> formats a <code>Temporal.Duration</code> or plain field bag <code>{ years, months, weeks, days, hours, minutes, seconds, milliseconds }</code>.</p>
+<p>Each unit has three forms:</p>
+<table>
+<thead>
+<tr>
+<th>Token</th>
+<th>Form</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>y</code> / <code>yy</code> / <code>yyy</code></td>
+<td>numeric / short / long — years</td>
+<td><code>2</code> / <code>2yr</code> / <code>2 years</code></td>
+</tr>
+<tr>
+<td><code>o</code> / <code>oo</code> / <code>ooo</code></td>
+<td>numeric / short / long — months</td>
+<td><code>2</code> / <code>2mo</code> / <code>2 months</code></td>
+</tr>
+<tr>
+<td><code>w</code> / <code>ww</code> / <code>www</code></td>
+<td>numeric / short / long — weeks</td>
+<td><code>2</code> / <code>2wk</code> / <code>2 weeks</code></td>
+</tr>
+<tr>
+<td><code>d</code> / <code>dd</code> / <code>ddd</code></td>
+<td>numeric / short / long — days</td>
+<td><code>2</code> / <code>2d</code> / <code>2 days</code></td>
+</tr>
+<tr>
+<td><code>h</code> / <code>hh</code> / <code>hhh</code></td>
+<td>numeric / short / long — hours</td>
+<td><code>2</code> / <code>2h</code> / <code>2 hours</code></td>
+</tr>
+<tr>
+<td><code>m</code> / <code>mm</code> / <code>mmm</code></td>
+<td>numeric / short / long — minutes</td>
+<td><code>2</code> / <code>2m</code> / <code>2 minutes</code></td>
+</tr>
+<tr>
+<td><code>s</code> / <code>ss</code> / <code>sss</code></td>
+<td>numeric / short / long — seconds</td>
+<td><code>2</code> / <code>2s</code> / <code>2 seconds</code></td>
+</tr>
+<tr>
+<td><code>S</code> / <code>SS</code> / <code>SSS</code></td>
+<td>numeric / short / long — milliseconds</td>
+<td><code>2</code> / <code>2ms</code> / <code>2 milliseconds</code></td>
+</tr>
+</tbody>
+</table>
+<p>Short and long forms are plural-aware.</p>
+<pre><code class="language-js">import { formatDuration } from 'temporal-fmt';
+
+formatDuration({ years: 2, months: 3 }, 'yyy ooo')    // &quot;2 years 3 months&quot;
+formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm')  // &quot;2 hours 30 minutes&quot;
+formatDuration({ hours: 2, minutes: 30 }, 'h:mm')     // &quot;2:30&quot;
+</code></pre>
+<p>Zero-value units are omitted by default — trailing literal separators from the format string are the caller's problem. Pass <code>{ showZeroValues: true }</code> to render them anyway.</p>
+<p>Pass <code>{ locale }</code> to localize short/long unit names via <code>Intl.NumberFormat</code>'s <code>style: 'unit'</code> mode. Numeric-only tokens always stay ASCII digits. Note: <code>locale: 'en-US'</code> explicit ≠ omitting locale — <code>Intl</code>'s spacing differs from the built-in English table (<code>&quot;2 hr&quot;</code> vs <code>&quot;2h&quot;</code>).</p>
+<pre><code class="language-js">formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm', { locale: 'fr-FR' }) // &quot;2 heures 30 minutes&quot;
+formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm', { locale: 'de-DE' }) // &quot;2 Stunden 30 Minuten&quot;
+</code></pre>
+<h3>Other duration functions</h3>
+<ul>
+<li><code>formatDurationToParts(duration, formatStr, options?)</code> — returns parts instead of a joined string.</li>
+<li><code>parseDuration(input, formatStr, options?)</code> — inverse of <code>formatDuration</code>.</li>
+<li><code>parseISODuration(input)</code> / <code>formatISODuration(duration)</code> — ISO 8601 duration grammar (<code>P1Y2M3DT4H5M6S</code>).</li>
+<li><code>balanceDuration(duration)</code> — normalizes fields (90 minutes → 1 hour 30 minutes).</li>
+<li><code>totalDuration(duration, unit)</code> — sums to a single number in the target unit.</li>
+<li><code>compareDuration(a, b)</code> — <code>-1</code>/<code>0</code>/<code>1</code>.</li>
+<li><code>addDuration(a, b)</code> / <code>subtractDuration(a, b)</code>.</li>
+<li><code>roundDuration(duration, options)</code> — see <a href="#date-arithmetic-comparison-and-rounding">Date arithmetic, comparison, and rounding</a>.</li>
+</ul>
+<h2>Relative time</h2>
+<h3><code>formatDistance</code> — &quot;3 days ago&quot;</h3>
+<p><code>formatDistance(date1, date2, options?)</code> returns a human-readable relative-time string via <code>Intl.RelativeTimeFormat</code>.</p>
+<pre><code class="language-js">import { formatDistance } from 'temporal-fmt';
+
+const today = Temporal.PlainDate.from('2026-08-04');
+const yesterday = Temporal.PlainDate.from('2026-08-03');
+
+formatDistance(today, yesterday)                          // &quot;yesterday&quot;
+formatDistance(today, yesterday, { numeric: 'always' })   // &quot;1 day ago&quot;
+formatDistance(today, today)                              // &quot;now&quot;
+formatDistance(today, today.add({ days: 2 }), { locale: 'fr-FR' }) // &quot;dans 2 jours&quot;
+</code></pre>
+<p>Direction: <code>diff = date1 - date2</code>. Positive → &quot;in X&quot;. Negative → &quot;X ago&quot;.</p>
+<p>Default unit-selection cutoffs:</p>
+<table>
+<thead>
+<tr>
+<th>abs(diff)</th>
+<th>Unit</th>
+<th>Default cutoff</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>&lt; 60 seconds</td>
+<td>seconds</td>
+<td><code>seconds: 60</code></td>
+</tr>
+<tr>
+<td>&lt; 60 minutes</td>
+<td>minutes</td>
+<td><code>minutes: 60</code></td>
+</tr>
+<tr>
+<td>&lt; 24 hours</td>
+<td>hours</td>
+<td><code>hours: 24</code></td>
+</tr>
+<tr>
+<td>&lt; 30 days</td>
+<td>days</td>
+<td><code>days: 30</code></td>
+</tr>
+<tr>
+<td>&lt; 365 days</td>
+<td>months</td>
+<td><code>months: 365</code> (in days)</td>
+</tr>
+<tr>
+<td>otherwise</td>
+<td>years</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p>Override any subset per call via <code>{ cutoffs }</code>. The <code>months</code> cutoff is in days because a month isn't a fixed length. Non-monotonic boundaries and non-positive values throw.</p>
+<p>Accepts <code>PlainDate</code>, <code>PlainDateTime</code>, or <code>ZonedDateTime</code>. A <code>PlainDate</code> is treated as midnight when diffed against a <code>PlainDateTime</code>. Throws on <code>PlainTime</code> and partial-date shapes.</p>
+<p><code>formatDistanceToNow(date, options?)</code> reads the system clock at call time:</p>
+<pre><code class="language-js">import { formatDistanceToNow } from 'temporal-fmt';
+
+formatDistanceToNow(threeHoursAgo)  // &quot;3 hours ago&quot;
+formatDistanceToNow(tomorrow)       // &quot;in 1 day&quot;
+</code></pre>
+<p>Reference is captured fresh on every call, never cached.</p>
+<h3><code>formatRelative</code> / <code>formatRelativeToNow</code></h3>
+<p>Returns calendar-relative labels (&quot;yesterday&quot;, &quot;last week&quot;) rather than numeric distance. <code>formatRelativeToNow(date, options?)</code> is <code>formatRelative(date, now)</code>.</p>
+<h2>Natural-language date parsing</h2>
+<p><code>parseRelative(input, referenceDate, options?)</code> resolves relative-date phrases against a reference date, returning a <code>Temporal.PlainDate</code>. English by default; pass <code>{ locale: 'es' }</code>, <code>'fr'</code>, or <code>'de'</code> for those languages.</p>
+<p>Supported:</p>
+<ul>
+<li>weekday references: &quot;next Tuesday&quot;, &quot;last Friday&quot;, &quot;this Monday&quot;</li>
+<li>relative day offsets: &quot;today&quot;, &quot;tomorrow&quot;, &quot;yesterday&quot;</li>
+<li>relative unit offsets: &quot;in 3 days&quot;, &quot;2 weeks ago&quot;, &quot;in 1 month&quot;, &quot;1 year ago&quot;</li>
+<li>month-day without year: &quot;March 5th&quot;, &quot;Aug 4&quot; (resolves to next occurrence)</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Phrase</th>
+<th>en</th>
+<th>es</th>
+<th>fr</th>
+<th>de</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>today</td>
+<td><code>today</code></td>
+<td><code>hoy</code></td>
+<td><code>aujourd'hui</code></td>
+<td><code>heute</code></td>
+</tr>
+<tr>
+<td>tomorrow</td>
+<td><code>tomorrow</code></td>
+<td><code>mañana</code></td>
+<td><code>demain</code></td>
+<td><code>morgen</code></td>
+</tr>
+<tr>
+<td>yesterday</td>
+<td><code>yesterday</code></td>
+<td><code>ayer</code></td>
+<td><code>hier</code></td>
+<td><code>gestern</code></td>
+</tr>
+<tr>
+<td>next Tuesday</td>
+<td><code>next Tuesday</code></td>
+<td><code>el próximo martes</code></td>
+<td><code>mardi prochain</code></td>
+<td><code>nächsten Dienstag</code></td>
+</tr>
+<tr>
+<td>last Tuesday</td>
+<td><code>last Tuesday</code></td>
+<td><code>el martes pasado</code></td>
+<td><code>mardi dernier</code></td>
+<td><code>letzten Dienstag</code></td>
+</tr>
+<tr>
+<td>this Wednesday</td>
+<td><code>this Wednesday</code></td>
+<td><code>este miércoles</code></td>
+<td><code>ce mercredi</code></td>
+<td><code>diesen Mittwoch</code></td>
+</tr>
+<tr>
+<td>in 3 days</td>
+<td><code>in 3 days</code></td>
+<td><code>en 3 días</code></td>
+<td><code>dans 3 jours</code></td>
+<td><code>in 3 Tagen</code></td>
+</tr>
+<tr>
+<td>2 weeks ago</td>
+<td><code>2 weeks ago</code></td>
+<td><code>hace 2 semanas</code></td>
+<td><code>il y a 2 semaines</code></td>
+<td><code>vor 2 Wochen</code></td>
+</tr>
+<tr>
+<td>March 5</td>
+<td><code>March 5th</code></td>
+<td><code>5 de marzo</code></td>
+<td><code>5 mars</code></td>
+<td><code>5. März</code></td>
+</tr>
+</tbody>
+</table>
+<p>Diacritics are stripped before matching, so <code>&quot;miercoles&quot;</code> matches <code>&quot;miércoles&quot;</code>. German umlaut transliterations are expanded (<code>ä</code>→<code>ae</code>, etc.).</p>
+<pre><code class="language-js">import { parseRelative } from 'temporal-fmt';
+
+const today = Temporal.PlainDate.from('2026-08-04'); // Tuesday
+parseRelative('today', today).toString()              // '2026-08-04'
+parseRelative('next Tuesday', today).toString()       // '2026-08-11' — 7 days, not today
+parseRelative('last Friday', today).toString()        // '2026-07-31'
+parseRelative('in 3 days', today).toString()           // '2026-08-07'
+parseRelative('March 5th', today).toString()           // '2027-03-05' — next occurrence
+
+parseRelative('mañana', today, { locale: 'es-ES' }).toString()  // '2026-08-05'
+parseRelative('demain', today, { locale: 'fr-FR' }).toString()  // '2026-08-05'
+parseRelative('morgen', today, { locale: 'de-DE' }).toString()  // '2026-08-05'
+</code></pre>
+<p><strong>Documented ambiguous-case choices:</strong></p>
+<ul>
+<li>&quot;next Tuesday&quot; on a Tuesday = 7 days out. &quot;this Tuesday&quot; handles the same-week case.</li>
+<li>&quot;last Tuesday&quot; on a Tuesday = 7 days ago.</li>
+<li>&quot;March 5th&quot; without a year = next occurrence. Past dates this year roll to next year.</li>
+<li>Bare number phrases (&quot;5 days&quot; without &quot;in&quot;/&quot;ago&quot;) throw — same strict contract as <code>parse()</code>.</li>
+</ul>
+<p>This &quot;next X on X = 7 days&quot; convention holds across all four supported languages by design.</p>
+<p><code>parseRelative</code> throws a descriptive error for unrecognized phrases. Accepts <code>PlainDate</code>, <code>PlainDateTime</code>, or <code>ZonedDateTime</code> as reference; throws on <code>PlainTime</code>.</p>
+<h3>Typo tolerance (<code>{ fuzzy: true }</code>)</h3>
+<pre><code class="language-js">parseRelative('tommorow', today, { fuzzy: true }).toString()      // '2026-08-05'
+parseRelative('next tuesady', today, { fuzzy: true }).toString()  // '2026-08-11'
+parseRelative('tommorow', today);                                  // throws
+</code></pre>
+<p>Tokenizes the input on whitespace and corrects any word that isn't an exact vocabulary match, using edit distance 2. Covers dropped letters (distance 1) and transposed pairs (distance 2) without over-correcting.</p>
+<p>Numbers are never corrected. <code>&quot;5 dyas&quot;</code> → corrects to <code>&quot;5 days&quot;</code> → still throws the usual past-or-future ambiguity error.</p>
+<p>Fuzzy mode is English-only. Other grammars have enough positional variation that one word-substitution corrector doesn't fit without per-language tuning. Combining <code>{ fuzzy: true }</code> with a non-English locale throws a clear error rather than silently skipping the correction pass.</p>
+<p><code>registerRelativeGrammar(grammar)</code> registers a new language. <code>listRegisteredGrammars()</code> lists what's currently registered.</p>
+<h2>Date arithmetic, comparison, and rounding</h2>
+<h3>Arithmetic</h3>
+<pre><code class="language-js">import { add, subtract, difference, addDays, differenceInHours } from 'temporal-fmt';
+
+add(date, 3, 'days');
+subtract(date, 1, 'months');
+difference(a, b, 'hours');
+</code></pre>
+<ul>
+<li><code>add(value, amount, unit)</code> / <code>subtract(value, amount, unit)</code> — <code>unit</code>: <code>'years' | 'months' | 'weeks' | 'days' | 'hours' | 'minutes' | 'seconds' | 'milliseconds'</code>.</li>
+<li>Per-unit wrappers: <code>addYears</code>, <code>addMonths</code>, <code>addWeeks</code>, <code>addDays</code>, <code>addHours</code>, <code>addMinutes</code>, <code>addSeconds</code>, <code>addMilliseconds</code>, and matching <code>subtract*</code> set.</li>
+<li><code>difference(a, b, unit)</code> — integer count of unit boundaries crossed.</li>
+<li>Per-unit wrappers: <code>differenceInYears</code>, <code>differenceInMonths</code>, <code>differenceInWeeks</code>, <code>differenceInDays</code>, <code>differenceInHours</code>, <code>differenceInMinutes</code>, <code>differenceInSeconds</code>, <code>differenceInMilliseconds</code>.</li>
+</ul>
+<h3>Comparison</h3>
+<pre><code class="language-js">import { compare, isBefore, isSameDay, isWeekend } from 'temporal-fmt';
+
+compare(a, b);    // -1 / 0 / 1
+isBefore(a, b);
+isSameDay(a, b);
+isWeekend(date);
+</code></pre>
+<ul>
+<li><code>compare(a, b)</code> → <code>-1</code>/<code>0</code>/<code>1</code>.</li>
+<li><code>isEqual</code>, <code>isBefore</code>, <code>isAfter</code>.</li>
+<li><code>min(values)</code>, <code>max(values)</code>, <code>clamp(value, lo, hi)</code>, <code>isBetween(value, lo, hi)</code>.</li>
+<li><code>isToday</code>, <code>isTomorrow</code>, <code>isYesterday</code>, <code>isSameDay</code>, <code>isSameWeek</code>, <code>isSameMonth</code>, <code>isSameQuarter</code>, <code>isSameYear</code>, <code>isWeekend</code>, <code>isWeekday</code>.</li>
+</ul>
+<h3>Rounding</h3>
+<ul>
+<li><code>round(value, options)</code>.</li>
+<li><code>floor(value, unit, increment?)</code>, <code>ceil(value, unit, increment?)</code>, <code>truncate(value, unit, increment?)</code>.</li>
+<li><code>roundDuration(duration, options)</code> — throws for calendar-bound units (months, years) without a <code>relativeTo</code> reference.</li>
+</ul>
+<h3>Calendar utilities</h3>
+<pre><code class="language-js">import { daysInMonth, startOf, getQuarter } from 'temporal-fmt';
+
+daysInMonth(date);
+startOf(date, 'month');
+getQuarter(date);
+</code></pre>
+<ul>
+<li><code>daysInMonth(value)</code>, <code>daysInYear(value)</code>, <code>monthsInYear(value)</code>.</li>
+<li><code>isLeapYear(value)</code>, <code>isLeapMonth(value)</code> (always <code>false</code> in Gregorian).</li>
+<li><code>dayOfYear(value)</code>, <code>weekOfYear(value)</code>, <code>weekYear(value)</code>.</li>
+<li><code>getQuarter(value, options?)</code>, <code>getMonth(value)</code>, <code>getWeekday(value)</code>.</li>
+<li><code>startOf(value, unit)</code> / <code>endOf(value, unit)</code> — <code>unit</code>: <code>'day' | 'month' | 'year' | 'hour' | 'minute' | 'second'</code>.</li>
+</ul>
+<p><code>getQuarter</code> defaults to calendar quarters (Jan–Mar = Q1). Pass <code>{ startMonth }</code> to shift the fiscal year start:</p>
+<pre><code class="language-js">getQuarter({ month: 8 });                     // 3 — calendar quarter
+getQuarter({ month: 8 }, { startMonth: 7 });   // 1 — fiscal year starting July
+getQuarter({ month: 8 }, { startMonth: 10 });  // 4 — fiscal year starting October (Apple's FY)
+</code></pre>
+<p><code>startMonth</code> must be 1–12; anything else throws.</p>
+<p><strong>Gregorian-only limitation</strong>: <code>daysInMonth</code>, <code>daysInYear</code>, <code>isLeapYear</code>, <code>monthsInYear</code>, <code>isLeapMonth</code>, <code>dayOfYear</code>, <code>weekOfYear</code>, and <code>weekYear</code> all use Gregorian rules and give wrong answers on non-Gregorian calendars. For those, use the <code>Temporal</code> object's own calendar-aware properties:</p>
+<pre><code class="language-js">const pd = Temporal.PlainDate.from('5784-05-10[u-ca=hebrew]');
+pd.daysInMonth;  // 30 (Sivan)
+pd.monthsInYear; // 13 (leap year)
+</code></pre>
+<p>Locale-aware formatting tokens (<code>MMMM</code>, <code>MMM</code>, <code>EEEE</code>, <code>EEE</code>, <code>a</code>) go through <code>Intl.DateTimeFormat</code> and do respect <code>calendarId</code>:</p>
+<pre><code class="language-js">format(Temporal.PlainDate.from('5784-05-10[u-ca=hebrew]'), 'MMMM d, yyyy'); // &quot;Sivan 10, 5784&quot;
+</code></pre>
+<h2>Intervals</h2>
+<pre><code class="language-js">import { interval, contains, overlaps, formatRange } from 'temporal-fmt';
+
+const iv = interval(start, end, 'closed');
+contains(iv, someDate);
+overlaps(ivA, ivB);
+formatRange(iv, 'MMM d');
+</code></pre>
+<ul>
+<li><code>interval(start, end, bounds?)</code> — <code>bounds</code>: <code>'closed'</code> (default) | <code>'open'</code> | <code>'half-open-start'</code> | <code>'half-open-end'</code>.</li>
+<li><code>contains(iv, value)</code>, <code>overlaps(a, b)</code>, <code>intersects(a, b)</code>.</li>
+<li><code>isBefore(a, b)</code> / <code>isAfter(a, b)</code> — imported as <code>intervalIsBefore</code>/<code>intervalIsAfter</code> from the main entry to avoid collision with the date versions.</li>
+<li><code>intersection(a, b)</code>, <code>union(a, b)</code> — return <code>null</code> when intervals don't overlap enough to combine.</li>
+<li><code>difference(a, b)</code> / <code>subtract(a, b)</code> — imported as <code>intervalDifference</code>/<code>intervalSubtract</code> from the main entry.</li>
+<li><code>mergeIntervals(intervals)</code> — combines overlapping intervals into their union set.</li>
+<li><code>splitInterval(iv, n)</code> — splits one interval into <code>n</code> equal sub-intervals.</li>
+<li><code>formatRange(iv, formatStr, options?)</code> / <code>formatRangeToParts(iv, formatStr, options?)</code> — uses <code>Intl.DateTimeFormat.formatRange</code> where available.</li>
+</ul>
+<h2>Recurrence</h2>
+<pre><code class="language-js">import { recurrence, take, between } from 'temporal-fmt';
+
+const rule = { freq: 'weekly', interval: 1, count: 10 };
+const iter = recurrence(startDate, rule);
+take(iter, 5);
+between(startDate, rule, rangeStart, rangeEnd);
+</code></pre>
+<ul>
+<li><code>recurrence(start, rule)</code> — returns an iterator with <code>next()</code>/<code>previous()</code>. <code>rule.freq</code>: <code>'secondly' | 'minutely' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly'</code>. Also supports <code>interval</code>, <code>count</code>, <code>until</code>, weekday/month-day/positional constraints, and exclusions/inclusions (RFC 5545 RRULE model).</li>
+<li><code>take(iter, n)</code> — collects the next <code>n</code> occurrences.</li>
+<li><code>skip(iter, n)</code> — advances past <code>n</code> occurrences.</li>
+<li><code>between(start, rule, rangeStart, rangeEnd)</code> — all occurrences within a range.</li>
+<li><code>parseRRule(input)</code> / <code>formatRRule(rule)</code> — parse/format RFC 5545 RRULE text.</li>
+</ul>
+<h2>Business calendars and holidays</h2>
+<p>A business-day calendar (weekends, working hours, half days) and a holiday calendar (specific excluded dates) are separate — compose them by passing a holiday calendar's dates to a business calendar's options.</p>
+<pre><code class="language-js">import { createBusinessCalendar, isBusinessDay, addBusinessDays } from 'temporal-fmt';
+
+const cal = createBusinessCalendar({ /* weekend days, holidays, working hours, half days */ });
+isBusinessDay(cal, someDate);
+addBusinessDays(cal, someDate, 5);
+</code></pre>
+<ul>
+<li><code>createBusinessCalendar(options?)</code>.</li>
+<li><code>isBusinessDay(cal, value)</code>.</li>
+<li><code>addBusinessDays(cal, value, n)</code> / <code>subtractBusinessDays(cal, value, n)</code>.</li>
+<li><code>differenceInBusinessDays(cal, a, b)</code>.</li>
+<li><code>nextBusinessDay(cal, value)</code> / <code>previousBusinessDay(cal, value)</code>.</li>
+</ul>
+<pre><code class="language-js">import { createHolidayCalendar, nextHoliday, holidaysBetween } from 'temporal-fmt';
+
+const holidays = createHolidayCalendar([
+  { month: 1, day: 1, name: &quot;New Year's Day&quot; },
+  { compute: (year) =&gt; ({ month: 5, day: lastMondayOf(year, 5) }), name: 'Memorial Day' },
+]);
+
+holidays.isHoliday(someDate);
+nextHoliday(holidays, someDate);
+</code></pre>
+<ul>
+<li><code>createHolidayCalendar(specs)</code> — each spec is a fixed <code>{ month, day }</code> or a <code>compute(year) =&gt; { month, day }</code> function for floating holidays.</li>
+<li>The returned calendar has <code>.isHoliday(value)</code> and <code>.holidaysBetween(start, end)</code> as methods.</li>
+<li><code>nextHoliday(cal, value)</code> / <code>previousHoliday(cal, value)</code> — capped at a 5-year lookahead/lookbehind.</li>
+<li><code>holidaysBetween(cal, start, end)</code> — standalone wrapper around <code>cal.holidaysBetween()</code>.</li>
+</ul>
+<p>Country-specific holiday datasets are out of scope — <code>createHolidayCalendar</code> is the abstraction; populating it is the caller's job.</p>
+<h2>Time zones</h2>
+<pre><code class="language-js">import { resolveZoned, isDST, getTransitions } from 'temporal-fmt';
+
+resolveZoned({ year: 2026, month: 3, day: 8, hour: 2, minute: 30 }, 'America/New_York', { disambiguation: 'compatible' });
+isDST(zonedDateTime);
+getTransitions(rangeStart, rangeEnd);
+</code></pre>
+<ul>
+<li><code>resolveZoned(fields, timeZone, options?)</code> — constructs a <code>ZonedDateTime</code> with an explicit disambiguation mode for gaps/overlaps: <code>'compatible' | 'earlier' | 'later' | 'reject'</code>.</li>
+<li><code>getTimeZone(value)</code>, <code>getOffset(value)</code>, <code>getOffsetNanoseconds(value)</code>.</li>
+<li><code>isDST(value)</code> — heuristic: compares the current offset against the January offset. Correct for Northern Hemisphere; Southern Hemisphere zones have DST in January, so it can read backwards there.</li>
+<li><code>getNextTransition(value)</code> / <code>getPreviousTransition(value)</code>.</li>
+<li><code>getTransitions(start, end)</code> — every DST/offset transition within a range.</li>
+<li><code>possibleInstantsFor(fields, timeZone)</code> — empty for a DST gap, two for an overlap, one otherwise.</li>
+</ul>
+<h2>Serialization</h2>
+<pre><code class="language-js">import { parseISO, formatISO, parseRFC3339, fromUnixMilliseconds } from 'temporal-fmt';
+
+parseISO('2026-08-04T15:45:30Z');
+formatISO(value);
+fromUnixMilliseconds(1754321130000);
+</code></pre>
+<ul>
+<li><code>parseISO(input)</code> / <code>formatISO(value)</code> — ISO 8601.</li>
+<li><code>parseRFC3339(input)</code> / <code>formatRFC3339(value)</code> — RFC 3339.</li>
+<li><code>parseRFC2822(input)</code> / <code>formatRFC2822(value)</code> — RFC 2822 (email/HTTP headers).</li>
+<li><code>parseHTTPDate(input)</code> / <code>formatHTTPDate(value)</code> — HTTP-date headers.</li>
+<li><code>parseSQL(input)</code> / <code>formatSQL(value)</code> — SQL <code>DATETIME</code>/<code>TIMESTAMP</code>.</li>
+<li>Epoch conversions: <code>fromUnixSeconds</code>, <code>fromUnixMilliseconds</code>, <code>fromUnixMicroseconds</code>, <code>fromUnixNanoseconds</code>, <code>toUnixSeconds</code>, <code>toUnixMilliseconds</code>, <code>toUnixMicroseconds</code>, <code>toUnixNanoseconds</code>.</li>
+</ul>
+<h2>Introspection and the analyzer</h2>
+<pre><code class="language-js">import { tokenInfo, listTokens, analyzeFormat, explainFormat, isValidFormat } from 'temporal-fmt';
+
+tokenInfo('yyyy');
+// {
+//   meaning: 'Four-digit year (preserves sign for BCE; no truncation).',
+//   formatCapable: true,
+//   parseCapable: true,
+//   localeSensitive: false,
+//   calendarSensitive: true,
+//   timezoneSensitive: false,
+//   supportedTypes: ['PlainDate', 'PlainDateTime', 'ZonedDateTime', 'PlainYearMonth'],
+//   roundTripSafe: true,
+// }
+
+analyzeFormat(&quot;MMMM d, yyyy 'at' h:mm a&quot;);
+// { tokens, requiredFields, compatibleTypes, parseable, localeSensitive,
+//   calendarSensitive, timezoneSensitive, ambiguous, roundTripSafe, warnings }
+</code></pre>
+<ul>
+<li><code>analyzeFormat(formatStr)</code> — full structured report.</li>
+<li><code>explainFormat(formatStr)</code> — human-readable version of the same.</li>
+<li><code>tokenInfo(name)</code> — metadata for one token, or <code>undefined</code> if unrecognized.</li>
+<li><code>listTokens()</code> — all recognized tokens with metadata.</li>
+<li><code>isValidFormat(formatStr)</code> — <code>true</code> if the tokenizer accepts the string.</li>
+<li><code>validateFormat(formatStr)</code> — throws on invalid input, otherwise returns the <code>analyzeFormat</code> report.</li>
+<li><code>tokenizeFormat(formatStr)</code> — raw literal/token piece list.</li>
+<li><code>fieldForToken(token)</code> — which <code>TemporalLike</code> field a token reads.</li>
+</ul>
+<p><code>TOKEN_METADATA</code>, <code>ALL_TOKEN_NAMES</code>, and <code>FORMAT_ONLY_TOKENS</code> are also exported directly for tooling that wants the raw table (<code>do</code>, <code>ww</code>, <code>RRRR</code>, <code>D</code>/<code>DD</code>/<code>DDD</code>, <code>LLLL</code>/<code>LLL</code>, <code>cccc</code>/<code>ccc</code>, <code>GGGG</code>/<code>G</code>, <code>zzzz</code>/<code>z</code>).</p>
+<p><strong>Round-trip safety by token family:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Family</th>
+<th>Tokens</th>
+<th>Round-trip safe</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Year</td>
+<td><code>yyyy</code></td>
+<td>yes</td>
+<td>Preserves sign for BCE.</td>
+</tr>
+<tr>
+<td>Year</td>
+<td><code>yy</code></td>
+<td>no</td>
+<td>Century is lost — re-derived via the <code>00–68</code>/<code>69–99</code> rule, not guaranteed to match.</td>
+</tr>
+<tr>
+<td>Month</td>
+<td><code>MMMM</code>, <code>MMM</code>, <code>MM</code>, <code>M</code></td>
+<td>yes</td>
+<td>Both numeric and name forms round-trip; name forms are locale-sensitive.</td>
+</tr>
+<tr>
+<td>Day</td>
+<td><code>dd</code>, <code>d</code></td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td>Day</td>
+<td><code>do</code></td>
+<td>no</td>
+<td>Format-only.</td>
+</tr>
+<tr>
+<td>Weekday</td>
+<td><code>EEEE</code>, <code>EEE</code></td>
+<td>yes</td>
+<td>Cross-checked on parse — a mismatch throws rather than round-tripping wrong.</td>
+</tr>
+<tr>
+<td>ISO week</td>
+<td><code>ww</code>, <code>RRRR</code></td>
+<td>n/a</td>
+<td>Format-only — a week number can't reconstruct a specific date alone.</td>
+</tr>
+</tbody>
+</table>
+<h2>Typed errors</h2>
+<p>Main API errors are typed <code>TemporalFmtError</code> subclasses. All inherit <code>code</code>, <code>input</code>, <code>format</code>, <code>token</code>, <code>position</code>, <code>expected</code>, <code>actual</code>, <code>reason</code>.</p>
+<blockquote>
+<p><strong>Deprecated compatibility API:</strong> <code>temporal-fmt/legacy</code> is retained to help existing code migrate. No removal date announced, but not recommended for new code. Use the main API.</p>
+</blockquote>
+<p>For code that still depends on plain-<code>Error</code> identity or <code>err.name === 'Error'</code>:</p>
+<pre><code class="language-js">import { format, parse } from 'temporal-fmt';
+import { format as legacyFormat, parse as legacyParse } from 'temporal-fmt/legacy';
+</code></pre>
+<p><code>temporal-fmt/legacy</code> also provides <code>formatToParts</code>, <code>compileFormat</code>, <code>safeParse</code>, <code>tryParse</code>, <code>parseToParts</code>, <code>compileParser</code>, and <code>matchesFormat</code>. <code>matchesFormat</code> is also available from the package root for older imports — it checks token shape and vocabulary, not date validity, and is retained for compatibility with existing scripts.</p>
+<table>
+<thead>
+<tr>
+<th>Class</th>
+<th>Code</th>
+<th>Fires when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FormatSyntaxError</code></td>
+<td><code>FORMAT_SYNTAX_ERROR</code></td>
+<td>Unterminated quote, format string over the length cap, other syntax issues.</td>
+</tr>
+<tr>
+<td><code>UnknownTokenError</code></td>
+<td><code>UNKNOWN_TOKEN</code></td>
+<td>An unrecognized letter run was encountered.</td>
+</tr>
+<tr>
+<td><code>ParseMismatchError</code></td>
+<td><code>PARSE_MISMATCH</code></td>
+<td>Input doesn't match the format's shape — generic catch-all.</td>
+</tr>
+<tr>
+<td><code>InvalidDateError</code></td>
+<td><code>INVALID_DATE</code></td>
+<td>Valid structure but nonexistent date (Feb 30), or a weekday/quarter that contradicts the date.</td>
+</tr>
+<tr>
+<td><code>InvalidTimeError</code></td>
+<td><code>INVALID_TIME</code></td>
+<td>Time out of range (hour 25, etc).</td>
+</tr>
+<tr>
+<td><code>InvalidOffsetError</code></td>
+<td><code>INVALID_OFFSET</code></td>
+<td>Offset malformed or outside <code>-12:00</code> to <code>+14:00</code>.</td>
+</tr>
+<tr>
+<td><code>InvalidTimeZoneError</code></td>
+<td><code>INVALID_TIME_ZONE</code></td>
+<td>Not a recognized IANA name or fixed offset.</td>
+</tr>
+<tr>
+<td><code>InvalidCalendarError</code></td>
+<td><code>INVALID_CALENDAR</code></td>
+<td>Unsupported calendar.</td>
+</tr>
+<tr>
+<td><code>AmbiguousInputError</code></td>
+<td><code>AMBIGUOUS_INPUT</code></td>
+<td>Input has more than one valid reading.</td>
+</tr>
+<tr>
+<td><code>InvalidLocaleError</code></td>
+<td><code>INVALID_LOCALE</code></td>
+<td>Not a valid BCP-47 tag, or an unsupported numbering system.</td>
+</tr>
+<tr>
+<td><code>InvalidDurationError</code></td>
+<td><code>INVALID_DURATION</code></td>
+<td>Duration string doesn't match ISO 8601 grammar, or a field is non-finite.</td>
+</tr>
+</tbody>
+</table>
+<h3>Common error messages</h3>
+<p><strong>&quot;no valid pattern matches the format string and input shape&quot;</strong> — input doesn't match the format string. Usually a missing separator, wrong digit count, or <code>zzz</code> capturing something that isn't a real IANA zone ID.</p>
+<p><strong>&quot;token X requires Y, which this Temporal object doesn't have&quot;</strong> — token reads a field the value doesn't carry. <code>format(plainDate, 'HH:mm')</code> throws because <code>PlainDate</code> has no hour field.</p>
+<p><strong>&quot;format string mixes 'yyyy' and 'yy' year representations&quot;</strong> — don't combine both year tokens in one format string.</p>
+<p><strong>&quot;format string has an incomplete date — year, month, and day tokens must all be present together&quot;</strong> — a partial date can't become a Temporal value. Add the missing tokens.</p>
+<p><strong>&quot;X is ambiguous — N different ways to read tokens Y are all individually valid&quot;</strong> — add a separator, zero-pad, or pass <code>{ lenient: true }</code>.</p>
+<p><strong>&quot;offset hours X out of range (max 14 — Kiritimati, Line Islands is +14:00)&quot;</strong> — offset's hour component is past the IANA range.</p>
+<p><strong>&quot;X has no such wall-clock time on this date — it falls in a DST gap&quot;</strong> — the time doesn't exist. Pick a different time or pass <code>{ disambiguation: 'compatible' }</code> to <code>resolveZoned</code>.</p>
+<p><strong>&quot;has both a 'zzz' zone (X) and an offset token (Y), but the zone's actual offset at this date/time is Z, not Y&quot;</strong> — zone name and explicit offset disagree at the parsed instant.</p>
+<h2>Type guards</h2>
+<pre><code class="language-js">import { isPlainDate, assertZonedDateTime } from 'temporal-fmt';
+
+if (isPlainDate(value)) { /* narrowed */ }
+assertZonedDateTime(value); // throws descriptively if not
+</code></pre>
+<ul>
+<li><code>isTemporal</code>, <code>isInstant</code>, <code>isPlainDate</code>, <code>isPlainTime</code>, <code>isPlainDateTime</code>, <code>isZonedDateTime</code>, <code>isPlainYearMonth</code>, <code>isPlainMonthDay</code>, <code>isDuration</code>.</li>
+<li><code>assertTemporal</code>, <code>assertInstant</code>, <code>assertPlainDate</code>, <code>assertPlainTime</code>, <code>assertPlainDateTime</code>, <code>assertZonedDateTime</code>, <code>assertPlainYearMonth</code>, <code>assertPlainMonthDay</code>, <code>assertDuration</code> — same checks, throwing descriptively on mismatch. Useful for narrowing the <code>unknown</code> <code>parse()</code> returns.</li>
+</ul>
+<h2>Config</h2>
+<p><code>createConfig(overrides?)</code> returns a frozen config object bundling <code>locale</code>, <code>calendar</code>, <code>timeZone</code>, <code>numberingSystem</code>, week rules, rounding, disambiguation, overflow, <code>parseLenient</code>, and <code>durationShowZeroValues</code>. <code>mergeWithConfig(config, perCall)</code> folds config defaults into a per-call options object, with per-call options taking precedence.</p>
+<h2>Numbering systems</h2>
+<p>Numeric tokens output Western digits by default. Override per call:</p>
+<pre><code class="language-js">import { format, parse } from 'temporal-fmt';
+
+format(date, 'yyyy-MM-dd', { numberingSystem: 'arab' });                       // &quot;٢٠٢٦-٠٨-٠٤&quot;
+parse('yyyy-MM-dd', '٢٠٢٦-٠٨-٠٤', { parseNumberingSystem: 'arab' }).toString(); // '2026-08-04'
+</code></pre>
+<p><code>numberingSystem</code> and <code>parseNumberingSystem</code> are separate options on purpose — you might want localized digits in output without expecting them back on input.</p>
+<p>Pass <code>'auto'</code> to use whichever numeral system the locale itself uses:</p>
+<pre><code class="language-js">format(date, 'yyyy-MM-dd', { numberingSystem: 'auto', locale: 'ar-EG' }); // &quot;٢٠٢٦-٠٨-٠٤&quot;
+format(date, 'yyyy-MM-dd', { numberingSystem: 'auto', locale: 'bn-BD' }); // &quot;২০২৬-০৮-০৪&quot;
+format(date, 'yyyy-MM-dd', { numberingSystem: 'auto' });                  // &quot;2026-08-04&quot; — en-US is latn
+</code></pre>
+<p>When the locale's native system isn't supported (e.g. Tangsa digits), <code>'auto'</code> falls back to <code>'latn'</code>. A malformed locale tag throws. Unset still means <code>'latn'</code> everywhere.</p>
+<p>Direct conversion utilities:</p>
+<pre><code class="language-js">import { convertDigits, convertDigitsToAscii } from 'temporal-fmt';
+
+convertDigits('2026', 'arab');        // &quot;٢٠٢٦&quot;
+convertDigitsToAscii('٢٠٢٦', 'arab'); // &quot;2026&quot;
+</code></pre>
+<ul>
+<li><code>convertDigits(s, system)</code>, <code>convertDigitsToAscii(s, system)</code>.</li>
+<li><code>applyNumbering(s, options)</code> / <code>applyParseNumbering(s, options)</code> — the same helpers <code>format()</code>/<code>parse()</code> use internally, exposed directly.</li>
+<li><code>SUPPORTED_NUMBERING_SYSTEMS</code> — <code>'latn' | 'adlm' | 'ahom' | 'arab' | 'arabext' | 'bali' | 'beng' | 'bhks' | 'brah' | 'cakm' | 'cham' | 'deva' | 'fullwide' | 'gong' | 'gonm' | 'gujr' | 'guru' | 'hanidec' | 'hmng' | 'hmnp' | 'java' | 'kali' | 'khmr' | 'knda' | 'lana' | 'lanatham' | 'laoo' | 'lepc' | 'limb' | 'mathbold' | 'mathdbl' | 'mathmono' | 'mathsanb' | 'mathsans' | 'mlym' | 'modi' | 'mong' | 'mroo' | 'mtei' | 'mymr' | 'mymrshan' | 'mymrtlng' | 'newa' | 'nkoo' | 'olck' | 'orya' | 'osma' | 'rohg' | 'saur' | 'shrd' | 'sind' | 'sinh' | 'sora' | 'sund' | 'takr' | 'talu' | 'tamldec' | 'telu' | 'thai' | 'tirh' | 'tibt' | 'vaii' | 'wara' | 'wcho'</code>.</li>
+</ul>
+<h2>Extending with custom tokens</h2>
+<p><code>createFormatter(options?)</code> builds a formatter with its own token(s). A custom token can override a built-in of the same name if you need different behavior, without forking the library.</p>
+<h2>IDE tooling data</h2>
+<p>These functions feed editor tooling rather than application code:</p>
+<ul>
+<li><code>getAutocompleteData()</code> — token autocomplete entries, grouped by family.</li>
+<li><code>getHoverDocs()</code> — per-token hover documentation.</li>
+<li><code>getInlineDiagnostics(formatStr)</code> — diagnostics with positions and suggested fixes.</li>
+<li><code>previewFormat(formatStr, sample?)</code> — live preview string for a format.</li>
+<li><code>getDocUrl(tokenName)</code> — documentation URL for a token (points at <a href="#tokens">Tokens</a>).</li>
+<li><code>DAYJS_TO_TEMPORAL_FMT</code> / <code>DATE_FNS_TO_TEMPORAL_FMT</code> — token conversion hints for migration tooling.</li>
+</ul>
+<h2>Legacy mod documentation</h2>
+<p>Mod support was removed in 0.9.82 — the package no longer discovers, loads, sandboxes, or executes mods, and the CLI is gone with it. Historical documentation for prior versions is in <a href="./LEGACY_VERSION_MODS/"><code>LEGACY_VERSION_MODS/</code></a>. It describes behavior that no longer exists; don't use it as current usage guidance. That folder will be dropped from <code>main</code> once 0.10.x ships, but stays on the <code>0.9.x</code> branch after it's cut.</p>
+<h2>Subpath imports</h2>
+<pre><code class="language-js">import { format } from 'temporal-fmt/format';
+import { parse } from 'temporal-fmt/parse';
+import { formatDuration } from 'temporal-fmt/duration';
+import { formatRelative } from 'temporal-fmt/relative';
+import { interval, formatRange } from 'temporal-fmt/interval';
+import { daysInMonth, startOf } from 'temporal-fmt/calendar';
+import { resolveZoned, isDST } from 'temporal-fmt/timezone';
+import { recurrence } from 'temporal-fmt/recurrence';
+import { registerLocale } from 'temporal-fmt/locale';
+</code></pre>
+<p>Arithmetic, comparison, rounding, business calendars, holidays, serialization, config, type guards, typed errors, the analyzer, and IDE tooling data are only available from the main <code>temporal-fmt</code> entry — no dedicated subpaths for those yet.</p>
+<p><code>sideEffects: false</code> is set in <code>package.json</code>. Measured with esbuild: <code>import { format } from 'temporal-fmt/format'</code> → ~27KB vs. ~68KB from the bare entry. If bundle size matters, use the subpath.</p>
+<h2>Migrating from Day.js or date-fns</h2>
+<h3>Token mapping</h3>
+<table>
+<thead>
+<tr>
+<th>Day.js / date-fns</th>
+<th>temporal-fmt</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>YYYY</code></td>
+<td><code>yyyy</code></td>
+<td>Lowercase here</td>
+</tr>
+<tr>
+<td><code>YY</code></td>
+<td><code>yy</code></td>
+<td>Same</td>
+</tr>
+<tr>
+<td><code>MMMM</code>, <code>MMM</code>, <code>MM</code>, <code>M</code></td>
+<td>same</td>
+<td>Identical</td>
+</tr>
+<tr>
+<td><code>DD</code>, <code>D</code></td>
+<td><code>dd</code>, <code>d</code></td>
+<td>Lowercase here</td>
+</tr>
+<tr>
+<td><code>dddd</code></td>
+<td><code>EEEE</code></td>
+<td>Long weekday</td>
+</tr>
+<tr>
+<td><code>ddd</code></td>
+<td><code>EEE</code></td>
+<td>Short weekday</td>
+</tr>
+<tr>
+<td><code>HH</code>, <code>H</code>, <code>mm</code>, <code>m</code>, <code>ss</code>, <code>s</code></td>
+<td>same</td>
+<td>Identical</td>
+</tr>
+<tr>
+<td><code>A</code>, <code>a</code></td>
+<td><code>a</code></td>
+<td>Always lowercase here</td>
+</tr>
+<tr>
+<td><code>Z</code></td>
+<td><code>XXX</code></td>
+<td>Offset with colon, <code>Z</code> for UTC</td>
+</tr>
+<tr>
+<td><code>ZZ</code></td>
+<td><code>XX</code></td>
+<td>Offset, no colon</td>
+</tr>
+<tr>
+<td><code>X</code></td>
+<td>not supported</td>
+<td>Use <code>fromUnixSeconds</code></td>
+</tr>
+<tr>
+<td><code>x</code></td>
+<td>not supported</td>
+<td>Use <code>fromUnixMilliseconds</code></td>
+</tr>
+<tr>
+<td><code>P</code></td>
+<td>not supported</td>
+<td>Write the format string out explicitly</td>
+</tr>
+</tbody>
+</table>
+<h3>API mapping</h3>
+<table>
+<thead>
+<tr>
+<th>Day.js</th>
+<th>date-fns</th>
+<th>temporal-fmt</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dayjs(str).format(fmt)</code></td>
+<td><code>format(date, fmt)</code></td>
+<td><code>format(temporal, fmt)</code></td>
+</tr>
+<tr>
+<td><code>dayjs(str)</code> (parse)</td>
+<td><code>parseISO(str)</code></td>
+<td><code>parseISO(str)</code></td>
+</tr>
+<tr>
+<td><code>dayjs().add(n, 'day')</code></td>
+<td><code>addDays(date, n)</code></td>
+<td><code>add(date, n, 'days')</code> or <code>addDays(date, n)</code></td>
+</tr>
+<tr>
+<td><code>dayjs().diff(other, 'day')</code></td>
+<td><code>differenceInDays(a, b)</code></td>
+<td><code>differenceInDays(a, b)</code></td>
+</tr>
+<tr>
+<td><code>dayjs().isBefore(other)</code></td>
+<td><code>isBefore(date, other)</code></td>
+<td><code>isBefore(date, other)</code></td>
+</tr>
+<tr>
+<td><code>dayjs().isAfter(other)</code></td>
+<td><code>isAfter(date, other)</code></td>
+<td><code>isAfter(date, other)</code></td>
+</tr>
+<tr>
+<td><code>dayjs().isToday()</code></td>
+<td><code>isToday(date)</code></td>
+<td><code>isToday(date)</code></td>
+</tr>
+<tr>
+<td><code>dayjs().isYesterday()</code></td>
+<td><code>isYesterday(date)</code></td>
+<td><code>isYesterday(date)</code></td>
+</tr>
+<tr>
+<td><code>dayjs().isTomorrow()</code></td>
+<td><code>isTomorrow(date)</code></td>
+<td><code>isTomorrow(date)</code></td>
+</tr>
+</tbody>
+</table>
+<h3>Things that will bite you</h3>
+<ol>
+<li><strong>Strict parsing.</strong> Day.js picks one reading of ambiguous input silently. This library throws. Add separators or use <code>{ lenient: true }</code>.</li>
+<li><strong>Cross-field validation.</strong> Weekday, quarter, and offset are cross-checked against the parsed date. A wrong weekday label throws.</li>
+<li><strong>No &quot;now&quot; fallback.</strong> Missing input doesn't fall back to the current time.</li>
+<li><strong>Type-preserving.</strong> <code>format(plainDate, 'HH:mm')</code> throws — <code>PlainDate</code> has no hour field. Day.js would silently use 0.</li>
+<li><strong>Temporal-native, not <code>Date</code>-native.</strong> Convert at the boundary:</li>
+</ol>
+<pre><code class="language-js">import { Temporal } from 'temporal-polyfill';
+const pd = Temporal.PlainDate.from(jsDate.toISOString().slice(0, 10));
+format(pd, 'yyyy-MM-dd');
+</code></pre>
+<h3>Common patterns</h3>
+<pre><code class="language-js">// CSV/log timestamp parsing
+const d = parse('yyyy-MM-dd HH:mm:ss', line);
+
+// Locale-aware formatting
+format(date, 'MMMM d, yyyy', { locale: 'fr-FR' }); // &quot;août 4, 2026&quot;
+
+// Relative time
+formatRelativeToNow(date); // &quot;3 days ago&quot;
+
+// Date arithmetic
+add(date, 7, 'days'); // or addDays(date, 7)
+</code></pre>
+<h3>Things that don't migrate cleanly</h3>
+<ul>
+<li><strong>Day.js's <code>customParseFormat</code> plugin</strong> — that plugin parses leniently. Audit callers relying on it.</li>
+<li><strong>Day.js's global locale</strong> (<code>dayjs.locale('fr')</code>) — this library uses per-call <code>locale</code> options.</li>
+<li><strong>date-fns's locale objects</strong> — this library takes BCP-47 strings.</li>
+<li><strong><code>dayjs-timezone</code></strong> — use <code>Temporal.ZonedDateTime</code> and the <code>zzz</code>/offset tokens instead.</li>
+</ul>
+<h3>Running both during migration</h3>
+<pre><code class="language-js">import dayjs from 'dayjs';
+import { format as fmtTemporal } from 'temporal-fmt';
+
+function formatDate(date, formatStr, opts) {
+  if (opts?.useTemporal) return fmtTemporal(date, formatStr, opts);
+  return dayjs(date).format(formatStr);
+}
+</code></pre>
+<p>Migrate file by file, drop the wrapper when nothing calls the old path anymore.</p>
+<h2>Related tools</h2>
+<p>Both are deprecated and archived — single-maintainer bandwidth, no further updates — but the last published versions still work:</p>
+<ul>
+<li><a href="https://www.npmjs.com/package/eslint-plugin-temporal-fmt"><code>eslint-plugin-temporal-fmt</code></a> <em>(deprecated, archived)</em> — lints format strings for common mistakes (e.g. <code>hh</code> without <code>a</code>). Backed by the same metadata as <code>analyzeFormat().warnings</code>.</li>
+<li><a href="https://github.com/DirazCoder/temporal-fmt-codemod"><code>temporal-fmt-codemod</code></a> <em>(deprecated, archived)</em> — jscodeshift codemod that rewrites <code>dayjs(x).format(...)</code>/date-fns <code>format(...)</code> call sites across a codebase.</li>
+</ul>
+<h2>Testing</h2>
+<p>The suites run 3,000+ test and smoke checks across <code>test/</code>, <code>vitest/</code>, and a consumer suite. The smoke runner packs and installs the package, checks public subpaths in CJS and ESM, and runs consumer type probes with both <code>bundler</code> and <code>nodenext</code> resolution. If it's in this README, it has a test. CI also runs the full <code>vitest/</code> suite in real browsers and a separate Playwright suite against the built package in Chromium, Firefox (Gecko), and WebKit across Linux, Windows, and macOS.</p>
+<p>Run the suites independently with <code>npm test</code> (<code>test/</code>), <code>npm run test:unit</code> (<code>vitest/</code>), <code>npm run test:smoke</code> (<code>smoke-test/</code>), <code>npm run test:browser:unit</code> (the full Vitest suite in a browser), and <code>npm run test:browser</code> (Playwright against the built package). For browser tests locally, install the Playwright browsers first with <code>npx playwright install</code> (Linux also needs <code>npx playwright install-deps</code>). <code>npm run test:all</code> runs the Node, Vitest, type, package, and consumer smoke checks; CI additionally runs the browser matrix.</p>
+<p>CI runs the Node and package tests on Node 20, 22, 24, and 26 across Ubuntu, Windows, and macOS. The full <code>vitest/</code> suite runs in each browser/platform combination using Chromium, Firefox (Gecko), or WebKit; a separate Playwright suite tests the built <code>dist/</code> package with the latest Playwright release. Browser tests run separately from <code>npm run test:all</code>. GitHub also runs CodeQL for GitHub Actions and JavaScript/TypeScript, along with repository dependency checks.</p>
+<h2>Conformance fixtures</h2>
+<p><code>fixtures.json</code> is a portable test-vector set for token-based Temporal formatters, written against a different library's token vocabulary. Each case names an <code>op</code> (<code>format</code> / <code>parse</code> / <code>roundtrip</code>), an input, a pattern, and an expected result — any library with a <code>format</code>/<code>parse</code> pair can use it.</p>
+<p><code>test/conformance.test.js</code> is the temporal-fmt adapter. It translates fixture patterns into temporal-fmt tokens, runs them against <code>format()</code>/<code>parse()</code>, and checks results.</p>
+<h3>Why this is separate from adversarial and fuzz tests</h3>
+<p><code>test/adversarial.test.js</code> and <code>test/fuzz.test.js</code> check internal consistency under hostile input — clean throw or correct value, never a crash or silent wrong result. The reference point is the library's own logic.</p>
+<p>The conformance suite checks against an external set of tricky-but-well-defined cases — DST transitions, leap years, offset rendering, calendar limits — where &quot;correct&quot; comes from the fixture, not from this library's code.</p>
+<h3>Pattern translation</h3>
+<p>Two fixture tokens don't exist in temporal-fmt:</p>
+<table>
+<thead>
+<tr>
+<th>Fixture token</th>
+<th>temporal-fmt equivalent</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ZZ</code> (always-signed, never <code>Z</code>)</td>
+<td><code>xxx</code></td>
+<td>Only uppercase <code>X</code>/<code>XX</code>/<code>XXX</code> collapses to <code>Z</code>. Lowercase never does — that's <code>ZZ</code>'s semantics. <code>XXX</code> was tried first and is wrong — it fails cases that expect <code>+00:00</code>, not <code>Z</code>.</td>
+</tr>
+<tr>
+<td><code>VV</code> (IANA zone ID)</td>
+<td><code>zzz</code></td>
+<td>temporal-fmt's only zone-identity token.</td>
+</tr>
+</tbody>
+</table>
+<p>Everything else in the fixture set (<code>yyyy</code>, <code>y</code>, <code>MM</code>, <code>dd</code>, <code>HH</code>, <code>mm</code>, <code>ss</code>, <code>S</code>–<code>SSSSSSSSS</code>, <code>h</code>, <code>a</code>, <code>X</code>/<code>XX</code>/<code>XXX</code>) already matches temporal-fmt's vocabulary.</p>
+<h3><code>opinionated</code> cases</h3>
+<p>Cases flagged <code>&quot;opinionated&quot;: true</code> encode a design choice of the fixture's source library, not a fact about dates. The adapter still runs them — if temporal-fmt's behavior differs, it logs a divergence note instead of failing.</p>
+<p>Two cases currently diverge, both <code>yy</code>-pivot: <code>extreme-year-two-digit-pivot-low</code> and <code>extreme-year-two-digit-pivot-high</code>. temporal-fmt refuses <code>yy</code> in any format string that isn't a complete date, so <code>parse(&quot;yy-MM&quot;, ...)</code> throws an incomplete-date error before the century-pivot question comes up. Both cases are documented design choices with their own tests.</p>
+<p>One previously-flagged case no longer diverges: <strong><code>shape-mixing-H-and-a-rejected</code></strong>. <code>resolveHour()</code> used to cross-check <code>H</code> against <code>a</code> rather than banning the combination outright, so <code>13:05 PM</code> was accepted. That was reversed — <code>H</code> and <code>a</code> are now refused together, matching the fixture. The fixture's <code>&quot;opinion&quot;</code> text still describes the old behavior; treat it as historical.</p>
+<h3>Fixed divergences</h3>
+<p>Everything below was once in <code>KNOWN_FAILURES</code>. That list is now empty.</p>
+<p><strong>Offset seconds were dropped, not rejected.</strong> <code>formatOffset()</code> assumed every offset was exactly 6 characters and never checked for a seconds component. A pre-1883 <code>America/New_York</code> date has offset <code>-04:56:02</code> — the old code silently produced <code>-0402</code>. Fixed: <code>X</code>/<code>XX</code>/<code>XXX</code>/<code>x</code>/<code>xx</code> throw when the offset has a seconds component; <code>xxx</code> passes it through.</p>
+<p><strong>Offset-only <code>ZonedDateTime</code> construction was refused.</strong> <code>parse()</code> previously built a <code>ZonedDateTime</code> from an offset token alone, no <code>zzz</code> required. Changed: an offset identifies a UTC distance, not a time zone. A pattern with an offset token and no <code>zzz</code> now throws.</p>
+<p><strong><code>y</code> token added.</strong> temporal-fmt previously had only <code>yyyy</code> and <code>yy</code>. <code>y</code> formats and parses at any width, sign preserved for years before ISO year 0. <code>buildCapturingPattern()</code> refuses to place <code>y</code> directly next to another digit-reading token or digit-leading literal, rather than trying to cost-estimate an unbounded-width fragment.</p>
+<p><strong><code>zzz</code> was rejecting valid IANA aliases.</strong> <code>offset-X-parse-accepts-four-digit</code> was misdiagnosed as a regex gap. The actual failure: <code>isValidTimeZone()</code> only checked <code>Intl.supportedValuesOf('timeZone')</code>, which lists canonical IDs but not all IANA link/alias names — <code>Asia/Kolkata</code> (a common alias for <code>Asia/Calcutta</code>) was rejected even though <code>Temporal.ZonedDateTime.from()</code> accepts it. Fix: <code>isValidTimeZone()</code> falls back to a real <code>ZonedDateTime.from()</code> call when the <code>Intl</code> fast path misses.</p>
+<h3>Adapter notes</h3>
+<ul>
+<li><code>parse(formatStr, input, options)</code> takes <code>(formatStr, input)</code> — reversed from the fixture's field order.</li>
+<li>The fixture's three <code>expect.throws</code> values (<code>&quot;ParseError&quot;</code>, <code>&quot;FormatError&quot;</code>, <code>&quot;InvalidPatternError&quot;</code>) don't map cleanly onto temporal-fmt's subclasses. The adapter just checks that something extending <code>Error</code> was thrown.</li>
+<li><code>target</code> in the fixture is informational. temporal-fmt's <code>parse()</code> infers the result shape from tokens, so the adapter never passes <code>target</code> as input.</li>
+</ul>
+<h2>Benchmarks</h2>
+<p><code>benchmarks/</code> contains a tinybench suite covering the main hot paths: format, parse, arithmetic, relative distance, serialization, comparison, and rounding.</p>
+<pre><code class="language-sh">npm run bench              # all suites
+npm run bench:format       # format suite only
+npm run bench:parse        # parse suite only
+node benchmarks/run.mjs --suite=arithmetic,rounding
+</code></pre>
+<p>Each suite runs with a warmup pass before measuring, so the numbers reflect cached-pattern throughput rather than cold-start cost. The format and parse suites include both cold calls and pre-compiled handles (<code>compileFormat</code>/<code>compileParser</code>) side by side, so you can see the actual cache benefit for your use case.</p>
+<h2>Contributing</h2>
+<pre><code class="language-sh">git clone https://github.com/DirazCoder/temporal-fmt.git
+cd temporal-fmt
+npm install
+npm run build
+npm run test:all
+</code></pre>
+<p><code>npm test</code> runs only the classic <code>node:test</code> suite; it does not run <code>vitest/</code> or the packed-package smoke suite. Run <code>npm run test:all</code> for everything CI runs (build + both unit suites + package/type checks + smoke suite).</p>
+<p>Build notes if you're touching the toolchain:</p>
+<ul>
+<li>Requires TypeScript 7.0.2+. <code>.d.ts</code> generation runs as a separate <code>tsc</code> pass rather than through <code>tsup</code> — <code>tsup</code>'s dts step uses <code>rollup-plugin-dts</code>, which calls into TypeScript's compiler API and isn't stable on 7.x. <code>tsup.config.ts</code> sets <code>dts: false</code>; <code>npm run build</code> runs <code>tsup &amp;&amp; tsc --declaration --emitDeclarationOnly</code>. Side effect: <code>dist/</code> has one <code>.d.ts</code> per source file rather than a single rolled-up <code>index.d.ts</code>.</li>
+<li>Tests use <code>temporal-polyfill/full</code>, not the slim build — Hebrew-calendar tests need the full calendar data. <code>parse.test.js</code> configures <code>Temporal</code> via <code>setTemporal()</code> rather than mutating <code>globalThis.Temporal</code>.</li>
+</ul>
+<h2>License</h2>
+<p>Apache 2.0 — see <a href="./LICENSE">LICENSE</a>.</p>
+</div>
+  <footer class="readme-dialog__footer">
+    Powered by my own Markdown Parser <a href="https://www.npmjs.com/package/nitpicky-md" target="_blank" rel="noopener noreferrer">Nitpicky-md</a>
+  </footer>
+</dialog>
 <script src="script.js" defer></script>
 </body>
 </html>

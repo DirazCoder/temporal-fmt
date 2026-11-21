@@ -1,8 +1,9 @@
 # website
 
-The temporal-fmt docs site: sidebar, search, and live npm stats. Plain HTML, CSS and JS, no framework, no dependencies.
+The temporal-fmt docs site: sidebar, search, and live npm stats. Plain HTML, CSS and JS, no runtime dependencies. The build uses `nitpicky-md` to render the repository README.
 
     cd website
+    npm ci            # install the README renderer
     npm run build     # writes public/
     npm start         # preview it locally
 

@@ -5,5 +5,8 @@
   "scripts": {
     "build": "node build.js",
     "start": "npx serve public"
+  },
+  "devDependencies": {
+    "nitpicky-md": "^0.1.1"
   }
 }

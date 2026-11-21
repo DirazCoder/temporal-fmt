@@ -20,6 +20,17 @@
   });
   paintToggle();
 
+  var readmeDialog = document.getElementById('readme-dialog');
+  document.getElementById('readme-open').addEventListener('click', function () {
+    readmeDialog.showModal();
+  });
+  document.getElementById('readme-close').addEventListener('click', function () {
+    readmeDialog.close();
+  });
+  readmeDialog.addEventListener('click', function (e) {
+    if (e.target === readmeDialog) readmeDialog.close();
+  });
+
   var secs = Array.prototype.slice.call(document.querySelectorAll('main > section'));
   var nav = document.getElementById('nav');
   var q = document.getElementById('q');
