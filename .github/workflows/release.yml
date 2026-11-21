@@ -13,6 +13,9 @@ permissions:
 jobs:
   check-ci:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     steps:
       - name: Fail if CI workflow did not succeed
         env:
@@ -20,6 +23,13 @@ jobs:
         run: |
           SHA="${{ github.sha }}"
           ENDPOINT="repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${SHA}&per_page=100"
+          STARTED_AT=""
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            STARTED_AT=$(date -u -d '1 minute ago' +%s)
+            echo "Dispatching CI workflow for ${{ github.ref_name }} (${SHA})..."
+            gh workflow run ci.yml --ref "${{ github.ref_name }}"
+          fi
 
           # The commit may race CI: workflow runs can take a few seconds to
           # become visible after the tag or manual release starts. Poll the
@@ -29,27 +39,53 @@ jobs:
           for attempt in $(seq 1 120); do
             RUNS=$(gh api "$ENDPOINT")
 
-            COUNT=$(echo "$RUNS" | jq '[.workflow_runs[] | select(.event == "push")] | length')
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              EXPECTED_EVENT="workflow_dispatch"
+            else
+              EXPECTED_EVENT="push"
+            fi
+
+            if [ -n "$STARTED_AT" ]; then
+              COUNT=$(echo "$RUNS" | jq --arg event "$EXPECTED_EVENT" --argjson started "$STARTED_AT" \
+                '[.workflow_runs[] | select(.event == $event and (.created_at | fromdateiso8601) >= $started)] | length')
+            else
+              COUNT=$(echo "$RUNS" | jq --arg event "$EXPECTED_EVENT" \
+                '[.workflow_runs[] | select(.event == $event)] | length')
+            fi
             if [ "$COUNT" -eq 0 ]; then
               echo "CI workflow run not found yet (attempt ${attempt}/120)..."
               sleep 30
               continue
             fi
 
-            ACTIVE=$(echo "$RUNS" | jq '[.workflow_runs[] |
-              select(.event == "push" and .status != "completed")] | length')
+            if [ -n "$STARTED_AT" ]; then
+              ACTIVE=$(echo "$RUNS" | jq --arg event "$EXPECTED_EVENT" --argjson started "$STARTED_AT" \
+                '[.workflow_runs[] |
+                  select(.event == $event and (.created_at | fromdateiso8601) >= $started and .status != "completed")] | length')
+              CONCLUSION=$(echo "$RUNS" | jq -r --arg event "$EXPECTED_EVENT" --argjson started "$STARTED_AT" '
+                [.workflow_runs[] |
+                  select(.event == $event and (.created_at | fromdateiso8601) >= $started and .status == "completed")]
+                | sort_by(.created_at)
+                | if length == 0 then "not_found"
+                  else (last | .conclusion // "unknown")
+                  end')
+            else
+              ACTIVE=$(echo "$RUNS" | jq --arg event "$EXPECTED_EVENT" \
+                '[.workflow_runs[] |
+                  select(.event == $event and .status != "completed")] | length')
+              CONCLUSION=$(echo "$RUNS" | jq -r --arg event "$EXPECTED_EVENT" '
+                [.workflow_runs[] |
+                  select(.event == $event and .status == "completed")]
+                | sort_by(.created_at)
+                | if length == 0 then "not_found"
+                  else (last | .conclusion // "unknown")
+                  end')
+            fi
             if [ "$ACTIVE" -gt 0 ]; then
               echo "CI workflow is still running (attempt ${attempt}/120)..."
               sleep 30
               continue
             fi
-
-            CONCLUSION=$(echo "$RUNS" | jq -r '
-              [.workflow_runs[] | select(.event == "push" and .status == "completed")]
-              | sort_by(.created_at)
-              | if length == 0 then "not_found"
-                else (last | .conclusion // "unknown")
-                end')
 
             echo "CI conclusion: $CONCLUSION"
             if [ "$CONCLUSION" != "success" ]; then
