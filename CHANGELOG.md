@@ -10,7 +10,7 @@ For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
   (the `parseDuration()` ReDoS and the `splitInterval()`/`take()` OOM
   caps) are also backported to the 0.8.x LTS line.
 
-## 0.9.89 — 2026-11-21 (`hash`)
+## 0.9.89 — 2026-11-21 (`4f4169f`)
 
 Full-codebase security/correctiness audit fixes. Every change below is
 covered by a regression test (`test/quality/audit-fixes.test.js`) and the
@@ -128,7 +128,7 @@ full suites pass.
   fail fast instead of making `isBefore()` and `isAfter()` both true;
   `isDST()` propagates probe failures instead of silently answering
   false.
-  
+
 ## 0.9.88 — 2026-11-21 (`7a15900`)
 
 ### Added
