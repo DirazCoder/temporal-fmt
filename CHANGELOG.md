@@ -4,6 +4,19 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.86 — 2026-11-21 (`e8405a5`)
+
+### Fixed
+
+- **`formatDistance` compared wall-clock time across time zones.** When both inputs were `ZonedDateTime`, the library reconstructed milliseconds from each value's local `year`/`month`/`day`/`hour`/… fields, discarding the UTC offset. The same absolute instant shown in `America/Chicago` vs `Asia/Tokyo` could differ by a full calendar day's worth of local time, pushing the result into the wrong unit bucket — "1 day ago" instead of "18 hours ago". Fixed by reading `epochMilliseconds` directly from `ZonedDateTime` (a UTC-anchored instant the spec guarantees), bypassing local-field reconstruction entirely. `formatDistanceToNow` updated to match: when the input is a `ZonedDateTime` it now compares against `Date.now()` as an epoch value rather than rebuilding "now" from the server's local wall-clock fields.
+- **`z` and `zzzz` tokens returned the full formatted date string instead of just the zone name.** On the polyfill (Node 22/24), `intlPart()` called `temporal.toLocaleString()` with only `{ timeZoneName: 'short' }` set. `toLocaleString` doesn't isolate a single field — it falls back to ICU's default date+time resolution and appends the zone name to the whole string, returning e.g. `"11/20/2026, 2:32:16 PM CST"` where `"CST"` was expected. Fixed by routing through `Intl.DateTimeFormat.formatToParts()` with an epoch-millisecond value, the same path the native-Temporal branch already used.
+- **`intlSupportsNativeTemporal` probe was never called after the `z`/`zzzz` fix**, breaking the M-02 regression guard (`setTemporal()` must invalidate the memoized probe). The refactored `intlPart()` collapsed all paths into a single try/catch that never reached the probe. Restored by replacing the try/catch with an explicit three-way branch: ZonedDateTime → epoch-ms, native Temporal → pass object directly, polyfill → `toLocaleString` fallback. The probe fires on the middle branch decision for every locale-aware format call against a plain type.
+
+### Changed
+
+- **Website hover titles use `z` instead of `zzz`** now that the token works correctly.
+- The website's `useLibForDates()` no longer carries a workaround comment explaining the cross-zone comparison bug; the zone conversion for display is still there but is no longer a correctness workaround.
+
 ## 0.9.85 — 2026-11-20 (`277715a`)
 
 ### Added
