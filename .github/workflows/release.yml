@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   check-ci:
@@ -18,17 +19,50 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           SHA="${{ github.sha }}"
-          CONCLUSION=$(gh api \
-            "repos/${{ github.repository }}/commits/${SHA}/check-runs" \
-            --jq '[.check_runs[] | select(.name | test("test|browser-smoke"; "i"))] |
-                  if length == 0 then "not_found"
-                  elif all(.conclusion == "success") then "success"
-                  else "failure" end')
-          echo "CI conclusion: $CONCLUSION"
-          if [ "$CONCLUSION" != "success" ]; then
-            echo "CI checks did not all pass (got: $CONCLUSION). Blocking release."
-            exit 1
-          fi
+          ENDPOINT="repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${SHA}&per_page=100"
+
+          # The commit may race CI: workflow runs can take a few seconds to
+          # become visible after the tag or manual release starts. Poll the
+          # CI workflow itself instead of individual check-runs. Reading the
+          # workflow run conclusion waits until every CI matrix job and every
+          # Playwright browser job has completed.
+          for attempt in $(seq 1 120); do
+            RUNS=$(gh api "$ENDPOINT")
+
+            COUNT=$(echo "$RUNS" | jq '.workflow_runs | length')
+            if [ "$COUNT" -eq 0 ]; then
+              echo "CI workflow run not found yet (attempt ${attempt}/120)..."
+              sleep 30
+              continue
+            fi
+
+            ACTIVE=$(echo "$RUNS" | jq '[.workflow_runs[] |
+              select(.status != "completed")] | length')
+            if [ "$ACTIVE" -gt 0 ]; then
+              echo "CI workflow is still running (attempt ${attempt}/120)..."
+              sleep 30
+              continue
+            fi
+
+            CONCLUSION=$(echo "$RUNS" | jq -r '
+              [.workflow_runs[] | select(.status == "completed")]
+              | sort_by(.created_at)
+              | if length == 0 then "not_found"
+                else (last | .conclusion // "unknown")
+                end')
+
+            echo "CI conclusion: $CONCLUSION"
+            if [ "$CONCLUSION" != "success" ]; then
+              echo "CI workflow did not succeed (got: $CONCLUSION). Blocking release."
+              exit 1
+            fi
+
+            echo "CI workflow completed successfully."
+            exit 0
+          done
+
+          echo "Timed out waiting for CI workflow run. Blocking release."
+          exit 1
 
   publish:
     needs: check-ci
