@@ -102,6 +102,11 @@ li{margin:.25rem 0}
 
 .shell{display:grid;grid-template-columns:272px minmax(0,1fr);min-height:100vh}
 aside{position:sticky;top:0;height:100vh;overflow-y:auto;padding:1.25rem 1rem 2rem;border-right:1px solid var(--line);background:var(--bg)}
+.github-repo{position:fixed;top:calc(.9rem + env(safe-area-inset-top,0px));right:calc(1rem + 2.4rem + .5rem);z-index:20;display:grid;place-items:center;width:2.4rem;height:2.4rem;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.github-repo:hover,.github-repo:focus-visible{border-color:var(--cold)}
+.github-repo img{width:1.2rem;height:1.2rem}
+:root[data-theme="dark"] .github-repo img{filter:invert(1)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .github-repo img{filter:invert(1)}}
 .logo{display:flex;align-items:center;gap:.5rem;font-weight:650;color:var(--fg);text-decoration:none;margin-bottom:1rem}
 .search{position:relative;margin-bottom:1rem}
 .search input{width:100%;font:inherit;font-size:.9rem;padding:.55rem 2.2rem .55rem .7rem;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:8px}

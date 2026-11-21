@@ -19,6 +19,9 @@ export const baseLayout = ({ title, description, main, version }) =>
   <script>try{document.documentElement.dataset.theme=localStorage.getItem('tfmt-theme')||'dark'}catch(e){document.documentElement.dataset.theme='dark'}</script>
 </head>
 <body>
+<a class="github-repo" href="https://github.com/DirazCoder/temporal-fmt" target="_blank" rel="noopener noreferrer" aria-label="View temporal-fmt on GitHub">
+  <img src="GitHub_Invertocat_Black.svg" alt="">
+</a>
 <button class="theme" id="theme" type="button"></button>
 <div class="shell">
 <aside>

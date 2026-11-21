@@ -22,4 +22,5 @@ mkdirSync(out, { recursive: true });
 writeFileSync(join(out, 'index.html'), home({ version }));
 writeFileSync(join(out, 'styles.css'), css);
 copyFileSync(join(here, 'src/script.js'), join(out, 'script.js'));
+copyFileSync(join(here, 'src/GitHub_Invertocat_Black.svg'), join(out, 'GitHub_Invertocat_Black.svg'));
 console.log(`built public/${version ? ` (v${version})` : ''}`);
