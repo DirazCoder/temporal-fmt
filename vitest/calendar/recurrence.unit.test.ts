@@ -257,7 +257,7 @@ describe('recurrence monthly BY* expansion', () => {
 
   it('plain BYDAY entries combine with ordinal entries in monthly context', () => {
     const rule: RecurrenceRule = { frequency: 'monthly', interval: 1, byWeekday: [1], byWeekdayOrdinal: [{ ordinal: 2, weekday: 1 }] };
-    expect(take(recurrence(start, rule), 3).map(iso)).toEqual(['2026-01-12', '2026-02-09', '2026-03-09']);
+    expect(take(recurrence(start, rule), 3).map(iso)).toEqual(['2026-01-05', '2026-01-12', '2026-01-19']);
   });
 
   it('an empty byWeekday array with ordinal entries still matches the ordinal', () => {
@@ -301,17 +301,13 @@ describe('recurrence yearly BY* expansion', () => {
   });
 
   it('yearly ordinal BYDAY ranks across the whole year when BYMONTH is absent (20MO)', () => {
-    // Plain + ordinal entries combine: the plain BYDAY=MO arm satisfies
-    // matches()'s re-check, so the year-ranked 20th Monday survives.
     const mixed: RecurrenceRule = {
       frequency: 'yearly', interval: 1,
       byWeekday: [1], byWeekdayOrdinal: [{ ordinal: 20, weekday: 1 }],
     };
-    expect(take(recurrence(start, mixed), 2).map(iso)).toEqual(['2026-05-18', '2027-05-17']);
-    // Ordinal-only 20MO: matches()'s month-scoped ordinal re-check rejects the
-    // year-ranked candidate (May 18 is not the 20th Monday OF May) — the
-    // iterator exhausts via the safety cap.
-    expect(take(recurrence(start, { frequency: 'yearly', interval: 1, byWeekdayOrdinal: [{ ordinal: 20, weekday: 1 }] }), 1)).toEqual([]);
+    expect(take(recurrence(start, mixed), 2).map(iso)).toEqual(['2026-01-05', '2026-01-12']);
+    expect(take(recurrence(start, { frequency: 'yearly', interval: 1, byWeekdayOrdinal: [{ ordinal: 20, weekday: 1 }] }), 1).map(iso))
+      .toEqual(['2026-05-18']);
   });
 
   it('negative yearly ordinal BYDAY (-1FR) is the last Friday of the year', () => {
@@ -319,26 +315,15 @@ describe('recurrence yearly BY* expansion', () => {
       .toEqual(['2026-12-25', '2027-12-31']);
   });
 
-  it('a 53rd weekday is skipped in years that only have 52 of them', () => {
-    // 2026 has 53 Thursdays. With a plain BYDAY entry in the mix, the union
-    // semantics of matches() let the Thursday start itself through first, then
-    // the year-ranked 53rd Thursday (Dec 31) follows; 2027 onward have only 52
-    // Thursdays, so no further occurrence appears until the next 53-Thursday
-    // year (2032).
-    const thuMixed: RecurrenceRule = {
-      frequency: 'yearly', interval: 1,
-      byWeekday: [4], byWeekdayOrdinal: [{ ordinal: 53, weekday: 4 }],
-    };
-    expect(take(recurrence(start, thuMixed), 2).map(iso)).toEqual(['2026-01-01', '2026-12-31']);
-    // 53MO: no year in range has a 53rd Monday → empty via the safety cap.
-    const mon = recurrence(start, { frequency: 'yearly', interval: 1, byWeekdayOrdinal: [{ ordinal: 53, weekday: 1 }] });
-    expect(take(mon, 1)).toEqual([]);
-    // 53TU ordinal-only: Dec 31 is generated but rejected by the month-scoped re-check.
+  it('a 53rd weekday only occurs in years that have 53 of that weekday', () => {
+    // 2026 has 53 Thursdays; the next 53rd Monday after the anchor year is in 2029.
     const thu = recurrence(start, { frequency: 'yearly', interval: 1, byWeekdayOrdinal: [{ ordinal: 53, weekday: 4 }] });
-    expect(take(thu, 1)).toEqual([]);
-    // -53MO: the index lands before the first match of the year → undefined.
+    expect(take(thu, 1).map(iso)).toEqual(['2026-12-31']);
+    const mon = recurrence(start, { frequency: 'yearly', interval: 1, byWeekdayOrdinal: [{ ordinal: 53, weekday: 1 }] });
+    expect(take(mon, 1).map(iso)).toEqual(['2029-12-31']);
+    // In a 53-Monday year, -53MO is the first Monday of that year.
     const neg = recurrence(start, { frequency: 'yearly', interval: 1, byWeekdayOrdinal: [{ ordinal: -53, weekday: 1 }] });
-    expect(take(neg, 1)).toEqual([]);
+    expect(take(neg, 1).map(iso)).toEqual(['2029-01-01']);
   });
 
   it('yearly + BYMONTH + ordinal BYDAY ranks within the listed month only', () => {

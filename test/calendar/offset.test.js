@@ -99,6 +99,15 @@ test('xxx (lowercase, never Z): always hours+minutes with colon, +00:00 for UTC'
   assert.equal(format(MAX_NEG, 'xxx'), '-12:00');
 });
 
+test('historical offset seconds are preserved only by xxx', () => {
+  const historical = zdt('1880-01-01T12:00:00-04:56:02[America/New_York]');
+  assert.equal(historical.offset, '-04:56:02');
+  assert.equal(format(historical, 'xxx'), '-04:56:02');
+  for (const token of ['X', 'XX', 'XXX', 'x', 'xx']) {
+    assert.throws(() => format(historical, token), /cannot represent the offset .*seconds component/);
+  }
+});
+
 // ---------- format: only ZonedDateTime carries an offset ----------
 
 test('offset tokens throw on PlainDate (no offset field)', () => {

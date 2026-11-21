@@ -168,8 +168,10 @@ export function parseRFC3339(input: string): unknown {
   if (!m) {
     throw new FormatSyntaxError({ input, reason: 'does not match RFC 3339 date-time grammar' });
   }
-  // Construct via parseISO with the same expansion for bare Z.
-  const iso = input.replace(/[tT]/, 'T').replace(/[zZ]$/, '+00:00[UTC]');
+  // parseISO expands a numeric offset into the bracketed zone required by
+  // Temporal.ZonedDateTime.from. Keep the RFC 3339 suffix bare here so that
+  // its normal offset detection handles both Z and numeric offsets.
+  const iso = input.replace(/[tT]/, 'T').replace(/[zZ]$/, '+00:00');
   return parseISO(iso);
 }
 

@@ -948,7 +948,7 @@ CI runs the Node and package tests on Node 20, 22, 24, and 26 across Ubuntu, Win
 
 `fixtures.json` is a portable test-vector set for token-based Temporal formatters, written against a different library's token vocabulary. Each case names an `op` (`format` / `parse` / `roundtrip`), an input, a pattern, and an expected result — any library with a `format`/`parse` pair can use it.
 
-`conformance/temporal-fmt.test.js` is the temporal-fmt adapter. It translates fixture patterns into temporal-fmt tokens, runs them against `format()`/`parse()`, and checks results. Run it independently with `npm run test:conformance`; it is not included in `npm test`.
+`conformance/temporal-fmt.test.js` adapts the portable fixture set, and `conformance/reference.test.js` adds curated vectors translated from relevant Temporal/Intl, CLDR, tzdb, recurrence, token, relative-date, and wire-format reference domains. These are not wholesale upstream suites and do not claim complete standards compliance. Run them with `npm run test:conformance`; conformance remains separate from `npm test`. See [conformance/README.md](./conformance/README.md) for sources, coverage, and exclusions.
 
 ### Why this is separate from adversarial and fuzz tests
 

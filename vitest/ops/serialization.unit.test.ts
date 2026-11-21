@@ -143,12 +143,8 @@ describe('parseRFC3339 (grammar variants)', () => {
   });
 
   it('accepts lowercase t and z', () => {
-    // The trailing z is expanded to "+00:00[UTC]" before parseISO
-    // re-dispatch; parseISO's zone sniffers anchor on "$" so the
-    // bracketed form lands on PlainDateTime.from, which tolerates
-    // (and drops) the bracket.
-    const r = parseRFC3339('2026-08-04t15:45:30z') as Temporal.PlainDateTime;
-    expect(r.toString()).toBe('2026-08-04T15:45:30');
+    const r = parseRFC3339('2026-08-04t15:45:30z') as Temporal.ZonedDateTime;
+    expect(r.toString()).toBe('2026-08-04T15:45:30+00:00[+00:00]');
   });
 
   it('rejects non-grammar shapes (single-digit fields, space separator)', () => {

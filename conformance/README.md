@@ -14,6 +14,32 @@ Run it separately with `npm run test:conformance`; it is intentionally
 not part of `npm test`'s classic `node:test` suite. `npm run test:all`
 runs it as a separate step.
 
+`reference.test.js` adds independently authored, translated vectors for
+the public APIs that overlap with external standards and libraries.
+`scripts/run-conformance.mjs` discovers and runs every `*.test.js` file
+in this directory.
+
+## External reference sources and scope
+
+These are curated vectors, not imported copies of complete upstream
+suites or datasets. Each case is expressed in temporal-fmt's public API
+and only tests behavior this package implements. Passing this suite does
+not claim full conformance to any upstream suite or standard.
+
+| Source | Adapted coverage | Deliberate limit |
+|---|---|---|
+| TC39 [Temporal built-ins](https://github.com/tc39/test262/tree/main/test/built-ins/Temporal) and [Intl402](https://github.com/tc39/test262/tree/main/test/intl402/Temporal) in Test262 | Temporal calendar boundaries and format/parse behavior at this library's API boundary | Does not test Temporal engine internals or constructor semantics unrelated to this package |
+| [Unicode CLDR](https://github.com/unicode-org/cldr-json) via `Intl.DateTimeFormat` | Month/weekday names across representative locales, Arabic digits, Hebrew leap-month naming | Uses the host runtime's ICU/CLDR data as the reference; does not vendor the CLDR dataset |
+| [IANA tzdb](https://www.iana.org/time-zones) | New York gaps/overlaps and historical offset seconds, Lord Howe's half-hour transition, Sydney DST, Apia's skipped date | Representative transition vectors, not a full historical tzdb comparison |
+| [RFC 5545](https://www.rfc-editor.org/rfc/rfc5545), with related [libical](https://github.com/libical/libical) and [ical.js](https://github.com/mozilla-comm/ical.js) fixture domains | Supported `FREQ`, `INTERVAL`, `COUNT`, `UNTIL`, `BYDAY`, `BYMONTHDAY`, `BYMONTH`, and exclusion behavior | Does not claim `BYSETPOS`, `WKST`, `BYHOUR`, `BYMINUTE`, `BYSECOND`, or `RDATE` support |
+| [date-fns format tokens](https://date-fns.org/docs/format) | Representative shared token semantics, including calendar, ordinal, week, era, and fraction output | Does not import date-fns tests; token overlap is not complete parity |
+| [chrono-node](https://github.com/wanasit/chrono) | Relative phrases accepted by `parseRelative()` in English, Spanish, French, and German | `parseRelative()` is not a general natural-language parser; unsupported grammar and locales are excluded |
+| [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339), [RFC 2822](https://www.rfc-editor.org/rfc/rfc2822), [RFC 9110 HTTP-date](https://www.rfc-editor.org/rfc/rfc9110), and ISO 8601 durations | Supported timestamp grammars, offsets, canonical output, obsolete HTTP-date forms, and duration round-trips | RFC 3339 leap seconds are normalized to second 59 because Temporal has no leap-second representation; the duration parser accepts the loose extension `P1YT` and formats it canonically as `P1Y` |
+
+No upstream test code or reference dataset is vendored here. The source
+links establish the standards and behavior domains used to author the
+vectors; the tests and expected values are adapted for temporal-fmt.
+
 ## Why this is separate from `test/adversarial.test.js` and `test/fuzz.test.js`
 
 Those two check that temporal-fmt is internally consistent under

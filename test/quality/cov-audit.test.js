@@ -441,6 +441,20 @@ test('cov: monthly BYDAY=5MO skips months with only four Mondays', () => {
   assert.deepEqual(take(iter, 1).map(iso), ['2026-03-30']);
 });
 
+test('cov: yearly ordinal BYDAY ranks across the year and mixed BYDAY terms form a union', () => {
+  const twentiethMonday = recurrence(D('2026-01-01'), parseRRule('FREQ=YEARLY;BYDAY=20MO'));
+  assert.deepEqual(take(twentiethMonday, 2).map(iso), ['2026-05-18', '2027-05-17']);
+
+  const mixedYearly = recurrence(D('2026-01-01'), parseRRule('FREQ=YEARLY;BYDAY=MO,20MO'));
+  assert.deepEqual(take(mixedYearly, 2).map(iso), ['2026-01-05', '2026-01-12']);
+
+  const twentiethMondayInMonth = recurrence(D('2026-01-01'), parseRRule('FREQ=MONTHLY;BYDAY=MO,2MO'));
+  assert.deepEqual(take(twentiethMondayInMonth, 3).map(iso), ['2026-01-05', '2026-01-12', '2026-01-19']);
+
+  const fiftyThirdMonday = recurrence(D('2026-01-01'), parseRRule('FREQ=YEARLY;BYDAY=53MO'));
+  assert.deepEqual(take(fiftyThirdMonday, 1).map(iso), ['2029-12-31']);
+});
+
 test('cov: an impossible ordinal (BYDAY=-6MO) exhausts without matching', () => {
   const iter = recurrence(START, { frequency: 'monthly', byWeekdayOrdinal: [{ ordinal: -6, weekday: 1 }] });
   assert.equal(iter.next().done, true);

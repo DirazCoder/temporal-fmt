@@ -81,6 +81,29 @@ test('zoned offset fast path rejects DST gaps and out-of-range offsets', () => {
   );
 });
 
+test('offset-bearing gap rejects a Temporal resolution that shifts the wall clock', () => {
+  const originalTemporal = Temporal;
+  let resolutionCalled = false;
+  setTemporal({
+    ...Temporal,
+    ZonedDateTime: {
+      from: () => {
+        resolutionCalled = true;
+        return { hour: 3, minute: 30, second: 0, offset: '-04:00' };
+      },
+    },
+  });
+  try {
+    assert.throws(
+      () => parse("yyyy-MM-dd'T'HH:mm:ss.SSSxxx'['zzz']'", '2026-03-08T02:30:00.000-05:00[America/New_York]'),
+      InvalidDateError,
+    );
+    assert.equal(resolutionCalled, true);
+  } finally {
+    setTemporal(originalTemporal);
+  }
+});
+
 test('builds a ZonedDateTime', () => {
   const result = parse('yyyy-MM-dd HH:mm zzz', '2026-08-04 15:45 America/New_York');
   assert.equal(
@@ -503,6 +526,13 @@ test('round-trip: nanosecond precision survives format -> parse, not just millis
   const formatted = format(original, formatStr);
   const reparsed = parse(formatStr, formatted);
   assert.equal(reparsed.toString(), original.toString());
+});
+
+test('one- and two-digit fractional-second tokens preserve their decimal place', () => {
+  const tenths = parse('HH:mm:ss.S', '09:30:00.5');
+  const hundredths = parse('HH:mm:ss.SS', '09:30:00.05');
+  assert.equal(tenths.millisecond, 500);
+  assert.equal(hundredths.millisecond, 50);
 });
 
 test('parsing a short fraction under a wide token treats missing digits as trailing zeros, not omitted precision', () => {

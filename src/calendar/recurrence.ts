@@ -100,6 +100,17 @@ function nthWeekdayDay(year: number, month: number, weekday: number, ordinal: nu
   return day >= 1 ? day : null;
 }
 
+function nthWeekdayDateOfYear(year: number, weekday: number, ordinal: number): { month: number; day: number } | null {
+  const matches: Array<{ month: number; day: number }> = [];
+  for (let month = 1; month <= 12; month++) {
+    for (let day = 1; day <= daysInMonthOf(year, month); day++) {
+      if (weekdayOf(year, month, day) === weekday) matches.push({ month, day });
+    }
+  }
+  const index = ordinal > 0 ? ordinal - 1 : matches.length + ordinal;
+  return matches[index] ?? null;
+}
+
 // Creates a recurrence iterator starting from `start`. The first call
 // to next() returns `start` itself (if it matches the rule); subsequent
 // calls return the next matching occurrence.
@@ -175,26 +186,29 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
     // dayOfWeek is defined whenever `?? 0` would fire, and year/month/day
     // are always present. The lines they sit on are otherwise live and
     // test-covered; only the fallback arms need the ignore.
-    const v = value as { dayOfWeek?: number; year?: number; month?: number; day?: number; hour?: number; minute?: number; second?: number };
-    if (rule.byWeekday && rule.byWeekday.length > 0) {
+    const v = value as { dayOfWeek?: number; year: number; month: number; day: number; hour?: number; minute?: number; second?: number };
+    const hasOrdinalDayTerms = !!rule.byWeekdayOrdinal && rule.byWeekdayOrdinal.length > 0
+      && (rule.frequency === 'monthly' || rule.frequency === 'yearly');
+    if (rule.byWeekday && rule.byWeekday.length > 0 && !hasOrdinalDayTerms) {
       // `?? 0` is defensive only since the dayOfWeek seeding above: every
       // value a byWeekday rule tests (seeded start, generated candidates)
       // carries a number.
       /* c8 ignore next @preserve */
       if (!rule.byWeekday.includes(v.dayOfWeek ?? 0)) return false;
     }
-    if (rule.byWeekdayOrdinal && rule.byWeekdayOrdinal.length > 0
-      && (rule.frequency === 'monthly' || rule.frequency === 'yearly')) {
-      // Union with the plain-byWeekday check above per RFC: any BYDAY
-      // entry matching is enough. (Monthly/yearly candidates are
-      // generated from the ordinal itself, so this re-check is about
-      // rules that mix plain and ordinal entries.)
+    if (hasOrdinalDayTerms) {
+      // Plain and ordinal BYDAY terms form a union in monthly/yearly rules.
       /* c8 ignore next @preserve */
       const plainOk = !!rule.byWeekday && rule.byWeekday.length > 0 && rule.byWeekday.includes(v.dayOfWeek ?? 0);
       /* c8 ignore next @preserve */
-      const ordinalOk = (rule.byWeekdayOrdinal ?? []).some((o) =>
-      /* c8 ignore next @preserve */
-        nthWeekdayDay(v.year ?? 0, v.month ?? 0, o.weekday, o.ordinal) === (v.day ?? 0));
+      const ordinalOk = (rule.byWeekdayOrdinal ?? []).some((o) => {
+        if (rule.frequency === 'yearly' && !(rule.byMonth && rule.byMonth.length > 0)) {
+          const date = nthWeekdayDateOfYear(v.year, o.weekday, o.ordinal);
+          if (date === null) return false;
+          return date.month === v.month && date.day === v.day;
+        }
+        return nthWeekdayDay(v.year, v.month, o.weekday, o.ordinal) === v.day;
+      });
       if (!plainOk && !ordinalOk) return false;
     }
     if (rule.byMonthDay && rule.byMonthDay.length > 0) {
@@ -266,6 +280,14 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
     const days: Array<{ month: number; day: number }> = [];
 
     if (yearlyOrdinalAllMonths) {
+      if (rule.byWeekday && rule.byWeekday.length > 0) {
+        for (const m of searchMonths) {
+          const last = daysInMonthOf(year, m);
+          for (let d = 1; d <= last; d++) {
+            if (rule.byWeekday.includes(weekdayOf(year, m, d))) days.push({ month: m, day: d });
+          }
+        }
+      }
       // Collect every matching weekday across the whole year, then
       // apply the ordinal as a rank into that flat list.
       for (const o of rule.byWeekdayOrdinal!) {
@@ -302,6 +324,11 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
             const real = nthWeekdayDay(year, m, o.weekday, o.ordinal);
             if (real !== null) days.push({ month: m, day: real });
           }
+          if (rule.byWeekday && rule.byWeekday.length > 0) {
+            for (let d = 1; d <= last; d++) {
+              if (rule.byWeekday.includes(weekdayOf(year, m, d))) days.push({ month: m, day: d });
+            }
+          }
         } else if (rule.byWeekday && rule.byWeekday.length > 0) {
           // Plain BYDAY in monthly/yearly context: expand to every day in
           // the period that falls on one of the named weekdays. The old
@@ -320,7 +347,13 @@ export function recurrence(start: unknown, rule: RecurrenceRule): RecurrenceIter
       }
     }
     days.sort((a, b) => a.month - b.month || a.day - b.day);
-    pending = days.map(({ month, day }) => ({
+    const seen = new Set<string>();
+    pending = days.filter(({ month, day }) => {
+      const key = `${month}-${day}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).map(({ month, day }) => ({
       ...anchor,
       year,
       month,
