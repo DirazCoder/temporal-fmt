@@ -440,6 +440,8 @@ function intlPart(
     // ZonedDateTime: always use epoch-ms — a plain number Intl always
     // accepts regardless of whether native Temporal is recognised.
     parts = formatter.formatToParts(instant!.epochMilliseconds);
+  /* c8 ignore start -- requires native Temporal support in Intl; Node 24
+     exercises this path in the Node 26 test job instead. */
   } else if (
     intlSupportsNativeTemporal() &&
     temporal.toString !== Object.prototype.toString
@@ -455,6 +457,7 @@ function intlPart(
     /* c8 ignore next -- unreachable on Node 22 (polyfill); exercised on
        Node 26 native builds only. */
     parts = formatter.formatToParts(temporal as unknown as Date);
+  /* c8 ignore stop */
   } else {
     // Plain types on a polyfilled engine (Node 22/24): formatToParts()
     // won't recognise the polyfill instance. Fall back to the object's

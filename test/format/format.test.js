@@ -658,6 +658,28 @@ test('format: throws when Intl returns no requested part', () => {
   }
 });
 
+test('format: merges adjacent literal parts around a ZonedDateTime month', () => {
+  const originalDateTimeFormat = Intl.DateTimeFormat;
+  const zoned = Temporal.ZonedDateTime.from('2026-08-04T00:00[UTC]');
+  Intl.DateTimeFormat = class {
+    formatToParts() {
+      return [
+        { type: 'literal', value: 'prefix' },
+        { type: 'month', value: 'August' },
+        { type: 'literal', value: 'suffix' },
+      ];
+    }
+  };
+  try {
+    assert.equal(
+      format(zoned, 'MMMM', { locale: 'en-US-x-literal-parts' }),
+      'prefixAugustsuffix',
+    );
+  } finally {
+    Intl.DateTimeFormat = originalDateTimeFormat;
+  }
+});
+
 test('format: a malformed locale with a locale-aware token still throws InvalidLocaleError', () => {
   assert.throws(
     () => format(Temporal.PlainDate.from('2026-08-04'), 'MMMM', { locale: 'not a locale!!' }),

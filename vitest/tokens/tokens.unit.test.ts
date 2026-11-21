@@ -248,6 +248,12 @@ describe('intlPart input arms', () => {
     }
   });
 
+  it('extracts month names from ZonedDateTime Intl parts', () => {
+    const zoned = Temporal.ZonedDateTime.from('2026-08-04T00:00[UTC]');
+    expect(format(zoned, 'MMMM', { locale: 'en-US' })).toBe('August');
+    expect(format(zoned, 'MMMM', { locale: 'ja-JP' })).toBe('8月');
+  });
+
   it('rethrows a RangeError from toLocaleString after ruling the locale out', () => {
     // toLocaleString threw a RangeError, but the locale is fine, so the
     // original error is rethrown rather than blamed on the locale
