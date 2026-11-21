@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-import { DEFAULT_LOCALE, type FormatOptions } from '../tokens.js';
-import { tokenize } from '../tokenize.js';
-import { buildCapturingPattern, type CapturingPattern } from '../parsePattern.js';
-import { MAX_FORMAT_LENGTH } from '../constants.js';
-import { TemporalFmtError } from '../errors.js';
-import { enumerateValidSplits } from '../pattern.js';
+import { DEFAULT_LOCALE, type FormatOptions } from '../tokens/tokens.js';
+import { tokenize } from '../tokens/tokenize.js';
+import { buildCapturingPattern, type CapturingPattern } from '../parse/parsePattern.js';
+import { MAX_FORMAT_LENGTH } from '../core/constants.js';
+import { TemporalFmtError } from '../core/errors.js';
+import { enumerateValidSplits } from '../tokens/pattern.js';
 
 const patternCache = new Map<string, CapturingPattern>();
 const MAX_CACHE_SIZE = 500;

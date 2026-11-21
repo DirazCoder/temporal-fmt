@@ -29,7 +29,7 @@ Two fixture tokens don't exist in temporal-fmt:
 
 | Fixture token | temporal-fmt equivalent | Why |
 |---|---|---|
-| `ZZ` (always-signed offset, never `Z`) | `xxx` | Only the **uppercase** `X`/`XX`/`XXX` family collapses `+00:00` to `Z` (see `formatOffset()` in `src/tokens.ts`). Lowercase never does, which is exactly `ZZ`'s semantics. Mapping `ZZ` to `XXX` was tried first and is wrong — it fails `offset-ZZ-format-utc-not-Z` and `zone-utc-roundtrip`, both of which expect `+00:00`, not `Z`. |
+| `ZZ` (always-signed offset, never `Z`) | `xxx` | Only the **uppercase** `X`/`XX`/`XXX` family collapses `+00:00` to `Z` (see `formatOffset()` in `src/tokens/tokens.ts`). Lowercase never does, which is exactly `ZZ`'s semantics. Mapping `ZZ` to `XXX` was tried first and is wrong — it fails `offset-ZZ-format-utc-not-Z` and `zone-utc-roundtrip`, both of which expect `+00:00`, not `Z`. |
 | `VV` (IANA zone id) | `zzz` | temporal-fmt's only zone-identity token. |
 
 Translation happens in `translatePattern()` and skips anything inside
@@ -52,7 +52,7 @@ logs a divergence note (printed at the end of the run) instead of
 failing the suite.
 
 One case actually diverges: **`shape-mixing-H-and-a-rejected`**.
-temporal-fmt's `resolveHour()` (`src/parse.ts`) cross-checks `H`
+temporal-fmt's `resolveHour()` (`src/parse/parse.ts`) cross-checks `H`
 against `a` instead of banning the combination outright, so `13:05
 PM` is accepted — 13:00 is consistent with PM, only a genuine
 contradiction throws. Intentional, and already covered by
@@ -68,7 +68,7 @@ harness asserts they *stay* failing, so a genuine fix removes them
 automatically instead of the test quietly starting to lie.
 
 **Real bug: offset seconds get dropped, not rejected.**
-`formatOffset()` (`src/tokens.ts`) assumes every offset string is
+`formatOffset()` (`src/tokens/tokens.ts`) assumes every offset string is
 exactly 6 characters — sign, `HH`, `:`, `MM` — and never checks for a
 seconds component. Same root cause, two symptoms:
 - `offset-sub-minute-rejected-by-X` — pattern `X` on a pre-1900
@@ -80,7 +80,7 @@ seconds component. Same root cause, two symptoms:
 **Design difference: offset-only `ZonedDateTime` construction is
 supported on purpose.** `parse()` can build a `ZonedDateTime` from an
 offset token alone, no `zzz` zone required — that's the
-`offsetString`-only branch in `src/parse.ts`, and it's deliberate, not
+`offsetString`-only branch in `src/parse/parse.ts`, and it's deliberate, not
 an oversight. The fixture assumes a zone is always required:
 - `zone-required-for-zoneddatetime`
 - `zone-offset-token-rejected-on-plain-type` (same branch also lets a

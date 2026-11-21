@@ -10,8 +10,11 @@ import { fileURLToPath } from 'node:url';
 
 const TEST_DIR = fileURLToPath(new URL('../test/', import.meta.url));
 
-const files = readdirSync(TEST_DIR)
+// Tests live in domain subfolders (test/format/, test/parse/, ...), so walk recursively.
+const files = readdirSync(TEST_DIR, { recursive: true })
+  .map((name) => String(name).split('\\').join('/'))
   .filter((name) => name.endsWith('.test.js') || name.endsWith('.test.cjs'))
+  .sort()
   .map((name) => `test/${name}`);
 
 if (files.length === 0) {

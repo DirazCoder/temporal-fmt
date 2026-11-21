@@ -14,7 +14,7 @@
 
 import { readFileSync } from 'node:fs';
 
-const SRC = new URL('../src/parse.ts', import.meta.url);
+const SRC = new URL('../src/parse/parse.ts', import.meta.url);
 const lines = readFileSync(SRC, 'utf8').split('\n');
 
 // Mirrors wrapUntypedError's branches in errors.ts, in the same order,

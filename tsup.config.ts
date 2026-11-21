@@ -5,6 +5,9 @@ export default defineConfig({
   // capability area so callers who only need format() don't pull in
   // interval/recurrence/business-calendar code. The main entry
   // (src/index.ts) still exports everything for callers who want it.
+  // The files below are one-line re-export stubs at the src/ root; the real
+  // code lives in the domain folders (src/format/, src/calendar/, ...). Keeping
+  // the stubs as entries is what keeps dist/ flat for package.json "exports".
   entry: [
     'src/index.ts',
     'src/format.ts',

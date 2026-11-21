@@ -1,0 +1,170 @@
+/*
+ * Copyright 2026 DirazCoder
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// business calendar stuff — configurable weekends, holiday sets, observed
+// holidays, working hours, half days if you need em. holiday checking
+// itself is handed off to a HolidayCalendar (holidays.ts) so this file
+// can just worry about the weekday-vs-weekend part
+
+import { add } from '../ops/arithmetic.js';
+import { dayOfWeekFromCivil } from './isoWeek.js';
+import type { HolidayCalendar } from './holidays.js';
+
+export interface BusinessCalendarOptions {
+  // defaults to [6, 7] (Sat/Sun). ISO weekday numbers, 1-7
+  weekend?: number[];
+  // pass a holiday calendar if you want holidays factored in too —
+  // skip it and you just get weekend logic
+  holidays?: HolidayCalendar;
+  // hours per weekday, 1=Mon..7=Sun. defaults to 8hrs weekdays, 0 weekend.
+  // addBusinessDays() uses this for partial-day math
+  workingHours?: Record<number, number>;
+  // which weekdays get reduced hours. empty by default
+  halfDays?: number[];
+}
+
+export interface BusinessCalendar {
+  weekend: Set<number>;
+  holidays?: HolidayCalendar;
+  workingHours: Record<number, number>;
+  halfDays: Set<number>;
+}
+
+export function createBusinessCalendar(options: BusinessCalendarOptions = {}): BusinessCalendar {
+  const weekend = new Set(options.weekend ?? [6, 7]);
+  // gotta copy this before filling in defaults — used to write the missing
+  // weekday entries straight into options.workingHours, which mutated
+  // the caller's actual object. so someone's { 1: 6 } would silently grow
+  // keys 2-7 just from "creating" a calendar, and if they reused that
+  // object across calendars, the first one's defaults leaked into all of them
+  const workingHours: Record<number, number> = { ...(options.workingHours ?? {}) };
+  for (let i = 1; i <= 7; i++) {
+    if (workingHours[i] === undefined) {
+      workingHours[i] = weekend.has(i) ? 0 : 8;
+    }
+  }
+  return {
+    weekend,
+    holidays: options.holidays,
+    workingHours,
+    halfDays: new Set(options.halfDays ?? []),
+  };
+}
+
+export function isBusinessDay(cal: BusinessCalendar, value: unknown): boolean {
+  const v = value as { dayOfWeek?: number; year?: number; month?: number; day?: number };
+  // add() over in arithmetic.ts doesn't touch dayOfWeek — it just hands back
+  // whatever dayOfWeek the input had, stale or not. so recompute it from
+  // year/month/day whenever we've got those, don't trust the cached value
+  let dow = v.dayOfWeek;
+  if (typeof v.year === 'number' && typeof v.month === 'number' && typeof v.day === 'number') {
+    // dayOfWeekFromCivil: O(1) proleptic-Gregorian weekday. The old
+    // Date.UTC remapping of years 0-99 to 1900-1999 made a genuine
+    // Sunday PlainDate('0050-01-02') count as a business day here —
+    // and this recomputation OVERWRITES the value's own correct
+    // dayOfWeek, so real Temporal input was affected too.
+    dow = dayOfWeekFromCivil(v.year, v.month, v.day);
+  }
+  if (typeof dow !== 'number') {
+    throw new Error('temporal-fmt: isBusinessDay() needs a value with dayOfWeek (or year/month/day to compute it).');
+  }
+  if (cal.weekend.has(dow)) return false;
+  if (cal.holidays && cal.holidays.isHoliday(value)) return false;
+  return true;
+}
+
+export function nextBusinessDay(cal: BusinessCalendar, value: unknown): unknown {
+  let candidate = add(value, 1, 'days');
+  // keep going till we hit a business day. capped at 14 just to be safe —
+  // a week is really the natural bound even with weekend + holidays combined
+  for (let i = 0; i < 14; i++) {
+    if (isBusinessDay(cal, candidate)) return candidate;
+    candidate = add(candidate, 1, 'days');
+  }
+  throw new Error('temporal-fmt: nextBusinessDay() gave up after 14 days — likely a misconfigured calendar (e.g. all days are weekends or holidays).');
+}
+
+export function previousBusinessDay(cal: BusinessCalendar, value: unknown): unknown {
+  let candidate = add(value, -1, 'days');
+  for (let i = 0; i < 14; i++) {
+    if (isBusinessDay(cal, candidate)) return candidate;
+    candidate = add(candidate, -1, 'days');
+  }
+  throw new Error('temporal-fmt: previousBusinessDay() gave up after 14 days — likely a misconfigured calendar.');
+}
+
+const MAX_BUSINESS_DAY_TRAVERSAL = 100_000;
+
+function assertBusinessDayCount(days: number): void {
+  if (!Number.isSafeInteger(days)) {
+    throw new RangeError(
+      `temporal-fmt: business-day count must be a finite safe integer (got ${days}).`,
+    );
+  }
+}
+
+function compareDateFields(a: unknown, b: unknown): number {
+  const av = a as { year: number; month: number; day: number };
+  const bv = b as { year: number; month: number; day: number };
+  const ay = av.year * 10000 + av.month * 100 + av.day;
+  const by = bv.year * 10000 + bv.month * 100 + bv.day;
+  return ay - by;
+}
+
+export function addBusinessDays(cal: BusinessCalendar, value: unknown, days: number): unknown {
+  assertBusinessDayCount(days);
+  if (days === 0) return value;
+  const sign = days > 0 ? 1 : -1;
+  const absDays = Math.abs(days);
+  if (absDays > MAX_BUSINESS_DAY_TRAVERSAL) {
+    throw new RangeError(
+      `temporal-fmt: addBusinessDays() exceeded the ${MAX_BUSINESS_DAY_TRAVERSAL}-day limit.`,
+    );
+  }
+  let candidate = value;
+  for (let i = 0; i < absDays; i++) {
+    candidate = sign > 0 ? nextBusinessDay(cal, candidate) : previousBusinessDay(cal, candidate);
+  }
+  return candidate;
+}
+
+export function subtractBusinessDays(cal: BusinessCalendar, value: unknown, days: number): unknown {
+  assertBusinessDayCount(days);
+  return addBusinessDays(cal, value, -days);
+}
+
+export function differenceInBusinessDays(cal: BusinessCalendar, a: unknown, b: unknown): number {
+  const rawDirection = compareDateFields(b, a);
+  if (rawDirection === 0) return 0;
+
+  const direction = rawDirection > 0 ? 1 : -1;
+  let candidate = a;
+  let count = 0;
+  let traversedDays = 0;
+
+  while (compareDateFields(candidate, b) !== 0) {
+    candidate = add(candidate, direction, 'days');
+    traversedDays++;
+    if (traversedDays > MAX_BUSINESS_DAY_TRAVERSAL) {
+      throw new RangeError(
+        `temporal-fmt: differenceInBusinessDays() exceeded the ${MAX_BUSINESS_DAY_TRAVERSAL}-day traversal limit.`,
+      );
+    }
+    if (isBusinessDay(cal, candidate)) count += direction;
+  }
+
+  return count;
+}

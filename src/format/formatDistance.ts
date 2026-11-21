@@ -1,0 +1,432 @@
+/*
+ * Copyright 2026 DirazCoder
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import { DEFAULT_LOCALE, type FormatOptions } from '../tokens/tokens.js';
+import { isGregorianLeapYear, daysFromCivil } from '../calendar/isoWeek.js';
+import { normalizeLocaleTag } from '../locale/localeVocab.js';
+import { InvalidLocaleError, InvalidDateError } from '../core/errors.js';
+
+// Reads date fields off a Temporal value in the same minimal-shape style
+// as the rest of the library (TemporalLike) — no Temporal factory needed.
+// Works for PlainDate, PlainDateTime, and ZonedDateTime (since they all
+// expose year/month/day). PlainTime has no date fields; formatDistance()
+// between two PlainTime values isn't really meaningful and isn't
+// supported — it'll throw below when the field read fails.
+interface DateFieldView {
+  year?: number;
+  month?: number;
+  day?: number;
+  hour?: number;
+  minute?: number;
+  second?: number;
+  millisecond?: number;
+}
+
+function readFields(value: unknown, label: string): DateFieldView {
+  if (value === null || typeof value !== 'object') {
+    throw new Error(
+      `temporal-fmt: formatDistance expects Temporal values, got ${label} = ${String(value)}.`
+    );
+  }
+  const obj = value as Record<string, unknown>;
+  // Either year/month/day (a real date) or none of them (a PlainTime);
+  // anything in between would be a malformed Temporal-like.
+  const hasYear = typeof obj.year === 'number';
+  const hasMonth = typeof obj.month === 'number';
+  const hasDay = typeof obj.day === 'number';
+  if (hasYear !== hasMonth || hasMonth !== hasDay) {
+    throw new Error(
+      `temporal-fmt: formatDistance got a ${label} with a partial date (some of year/month/day missing). ` +
+      `Pass a full Temporal.PlainDate / PlainDateTime / ZonedDateTime.`
+    );
+  }
+  // Range validation on the date triple. This function accepts plain
+  // field bags (documented duck-typing), so the fields are untrusted
+  // caller data, and every downstream consumer assumed a real calendar
+  // date: a year of 1e9 used to drive a O(|year|) day-accumulation loop
+  // (hundreds of ms per call — a cheap CPU-denial primitive when an app
+  // feeds user-controlled parsed values in), and month 0 / Feb 31 fell
+  // through to either V8-internal Intl errors or silently-wrong
+  // distances. Real Temporal values always pass these checks, so this
+  // only ever fires on hostile/hand-rolled bags.
+  if (hasYear) {
+    const y = obj.year as number;
+    const m = obj.month as number;
+    const d = obj.day as number;
+    if (!Number.isFinite(y) || !Number.isInteger(y) || y < MIN_YEAR || y > MAX_YEAR) {
+      throw new InvalidDateError({
+        input: label,
+        reason: `year ${y} is outside the ${MIN_YEAR}..${MAX_YEAR} range Temporal can represent`,
+      });
+    }
+    if (!Number.isInteger(m) || m < 1 || m > 12) {
+      throw new InvalidDateError({
+        input: label,
+        reason: `month ${m} is not in 1..12`,
+      });
+    }
+    const maxDay = m === 2 && isGregorianLeapYear(y) ? 29 : [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]!;
+    if (!Number.isInteger(d) || d < 1 || d > maxDay) {
+      throw new InvalidDateError({
+        input: label,
+        reason: `day ${d} is not valid for year ${y}, month ${m} (max ${maxDay})`,
+      });
+    }
+  }
+  return {
+    year: hasYear ? (obj.year as number) : undefined,
+    month: hasMonth ? (obj.month as number) : undefined,
+    day: hasDay ? (obj.day as number) : undefined,
+    hour: typeof obj.hour === 'number' ? (obj.hour as number) : undefined,
+    minute: typeof obj.minute === 'number' ? (obj.minute as number) : undefined,
+    second: typeof obj.second === 'number' ? (obj.second as number) : undefined,
+    millisecond: typeof obj.millisecond === 'number' ? (obj.millisecond as number) : undefined,
+  };
+}
+
+// Temporal's representable ISO year range (PlainDate accepts -271821
+// through 275760). Values beyond this can't come from a real Temporal
+// object, so they're rejected as malformed input rather than walked.
+const MIN_YEAR = -271_821;
+const MAX_YEAR = 275_760;
+
+// Reference epoch for ms-since computation. Jan 1, 2000 UTC is the same
+// anchor isoWeek.ts uses for day-of-week arithmetic; reusing it keeps the
+// reasoning localized to one well-known reference date.
+const REFERENCE_YEAR = 2000;
+const MS_PER_SECOND = 1000;
+const MS_PER_MINUTE = 60 * MS_PER_SECOND;
+const MS_PER_HOUR = 60 * MS_PER_MINUTE;
+const MS_PER_DAY = 24 * MS_PER_HOUR;
+
+function daysSinceReference(year: number, month: number, day: number): number {
+  // O(1): days_from_civil for the target minus days_from_civil for the
+  // reference. The old version accumulated 365/366 per year in a loop —
+  // identical results for every real date, but O(|year − 2000|), which
+  // made hostile field-bag years (1e9+) an accidental CPU-denial
+  // primitive. (Range validation in readFields already rejects years
+  // Temporal can't represent; this closed form makes even the
+  // in-range walk instant.)
+  return daysFromCivil(year, month, day) - daysFromCivil(REFERENCE_YEAR, 1, 1);
+}
+
+function toEpochMs(fields: DateFieldView): number {
+  // A PlainDate has no time fields — treat as midnight. A PlainDateTime
+  // has them all. Comparing two PlainDates is a day-resolution diff;
+  // comparing two PlainDateTimes is millisecond-resolution. Mixing the
+  // two (one PlainDate, one PlainDateTime) is allowed and just means the
+  // PlainDate side is treated as midnight, which is what most callers
+  // would intuitively expect ("distance from this date to this moment").
+  if (fields.year === undefined || fields.month === undefined || fields.day === undefined) {
+    throw new Error(
+      `temporal-fmt: formatDistance needs a Temporal value with year/month/day fields ` +
+      `(PlainDate, PlainDateTime, or ZonedDateTime). A PlainTime or other shape ` +
+      `has no anchor date to diff against.`
+    );
+  }
+  const days = daysSinceReference(fields.year, fields.month, fields.day);
+  const hour = fields.hour ?? 0;
+  const minute = fields.minute ?? 0;
+  const second = fields.second ?? 0;
+  const millisecond = fields.millisecond ?? 0;
+  return days * MS_PER_DAY + hour * MS_PER_HOUR + minute * MS_PER_MINUTE + second * MS_PER_SECOND + millisecond;
+}
+
+// Unit selection cutoffs. Mirrors the rough thresholds date-fns uses,
+// trimmed to the units Intl.RelativeTimeFormat supports in every engine
+// (it accepts 'second' through 'year'; 'quarter' and 'week' support
+// varies, so we skip 'week' here — going days → months directly at the
+// 30-day boundary is simpler and avoids the engine-support cliff).
+//
+//   |diff| < 60 s   → seconds  ("30 seconds ago")
+//   |diff| < 60 min → minutes  ("12 minutes ago")
+//   |diff| < 24 h   → hours    ("3 hours ago")
+//   |diff| < 30 d   → days     ("5 days ago")
+//   |diff| < 365 d  → months   ("2 months ago")
+//   otherwise      → years    ("1 year ago")
+//
+// 30 days is an approximation of a month — a calendar month is 28-31
+// days, so the boundary is inherently fuzzy. Same with 365 days for a
+// year. Documented as approximations, not exact calendar arithmetic.
+//
+// `cutoffs` on FormatDistanceOptions overrides individual boundaries
+// per call. DEFAULT_CUTOFFS holds the same numbers as the old hardcoded
+// UNIT_CUTOFFS so callers passing nothing see the same output as
+// before — verified byte-for-byte against the pre-change baseline.
+const DEFAULT_CUTOFFS = {
+  seconds: 60,   // 60 s
+  minutes: 60,   // 60 min
+  hours: 24,     // 24 h
+  days: 30,      // 30 d
+  months: 365,   // 365 d (in days, since the months→years boundary is day-resolution)
+} as const;
+
+type CutoffKey = keyof typeof DEFAULT_CUTOFFS;
+
+// Cutoffs the caller can override. Each value is in the unit's own
+// native scale (seconds for `seconds`, minutes for `minutes`, etc.) —
+// `months` is the exception: it's the day count that bounds the
+// months→years crossover, since "months" itself isn't a fixed number
+// of days. This mirrors how the original hardcoded table expressed
+// the same boundary (30 * MS_PER_DAY for days, 365 * MS_PER_DAY for
+// the months cap) and lets callers say "treat anything under 90 days
+// as months" rather than "anything under 3 months as months" (which
+// would require picking a definition of "month").
+export interface DistanceCutoffs {
+  seconds?: number;
+  minutes?: number;
+  hours?: number;
+  days?: number;
+  months?: number;
+}
+
+// Convert the user-facing cutoffs (per-unit numbers) into the ms
+// thresholds the matching loop needs. Validates each value is a
+// positive finite number, and that the boundaries are monotonically
+// non-decreasing in equivalent ms — without that, the smallest-bound
+// branch always wins and a later branch becomes unreachable, which
+// is never what the caller intended.
+function resolveCutoffs(user?: DistanceCutoffs): Array<{ maxMs: number; unit: Intl.RelativeTimeFormatUnit }> {
+  const merged: Record<CutoffKey, number> = { ...DEFAULT_CUTOFFS, ...user };
+
+  for (const key of Object.keys(merged) as CutoffKey[]) {
+    const value = merged[key];
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+      throw new Error(
+        `temporal-fmt: formatDistance cutoff "${key}" must be a positive finite number (got ${String(value)}).`
+      );
+    }
+  }
+
+  const secondsMs = merged.seconds * MS_PER_SECOND;
+  const minutesMs = merged.minutes * MS_PER_MINUTE;
+  const hoursMs = merged.hours * MS_PER_HOUR;
+  const daysMs = merged.days * MS_PER_DAY;
+  // `months` is in days — see DistanceCutoffs comment above.
+  const monthsMs = merged.months * MS_PER_DAY;
+
+  if (!(secondsMs <= minutesMs && minutesMs <= hoursMs && hoursMs <= daysMs && daysMs <= monthsMs)) {
+    throw new Error(
+      `temporal-fmt: formatDistance cutoffs must be monotonically non-decreasing in equivalent ms ` +
+      `(seconds ≤ minutes ≤ hours ≤ days ≤ months). Got: seconds=${merged.seconds}s, ` +
+      `minutes=${merged.minutes}min, hours=${merged.hours}h, days=${merged.days}d, months=${merged.months}d — ` +
+      `pick a sequence where each boundary is at least as large as the one before it.`
+    );
+  }
+
+  return [
+    { maxMs: secondsMs, unit: 'second' },
+    { maxMs: minutesMs, unit: 'minute' },
+    { maxMs: hoursMs, unit: 'hour' },
+    { maxMs: daysMs, unit: 'day' },
+    { maxMs: monthsMs, unit: 'month' },
+  ];
+}
+
+const rtfCache = new Map<string, Intl.RelativeTimeFormat>();
+const MAX_RTF_CACHE_SIZE = 100;
+
+function getRtf(locale: string, numeric: 'always' | 'auto'): Intl.RelativeTimeFormat {
+  const key = `${canonicalLocaleKey(locale)}|${numeric}`;
+  let rtf = rtfCache.get(key);
+  if (rtf) return rtf;
+  if (rtfCache.size >= MAX_RTF_CACHE_SIZE) {
+    const oldestKey = rtfCache.keys().next().value;
+    /* c8 ignore next @preserve -- unreachable else-arm: rtfCache holds
+       >= MAX_RTF_CACHE_SIZE entries here, and keys().next().value on a
+       non-empty Map never yields undefined (only an exhausted/empty iterator
+       does). The guard exists for TS's string | undefined narrowing of the
+       iterator result. */
+    if (oldestKey !== undefined) rtfCache.delete(oldestKey);
+  }
+  try {
+    rtf = new Intl.RelativeTimeFormat(normalizeLocaleTag(locale), { numeric });
+  } catch (err) {
+    // Malformed locale tags reach Intl as a bare RangeError; surface the
+    // library's typed error instead. (Every failure mode of these
+    // constructors with a string locale is a RangeError, so converting
+    // unconditionally loses nothing — the original message is preserved
+    // in `reason` either way.)
+    throw new InvalidLocaleError({ actual: locale, reason: (err as Error).message });
+  }
+  rtfCache.set(key, rtf);
+  return rtf;
+}
+
+function canonicalLocaleKey(locale: string): string {
+  try {
+    return new Intl.Locale(locale.replace(/_/g, '-')).toString().toLowerCase();
+  } catch {
+    return locale;
+  }
+}
+
+export interface FormatDistanceOptions extends FormatOptions {
+  /**
+   * 'auto' (default) lets Intl.RelativeTimeFormat use natural forms like
+   * "yesterday"/"tomorrow"/"now" when the rounded value lands on ±1 or 0.
+   * 'always' forces the strict "1 day ago"/"in 1 day"/"in 0 seconds" form.
+   */
+  numeric?: 'always' | 'auto';
+  /**
+   * Override the unit-selection boundaries (seconds→minutes,
+   * minutes→hours, hours→days, days→months, months→years). Any
+   * subset can be supplied; omitted boundaries fall back to the
+   * defaults (60s, 60min, 24h, 30d, 365d). Values are in each
+   * unit's native scale except `months`, which is in days — see
+   * DistanceCutoffs. Throws descriptively on non-monotonic
+   * boundaries or non-positive values, rather than producing
+   * confusing output downstream.
+   */
+  cutoffs?: DistanceCutoffs;
+}
+
+/**
+ * Returns a human-readable relative-time string describing `date1`
+ * relative to `date2`, e.g. "3 days ago", "in 2 hours", "now". Delegates
+ * unit names and pluralization to `Intl.RelativeTimeFormat` so the
+ * output localizes the same way the rest of the library's locale-aware
+ * tokens do.
+ *
+ * Convention: the result describes `date1`'s position relative to
+ * `date2`. `formatDistance(now, threeDaysAgo)` → `"3 days ago"` (the
+ * past date is described relative to now). `formatDistance(now, twoHoursFromNow)`
+ * → `"in 2 hours"`. This matches the natural-language reading "describe
+ * the first date as if standing at the second one."
+ *
+ * Unit-selection cutoffs (seconds → minutes → hours → days → months →
+ * years) and the rationale for each are documented in the README under
+ * "formatDistance".
+ *
+ * @example
+ * formatDistance(threeDaysAgo, today)              // "3 days ago"
+ * formatDistance(twoHoursFromNow, today)          // "in 2 hours"
+ * formatDistance(today, today)                      // "now"
+ * formatDistance(futureDate, today, {locale:'fr-FR'}) // "dans 2 jours"
+ */
+export function formatDistance(
+  date1: unknown,
+  date2: unknown,
+  options: FormatDistanceOptions = {},
+): string {
+  const fields1 = readFields(date1, 'date1');
+  const fields2 = readFields(date2, 'date2');
+
+  // diff > 0: date1 is later than date2 → "in X units" (date1 is in
+  // the future relative to date2). diff < 0: date1 is earlier than
+  // date2 → "X units ago". This convention puts date1 in the
+  // "described" role and date2 in the "reference" role, matching
+  // natural-language reading: `formatDistance(threeDaysAgo, today)`
+  // = "describe threeDaysAgo as if standing at today" = "3 days ago".
+  const diffMs = toEpochMs(fields1) - toEpochMs(fields2);
+  const absMs = Math.abs(diffMs);
+
+  const unitCutoffs = resolveCutoffs(options.cutoffs);
+  let unit: Intl.RelativeTimeFormatUnit = 'year';
+  for (const { maxMs, unit: candidateUnit } of unitCutoffs) {
+    if (absMs < maxMs) {
+      unit = candidateUnit;
+      break;
+    }
+  }
+
+  const divisor = unitToMs(unit);
+  const rounded = Math.round(diffMs / divisor);
+
+  const numeric = options.numeric ?? 'auto';
+  const locale = options.locale ?? DEFAULT_LOCALE;
+  const rtf = getRtf(locale, numeric);
+  return rtf.format(rounded, unit);
+}
+
+/**
+ * Same as formatDistance(date, now), where "now" is read from the system
+ * clock at call time. Convenience wrapper for the common "how long ago
+ * was this" case, so the caller doesn't have to construct a reference
+ * value themselves.
+ *
+ * Unlike formatRelativeToNow() (in relativeTime.ts), which only needs
+ * calendar-day resolution, this reads the full wall-clock time (hour
+ * through millisecond) off the system clock — formatDistance's unit
+ * selection is ms-resolution, so a date-only "now" would misclassify
+ * anything under 24 hours old (e.g. "1 hour ago" reading as "in 23
+ * hours" against a midnight-truncated reference). See the test file
+ * for a regression case covering exactly that.
+ *
+ * The reference is captured fresh on every call, not memoized — each
+ * call reflects "now" at the moment it runs, same expectation
+ * formatRelativeToNow() already sets.
+ *
+ * @example
+ * formatDistanceToNow(threeHoursAgo)  // "3 hours ago"
+ * formatDistanceToNow(tomorrow)       // "in 1 day" (auto: "tomorrow")
+ */
+export function formatDistanceToNow(
+  date: unknown,
+  options: FormatDistanceOptions = {},
+): string {
+  const now = new Date();
+  const nowFields = {
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+    day: now.getDate(),
+    hour: now.getHours(),
+    minute: now.getMinutes(),
+    second: now.getSeconds(),
+    millisecond: now.getMilliseconds(),
+  };
+  return formatDistance(date, nowFields, options);
+}
+
+function unitToMs(unit: Intl.RelativeTimeFormatUnit): number {
+  /* c8 ignore next @preserve -- the dispatch line's week/quarter/default
+     paths are unreachable (see the per-case comments inside); the branch
+     entries for those dead paths are attributed to the switch line itself,
+     not to the wrapped case bodies below. The reachable cases are exercised
+     by the cutoff-threshold tests. */
+  switch (unit) {
+    case 'second': return MS_PER_SECOND;
+    case 'minute': return MS_PER_MINUTE;
+    case 'hour': return MS_PER_HOUR;
+    case 'day': return MS_PER_DAY;
+    /* c8 ignore start @preserve -- unreachable: unitToMs is only called
+       with `unit` values produced by formatDistance's cutoff loop above,
+       which only ever yields 'second'/'minute'/'hour'/'day'/'month'
+       (from resolveCutoffs' fixed array) or 'year' (the loop's fallback
+       default). 'week' and 'quarter' were never wired into
+       resolveCutoffs — formatDistance intentionally skips week-
+       resolution output (see the comment above DEFAULT_CUTOFFS) — so
+       neither can reach this switch. */
+    case 'week': return 7 * MS_PER_DAY;
+    /* c8 ignore stop @preserve */
+    case 'month': return 30 * MS_PER_DAY;
+    /* c8 ignore start @preserve -- unreachable, same reason as 'week'
+       above: resolveCutoffs never produces 'quarter'. */
+    case 'quarter': return 91 * MS_PER_DAY;
+    /* c8 ignore stop @preserve */
+    case 'year': return 365 * MS_PER_DAY;
+    /* c8 ignore start @preserve -- unreachable: every unit
+       resolveCutoffs can actually produce ('second' through 'month', or
+       'year' as the loop's fallback default) has an explicit case
+       above, so this exhaustive-switch default can't fire at runtime.
+       It exists so TS accepts the function as total — the compiler
+       can't see through the cutoff-array iteration in formatDistance()
+       to know the input is already narrowed. */
+    default:
+      throw new Error(`temporal-fmt: formatDistance hit unhandled unit "${String(unit)}".`);
+    /* c8 ignore stop @preserve */
+  }
+}

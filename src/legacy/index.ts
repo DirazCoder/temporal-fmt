@@ -20,7 +20,7 @@ import {
   compileFormat as typedCompileFormat,
   type CompiledFormat,
   type FormattedPart,
-} from '../format.js';
+} from '../format/format.js';
 import {
   parse as typedParse,
   safeParse as typedSafeParse,
@@ -29,10 +29,10 @@ import {
   compileParser as typedCompileParser,
   type CompiledParser,
   type ParsedPart,
-} from '../parse.js';
-import type { TemporalLike } from '../tokens.js';
-import type { NumberingFormatOptions, NumberingParseOptions } from '../numbering.js';
-import { TemporalFmtError } from '../errors.js';
+} from '../parse/parse.js';
+import type { TemporalLike } from '../tokens/tokens.js';
+import type { NumberingFormatOptions, NumberingParseOptions } from '../locale/numbering.js';
+import { TemporalFmtError } from '../core/errors.js';
 
 export type LegacySafeParseResult =
   | { ok: true; value: unknown }

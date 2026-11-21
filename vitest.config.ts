@@ -15,8 +15,8 @@ export default defineConfig({
     // Provider 'v8' resolves to @vitest/coverage-v8 (devDependency);
     // `npx vitest run --coverage` enforces the 100% thresholds below.
     // While iterating on one module, scope the run, e.g.:
-    //   npx vitest run vitest/parse.unit.test.ts \
-    //     --coverage --coverage.include='src/parse.ts'
+    //   npx vitest run vitest/parse/parse.unit.test.ts \
+    //     --coverage --coverage.include='src/parse/parse.ts'
     coverage: {
       provider: 'v8',
       include: ['src/**'],

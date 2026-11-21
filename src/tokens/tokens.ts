@@ -1,0 +1,773 @@
+/*
+ * Copyright 2026 DirazCoder
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import { getTemporal, subscribeToTemporalChanges } from '../core/temporalProvider.js';
+import { canonicalCacheKey, getCustomVocab, normalizeLocaleTag, partValue } from '../locale/localeVocab.js';
+import { InvalidLocaleError, FormatSyntaxError } from '../core/errors.js';
+import { isoWeekYearAndWeek, dayOfYear } from '../calendar/isoWeek.js';
+
+// Throws the library's standard typed missing-field error for tokens
+// that READ more fields than their TOKENS-table `field` entry declares
+// (the table only drives format()'s single-field precheck). ww/RRRR read
+// year/month/day/dayOfWeek but precheck only dayOfWeek; D/DD/DDD read
+// year/month/day but precheck only day. Without this, a bag carrying the
+// declared field but missing the rest fed undefined into the math and
+// produced literal "NaN" output instead of the descriptive error every
+// other token throws.
+function requireFields(t: TemporalLike, token: string, ...fields: Array<keyof TemporalLike>): void {
+  for (const field of fields) {
+    if (t[field] === undefined) {
+      throw new FormatSyntaxError({
+        token,
+        message:
+          `temporal-fmt: token "${token}" requires "${field}", ` +
+          `which this Temporal object doesn't have. ` +
+          `(e.g. PlainDate has no time fields, PlainTime has no date fields)`,
+      });
+    }
+  }
+}
+
+// PlainMonthDay carries monthCode ("M12") instead of a numeric month,
+// because without a year a month number means nothing in calendars with
+// leap months. In iso8601 and gregory the code is just the month number,
+// so read it from there. Anything else (hebrew "M05L", ...) stays
+// undefined and format() throws its usual missing-field error.
+function monthOf(t: TemporalLike): number | undefined {
+  if (t.month !== undefined) return t.month;
+  const match = t.calendarId === 'iso8601' || t.calendarId === 'gregory'
+    ? /^M(\d{2})$/.exec(String(t.monthCode))
+    : null;
+  return match ? Number(match[1]) : undefined;
+}
+
+// Field lookup for format()'s missing-field precheck. Same as t[field]
+// except 'month', which a PlainMonthDay can answer through monthCode.
+export function fieldOf(t: TemporalLike, field: keyof TemporalLike): unknown {
+  return field === 'month' ? monthOf(t) : t[field];
+}
+
+export function pad(n: number, len: number): string {
+  // padStart pads the whole string, sign included, so pad(-45, 4) used to
+  // come out "0-45" instead of "-045" — split the sign off first.
+  const negative = n < 0;
+  const digits = String(Math.abs(n)).padStart(len, '0');
+  return negative ? '-' + digits : digits;
+}
+
+// Combines the three sub-second fields Temporal exposes into one 9-digit
+// nanosecond-of-second value, then truncates (never rounds) to the
+// requested width. Truncating matches what every digit-width token in
+// this library already does elsewhere (yy, MM, dd, ...) — the token
+// asked for N digits of precision, not a rounded N-digit approximation.
+// A caller asking for SSS on a value with nanosecond precision gets the
+// leading 3 digits of it, same as they'd get the leading 3 digits of any
+// other multi-digit field this library formats.
+//
+// Attached to pad() rather than declared standalone: the bundler's
+// per-function coverage instrumentation attributes hits to each of the
+// 9 fraction-token arrow functions individually but not to a shared
+// helper they all close over, so a correctly-exercised helper still
+// shows as 0 hits under c8. pad() itself is called directly all over
+// this file and is reliably attributed — routing through it here keeps
+// the coverage numbers honest without duplicating the slice logic
+// across every token entry below.
+pad.fraction = function formatFraction(t: TemporalLike, width: number): string {
+  const nanoOfSecond = t.millisecond! * 1_000_000 + (t.microsecond ?? 0) * 1_000 + (t.nanosecond ?? 0);
+  return pad(nanoOfSecond, 9).slice(0, width);
+};
+
+// Not every field exists on every Temporal type (PlainDate has no .hour,
+// etc). Callers check for undefined before formatting a token.
+export interface TemporalLike {
+  year?: number;
+  month?: number;
+  // PlainMonthDay's stand-in for month, e.g. "M12". See monthOf().
+  monthCode?: string;
+  day?: number;
+  hour?: number;
+  minute?: number;
+  second?: number;
+  millisecond?: number;
+  microsecond?: number;
+  nanosecond?: number;
+  timeZoneId?: string;
+  // ZonedDateTime.prototype.offset — `±HH:MM` (6 chars) for any modern
+  // date, but pre-1900 local-mean-time zones (e.g. America/New_York
+  // before 1883) surface a seconds component too: `±HH:MM:SS` (9
+  // chars). Format-side offset tokens must check the length rather
+  // than assume 6. Parse-side writes a canonicalized `+HH:MM` here
+  // before handing it to Temporal.ZonedDateTime.from as the
+  // `timeZone` value.
+  offset?: string;
+  dayOfWeek?: number; // 1=Mon, 7=Sun, per Temporal spec
+  calendarId?: string;
+  toInstant?: () => unknown;
+  toPlainDate?: (fields: { day: number }) => TemporalLike;
+  toLocaleString?: (locale: string, options: Intl.DateTimeFormatOptions) => string;
+}
+
+export interface FormatOptions {
+  /** BCP 47 locale tag, e.g. 'en-US', 'fr-FR', 'ar-EG'. Defaults to 'en-US'. */
+  locale?: string;
+  /**
+   * When set on parse(), opts into the lenient split heuristic for ambiguous
+   * glued numeric runs (e.g. "121" against "Md"). Default (false) keeps
+   * parse()'s strict behavior — throw on ambiguity rather than guess.
+   * See README "Lenient parse mode" for the heuristic and why it's opt-in.
+   */
+  lenient?: boolean;
+}
+
+export const DEFAULT_LOCALE = 'en-US';
+
+// Intl.DateTimeFormat is expensive to construct and format() can run in a
+// loop (rendering a table of dates), so cache by (locale, options).
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+const MAX_CACHE_SIZE = 500;
+
+function getFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = JSON.stringify([canonicalCacheKey(locale), options]);
+  let formatter = formatterCache.get(key);
+  if (formatter) {
+    return formatter;
+  }
+  if (formatterCache.size >= MAX_CACHE_SIZE) {
+    // not real LRU, just evicts oldest insertion — fine for this key space
+    const oldestKey = formatterCache.keys().next().value;
+    /* c8 ignore next @preserve -- unreachable else-arm: formatterCache holds
+       >= MAX_CACHE_SIZE entries here, and keys().next().value on a non-empty
+       Map never yields undefined (only an exhausted/empty iterator does).
+       The guard exists for TS's string | undefined narrowing of the
+       iterator result. */
+    if (oldestKey !== undefined) formatterCache.delete(oldestKey);
+  }
+  try {
+    formatter = new Intl.DateTimeFormat(normalizeLocaleTag(locale), options);
+  } catch (err) {
+    // Malformed locale tags reach Intl as a bare RangeError; surface the
+    // library's typed error instead (reached via dayPeriodPart — the
+    // 'a' token — on any runtime, and the native-Intl path for the rest).
+    // Every failure mode of this constructor with a string locale is a
+    // RangeError, so converting unconditionally preserves the original
+    // message in `reason` either way.
+    throw new InvalidLocaleError({ actual: locale, reason: (err as Error).message });
+  }
+  formatterCache.set(key, formatter);
+  return formatter;
+}
+
+// Passing a Temporal object straight into `new Intl.DateTimeFormat().formatToParts()`
+// only works when the engine's Intl implementation has special-cased support for
+// *native* Temporal instances (checked via internal slots and/or gated behind a V8 flag,
+// not tied to a specific Node version).
+//
+// A Temporal polyfill's instances don't have those slots, so the engine falls back to ToNumber() -> .valueOf(),
+// which the polyfill deliberately throws on ("Cannot use valueOf").
+// Probed once and memoized and only from intlPart(), so it never
+// runs unless a format string actually uses a locale-aware token.
+let nativeSupport: boolean | undefined;
+// Invalidate the memoized probe whenever setTemporal() swaps the active
+// implementation — otherwise a probe result from "is native Temporal
+// supported" could keep being used after the active implementation is
+// no longer the one that was probed. See setTemporal() in
+// temporalProvider.ts for the other half of this.
+subscribeToTemporalChanges(() => { nativeSupport = undefined; });
+
+function intlSupportsNativeTemporal(): boolean {
+  if (nativeSupport === undefined) {
+    nativeSupport = false;
+      try {
+        const temporal = getTemporal();
+        new Intl.DateTimeFormat('en-US', { day: 'numeric' })
+          .formatToParts(temporal.PlainDate.from({ year: 1970, month: 1, day: 1 }) as Date);
+        // Version-gated, not dead — see the matching note on the
+        // !intlSupportsNativeTemporal() branch in intlPart() below for
+        // why this can't be exercised from this environment.
+        /* c8 ignore next */
+        nativeSupport = true;
+      /* c8 ignore start */
+      } catch {
+        // native Temporal absent, or present but not recognized by Intl — fall back.
+        // Version-gated, not dead: this catch only fires on runtimes where the
+        // probe above throws (no native Temporal, or Intl doesn't recognize it).
+        // On a runtime with full native support (e.g. Node builds where Intl
+        // accepts native Temporal instances directly) the try succeeds and this
+        // branch is unreachable — mirror case of the block below.
+      }
+      /* c8 ignore stop */
+  }
+  return nativeSupport;
+}
+
+// The Julian → Gregorian cutover, as ICU applies it. ICU's gregory
+// calendar (unlike Temporal's, which is proleptic Gregorian throughout)
+// treats every date before October 15, 1582 as a Julian-calendar date:
+// the Julian calendar ran ~10 days behind proleptic Gregorian in that
+// era, so a date Temporal correctly calls 1500-07-05 gets silently
+// reinterpreted by Intl as Julian 1500-06-25 — the wrong month near
+// boundaries, and a weekday shifted by 10 mod 7 = 3 slots everywhere.
+// See tc39/ecma402#1003. Whether the cutover is even observable varies
+// by engine and entry point (V8's plain-Date path disables it; the
+// native-Temporal formatToParts path on some Node 26 builds does not),
+// so this can't be probed reliably at runtime — pre-cutover dates have
+// to be routed around Intl's calendar math entirely.
+const GREGORIAN_CUTOVER_YEAR = 1582;
+const GREGORIAN_CUTOVER_MONTH = 10;
+const GREGORIAN_CUTOVER_DAY = 15;
+
+// True when the Temporal object's own (proleptic-Gregorian, hence
+// trustworthy) fields place it before the ICU cutover. Deliberately
+// NaN-tolerant rather than undefined-checking: a Temporal type that
+// lacks one of these fields (PlainMonthDay has no year, PlainYearMonth
+// no day) feeds undefined into Number(), every NaN comparison is false,
+// and the object falls out as "not before the cutover" onto its existing
+// formatting path — no undefined-specific branches to keep covered, and
+// no behavior change for field-partial types.
+function isBeforeGregorianCutover(t: TemporalLike): boolean {
+  if (t.year !== GREGORIAN_CUTOVER_YEAR) return Number(t.year) < GREGORIAN_CUTOVER_YEAR;
+  if (t.month !== GREGORIAN_CUTOVER_MONTH) return Number(t.month) < GREGORIAN_CUTOVER_MONTH;
+  return Number(t.day) < GREGORIAN_CUTOVER_DAY;
+}
+
+// Renders a locale-aware month/weekday name for a pre-cutover date
+// WITHOUT ever handing the date itself to Intl. Intl is used purely as a
+// name lookup table indexed by month/weekday number — never as the thing
+// that computes which month/weekday a historical date falls on, which is
+// the computation the Julian cutover corrupts. The number comes straight
+// off the Temporal object's own fields (proleptic-Gregorian-correct by
+// construction, since that's what Temporal is), and the name comes from
+// formatting a safe modern reference date carrying that same number.
+//
+// The reference dates are deliberately the same ones getLocaleVocab()
+// (localeVocab.ts) uses to build the parse-side vocabulary — 2020-mm-01
+// for months, the Monday-anchored 2024-01-01..07 week for weekdays — so
+// format() output for a pre-cutover date is byte-identical to what
+// parse() matches against, and round-trips keep working. partValue()
+// gives us the same adjacent-literal merging (ja-JP's "8月") the vocab
+// builder uses, for the same reason.
+function preCutoverGregorianName(
+  temporal: TemporalLike,
+  locale: string,
+  formatterOptions: Intl.DateTimeFormatOptions,
+  partType: 'month' | 'weekday'
+): string {
+  // timeZone: 'UTC' matters: the references are built via Date.UTC
+  // (midnight UTC), and without pinning the formatter's zone a host
+  // timezone behind UTC would shift them to the previous local day.
+  // month/dayOfWeek are guaranteed present — format()'s field precheck
+  // for MMMM/MMM ('month') and EEEE/EEE ('dayOfWeek') ran before the
+  // token handler was invoked at all.
+  const reference = partType === 'month'
+    ? new Date(Date.UTC(2020, monthOf(temporal)! - 1, 1))
+    : new Date(Date.UTC(2024, 0, temporal.dayOfWeek!));
+  const formatter = getFormatter(locale, { ...formatterOptions, timeZone: 'UTC' });
+  return partValue(formatter, reference, partType);
+}
+
+function intlPart(
+  temporal: TemporalLike,
+  locale: string,
+  options: Intl.DateTimeFormatOptions,
+  partType: Intl.DateTimeFormatPartTypes
+): string {
+  // PlainYearMonth is stricter than PlainDate about calendars: Intl only
+  // accepts it when the formatter's calendar equals the object's own, and
+  // an iso8601 object never matches the 'gregory' we force below (and
+  // passing 'iso8601' itself gets empty parts, see the note further down).
+  // Month and year names are the same for the first of the month, so
+  // format that PlainDate instead (#12). Duck-typed like isPlainYearMonth:
+  // year but no day, plus toPlainDate.
+  if (
+    temporal?.calendarId === 'iso8601' &&
+    temporal.year !== undefined &&
+    temporal.day === undefined &&
+    typeof temporal.toPlainDate === 'function'
+  ) {
+    temporal = temporal.toPlainDate({ day: 1 });
+  }
+
+  // Intl throws "Mismatching Calendars" if the formatter's calendar doesn't
+  // match the object's own (e.g. en-US formatter defaults to gregory, but
+  // a hebrew/islamic PlainDate needs its own calendar passed through).
+  //
+  // For iso8601 specifically, force 'gregory' rather than leaving calendar
+  // unset: numeric fields (yyyy/dd, see tokens' pad()-based handlers) are
+  // always pulled straight off the object's own ISO fields — so if the
+  // *locale* carries a `-u-ca-*` extension (e.g. 'en-u-ca-hebrew') and this
+  // step left calendar unset, the formatter would resolve its own default
+  // calendar from the locale and format MMMM/EEEE in that calendar while
+  // yyyy/dd stay ISO, producing a date that looks internally consistent
+  // (a real Hebrew month name next to a real-looking day/year) but names a
+  // completely different day than the object actually represents. Forcing
+  // 'gregory' here keeps every field of an ISO object's output anchored to
+  // the same (ISO/Gregorian) calendar — a locale's calendar extension only
+  // takes effect when the object itself already carries a non-ISO calendar
+  // (via `.withCalendar()`), matching what the README documents.
+  //
+  // 'gregory' specifically, not 'iso8601' — passing `calendar: 'iso8601'`
+  // explicitly alongside a single-field options object makes
+  // formatToParts() come back empty for some reason, but 'gregory' doesn't
+  // have that problem and Temporal's iso8601 calendar is Gregorian-shaped
+  // (proleptic Gregorian throughout, no Julian cutover) so the two agree
+  // on every numeric field this library ever reads.
+  const calendar = temporal?.calendarId;
+  const formatterOptions: Intl.DateTimeFormatOptions = {
+    ...options,
+    calendar: calendar && calendar !== 'iso8601' ? calendar : 'gregory',
+  };
+
+  // Field-bag guard: a plain { year, month, day } object only has
+  // Object.prototype.toLocaleString, which ignores both arguments and
+  // returns "[object Object]". On engines without native Temporal
+  // support in Intl this used to be caught below, but on engines where
+  // Intl *does* recognize native Temporal instances (Node 26+), a bag
+  // skips that branch entirely and reaches formatToParts() directly —
+  // which doesn't throw "[object Object]", it throws a bare
+  // "RangeError: Invalid time value" once the bag fails ToNumber()
+  // coercion. Neither failure mode is useful to a caller, so check for
+  // a real toLocaleString up front, before branching on native support,
+  // so the descriptive error fires on every engine.
+  const ls = temporal.toLocaleString;
+  if (typeof ls !== 'function' || ls === Object.prototype.toLocaleString) {
+    throw new Error(
+      `temporal-fmt: locale-aware part "${partType}" needs a value that implements ` +
+      `toLocaleString (a real Temporal object). A plain field bag cannot render ` +
+      `locale-aware names — pass a Temporal.PlainDate/PlainDateTime/ZonedDateTime.`
+    );
+  }
+
+  // Pre-1582 cutover guard. ICU's gregory calendar reinterprets dates
+  // before October 15, 1582 under Julian-calendar rules (see the long
+  // comment on isBeforeGregorianCutover above for the why), so for those
+  // dates Intl must never be handed the Temporal object itself — neither
+  // through formatToParts() below nor through toLocaleString() in the
+  // polyfill branch — since either route lets ICU's calendar math decide
+  // which month/weekday the date falls on, and that's exactly what the
+  // cutover corrupts. Route month/weekday name lookups through a safe
+  // modern reference date instead (preCutoverGregorianName above). Only
+  // month/weekday parts are affected: era is AD/CE either way for CE
+  // dates, and timeZoneName depends on the instant, not the calendar.
+  // Only Gregorian-shaped objects take this path — a Temporal object
+  // carrying a non-Gregorian calendar (hebrew, islamic, ...) has its
+  // month/weekday fields in that calendar already, and ICU's
+  // non-Gregorian calendars don't apply the Julian cutover at all, so
+  // feeding one through a gregory-keyed reference lookup would index the
+  // wrong month number into the wrong calendar. Custom vocabs never
+  // reach here (localeAwareName resolves them before calling intlPart).
+  //
+  // A PlainMonthDay takes the same route: it has no year, and handing an
+  // iso8601 one to Intl with the 'gregory' calendar we force above throws
+  // "Mismatched calendars". Its month number is enough to pick the name.
+  const isMonthDay = partType === 'month' && temporal.month === undefined;
+  if (
+    (partType === 'month' || partType === 'weekday') &&
+    formatterOptions.calendar === 'gregory' &&
+    (isMonthDay || isBeforeGregorianCutover(temporal))
+  ) {
+    return preCutoverGregorianName(temporal, locale, formatterOptions, partType);
+  }
+
+  // Temporal.prototype.toLocaleString() is part of the Temporal spec itself:
+  // polyfills implement the ICU formatting internally without needing the
+  // engine to recognize the object, so it works without native Intl support.
+  //
+  // Everything from here to the end of this function is genuinely
+  // reachable — NOT dead code — but only on a Node build where a global
+  // `Temporal` exists AND Intl.DateTimeFormat.formatToParts() recognizes
+  // native Temporal instances directly (this is real, observed to vary
+  // across Node versions: absent on the Node 22/24 builds this suite has
+  // been run against, present on at least one Node 26 build). This
+  // environment has no native Temporal (`typeof globalThis.Temporal ===
+  // 'undefined'`), so intlSupportsNativeTemporal() always returns false
+  // here and this branch can't be exercised from this test suite without
+  // faking native-instance recognition, which turned out to be
+  // impractical (Intl's native-Temporal detection isn't spoofable via a
+  // Proxy or valueOf() shim — see the M-02 regression test in
+  // temporalProvider.test.js for the same conclusion reached about the
+  // sibling probe function). Coverage numbers for this block will differ
+  // between Node versions for that reason; that's expected, not a
+  // regression.
+  /* c8 ignore start */
+  // Native Intl support only applies to genuine Temporal instances. A
+  // duck-typed value may provide its own toLocaleString implementation but
+  // still be rejected by formatToParts() as an invalid Date value.
+  if (!intlSupportsNativeTemporal() || Object.hasOwn(temporal, 'toLocaleString')) {
+    // normalizeLocaleTag: the active Temporal implementation's
+    // toLocaleString forwards the locale to Intl.DateTimeFormat, which
+    // (unlike this library's cache keys) rejects underscore-separated
+    // tags like 'en_US' outright.
+    // (Field-bag guard now runs unconditionally above, before this
+    // native-support branch, so it's not repeated here.)
+    try {
+      return ls.call(temporal, normalizeLocaleTag(locale), formatterOptions);
+    } catch (err) {
+      // Intl throws a bare RangeError for a malformed tag, but also for
+      // things that have nothing to do with the locale (a calendar
+      // mismatch, say). Only blame the locale if it really is the problem:
+      // getFormatter throws the typed InvalidLocaleError for a bad tag and
+      // returns for a good one, in which case the original error is rethrown.
+      if (err instanceof RangeError) getFormatter(locale, {});
+      throw err;
+    }
+  }
+
+  // formatToParts() throws on ZonedDateTime directly (per spec), so convert
+  // to Instant and pass the zone via `timeZone` instead. Don't convert to
+  // PlainDateTime — that drops the zone, which breaks 'MMMM' + 'zzz' combos.
+  const { toInstant, timeZoneId } = temporal;
+  const isZoned = typeof toInstant === 'function' && typeof timeZoneId === 'string';
+  // has to be called as temporal.toInstant() because destructuring it off breaks
+  // the receiver and throws
+  const intlSafeTemporal = isZoned ? temporal.toInstant!() : temporal;
+  const nativeOptions: Intl.DateTimeFormatOptions = {
+    ...formatterOptions,
+    ...(isZoned ? { timeZone: timeZoneId } : {}),
+  };
+
+  const formatter = getFormatter(locale, nativeOptions);
+  const parts = formatter.formatToParts(intlSafeTemporal as Date | number);
+  const index = parts.findIndex((p) => p.type === partType);
+  if (index === -1) {
+    throw new Error(
+      `temporal-fmt: locale "${locale}" produced no "${partType}" part for this token. ` +
+      `This usually means the Temporal object is missing the field the token needs.`
+    );
+  }
+  // some locales (ja-JP) split a field across two parts — e.g. month "8"
+  // plus a counter suffix "月" as a separate sibling literal part. Merge in
+  // an adjacent literal only if it has no whitespace, so a genuine suffix
+  // gets folded in but an ordinary separator (the space before "AM") stays
+  // a separator. Mirrors partValue() in localeVocab.ts, which builds the
+  // vocab this token's output needs to match for parse() to round-trip.
+  let value = parts[index]!.value;
+  const prev = parts[index - 1];
+  const next = parts[index + 1];
+  if (prev?.type === 'literal' && !/\s/.test(prev.value)) value = prev.value + value;
+  if (next?.type === 'literal' && !/\s/.test(next.value)) value = value + next.value;
+  return value;
+}
+/* c8 ignore stop */
+
+// Temporal.prototype.toLocaleString() can't isolate a single field the way
+// formatToParts() can — asking for `hour` + `dayPeriod` together returns one
+// joined string (e.g. "3 in the afternoon"), and `dayPeriod` alone resolves
+// against a different, non-hour-anchored set of periods ("in the
+// afternoon"/"昼" instead of "PM"/"午後"). Day period only depends on the
+// hour anyway, so route it through a plain UTC Date and Intl.DateTimeFormat
+// instead — that's worked the same on every engine regardless of whether
+// Temporal itself is native or polyfilled.
+function dayPeriodPart(hour: number, locale: string): string {
+  // Custom vocab (when registered) takes precedence over Intl — same
+  // contract as the other locale-aware tokens. Intl won't know about a
+  // caller-supplied AM/PM string for a made-up locale key, so going
+  // through Intl would produce something other than what the caller
+  // registered.
+  const custom = getCustomVocab(locale);
+  if (custom) {
+    return hour < 12 ? custom.dayPeriod[0]! : custom.dayPeriod[1]!;
+  }
+  const date = new Date(Date.UTC(1970, 0, 1, hour));
+  const formatter = getFormatter(locale, { hour: 'numeric', hour12: true, timeZone: 'UTC' });
+  const part = formatter.formatToParts(date).find((p) => p.type === 'dayPeriod');
+  // Defensive guard, confirmed unreachable on this ICU build: forcing
+  // hour12: true (as this call always does) produces a dayPeriod part
+  // for every locale checked, including 24-hour-clock locales (ja-JP,
+  // zh-CN, th-TH, he-IL) and a wide sweep of less-common tags (dz-BT,
+  // bo-CN, am-ET, etc.). Same finding as partValue()'s twin guard in
+  // localeVocab.ts. Kept in case a future ICU/locale-data update
+  // produces a locale that genuinely omits it.
+  /* c8 ignore start */
+  if (!part) {
+    throw new Error(`temporal-fmt: locale "${locale}" produced no "dayPeriod" part for token "a".`);
+  }
+  /* c8 ignore stop */
+  return part.value;
+}
+
+// Resolves a locale-aware month/weekday name from the registered custom
+// vocab when one exists for this locale, falling through to Intl otherwise.
+// Without this, format() would silently keep producing Intl's strings while
+// parse() matched against the registered vocab — the two would round-trip-fail
+// against each other.
+function localeAwareName(
+  temporal: TemporalLike,
+  locale: string,
+  options: Intl.DateTimeFormatOptions,
+  partType: Intl.DateTimeFormatPartTypes,
+  customArray: string[] | undefined,
+  customIndex: number | undefined,
+): string {
+  if (customArray && customIndex !== undefined && customIndex >= 0 && customIndex < customArray.length) {
+    return customArray[customIndex]!;
+  }
+  return intlPart(temporal, locale, options, partType);
+}
+
+// Formats a `±HH:MM` offset string (the shape Temporal exposes on
+// ZonedDateTime.prototype.offset) into one of the six offset-token widths.
+// Width and Z-handling come from the variant letter+case:
+//
+//   X / x   — short form: minutes omitted when zero, no colon otherwise
+//   XX / xx — hours + minutes, no colon
+//   XXX / xxx — hours + minutes, with colon
+//
+// Uppercase (X) collapses +00:00 to "Z"; lowercase (x) always emits a
+// numeric offset, even for UTC. Mirrors the date-fns/Unicode-LDML offset
+// family — see README for the full variant table.
+function formatOffset(offset: string, variant: 'X' | 'XX' | 'XXX' | 'x' | 'xx' | 'xxx'): string {
+  if (offset === '+00:00' && (variant === 'X' || variant === 'XX' || variant === 'XXX')) {
+    return 'Z';
+  }
+  // Most offsets are 6 chars: sign + HH + ':' + MM. Pre-1900 local-mean-time
+  // zones can surface a seconds component too, 9 chars: sign + HH + ':' +
+  // MM + ':' + SS. "xxx" is the one variant with a always-signed,
+  // never-"Z" colon-separated shape wide enough to carry that unchanged,
+  // so it passes a sub-minute offset through verbatim. Every other
+  // variant has no seconds slot and must throw rather than silently
+  // truncate them away.
+  if (offset.length > 6) {
+    if (variant === 'xxx') {
+      return offset;
+    }
+    throw new Error(
+      `temporal-fmt: token "${variant}" cannot represent the offset "${offset}", ` +
+      `which has a seconds component. None of the X/XX/XXX/x/xx tokens ` +
+      `support offset seconds; use "xxx" instead, which formats the full ` +
+      `offset unchanged.`
+    );
+  }
+  const sign = offset[0]!;
+  const hours = offset.slice(1, 3);
+  const minutes = offset.slice(4, 6);
+  switch (variant) {
+    case 'X': case 'x':
+      // minutes only matter when they're non-zero — otherwise drop them
+      // entirely. Matches LDML: "With a single X, the hours field is
+      // required. The minutes field is optional, but only if the
+      // minutes value is 0."
+      return minutes === '00' ? `${sign}${hours}` : `${sign}${hours}${minutes}`;
+    case 'XX': case 'xx':
+      return `${sign}${hours}${minutes}`;
+    case 'XXX': case 'xxx':
+      return `${sign}${hours}:${minutes}`;
+  }
+}
+
+type TokenHandler = (t: TemporalLike, locale: string) => string;
+
+// Longest-first — tokenizer is greedy, "yyyy" has to be tried before "yy".
+//
+// Numeric tokens always render in ASCII digits, never locale-native
+// (Arabic-Indic, Devanagari, etc). Padding non-ASCII digits isn't as simple
+// as padding "3", and most consumers parsing these back out want plain
+// digits anyway.
+export const TOKENS: Array<[string, TokenHandler, keyof TemporalLike]> = [
+  ['yyyy', (t) => pad(t.year!, 4), 'year'],
+  ['yy', (t) => {
+    // -45 % 100 === -45, so truncating negative years to 2 digits doesn't
+    // work and Math.abs() would make 45 CE and 45 BCE render the same.
+    if (t.year! < 0) {
+      throw new Error(
+        `temporal-fmt: token "yy" doesn't support negative years (got ${t.year}), ` +
+        `since truncating to 2 digits would make it indistinguishable from a ` +
+        `positive year. Use "yyyy" instead.`
+      );
+    }
+    return pad(t.year! % 100, 2);
+  }, 'year'],
+  // Unpadded year — no minimum width, unlike yyyy's fixed 4 digits.
+  // pad(n, 0) still does the right thing here: Math.abs(n) with no
+  // padStart floor just yields the plain digit string, and the sign
+  // handling (split off before padding) already covers negative years,
+  // so this doesn't need its own sign branch the way "yy" does.
+  ['y', (t) => pad(t.year!, 0), 'year'],
+  ['MMMM', (t, locale) => {
+    const custom = getCustomVocab(locale);
+    return localeAwareName(t, locale, { month: 'long' }, 'month', custom?.monthLong, monthOf(t)! - 1);
+  }, 'month'],
+  ['MMM', (t, locale) => {
+    const custom = getCustomVocab(locale);
+    return localeAwareName(t, locale, { month: 'short' }, 'month', custom?.monthShort, monthOf(t)! - 1);
+  }, 'month'],
+  ['MM', (t) => pad(monthOf(t)!, 2), 'month'],
+  ['M', (t) => String(monthOf(t)!), 'month'],
+  ['dd', (t) => pad(t.day!, 2), 'day'],
+  ['d', (t) => String(t.day!), 'day'],
+  ['EEEE', (t, locale) => {
+    const custom = getCustomVocab(locale);
+    return localeAwareName(t, locale, { weekday: 'long' }, 'weekday', custom?.weekdayLong, t.dayOfWeek! - 1);
+  }, 'dayOfWeek'],
+  ['EEE', (t, locale) => {
+    const custom = getCustomVocab(locale);
+    return localeAwareName(t, locale, { weekday: 'short' }, 'weekday', custom?.weekdayShort, t.dayOfWeek! - 1);
+  }, 'dayOfWeek'],
+  ['HH', (t) => pad(t.hour!, 2), 'hour'],
+  ['H', (t) => String(t.hour!), 'hour'],
+  ['hh', (t) => pad(t.hour! % 12 || 12, 2), 'hour'],
+  ['h', (t) => String(t.hour! % 12 || 12), 'hour'],
+  ['mm', (t) => pad(t.minute!, 2), 'minute'],
+  ['m', (t) => String(t.minute!), 'minute'],
+  ['ss', (t) => pad(t.second!, 2), 'second'],
+  ['s', (t) => String(t.second!), 'second'],
+  // Fractional-second tokens, S through SSSSSSSSS (1-9 digits). Each token
+  // formats a slice of the same underlying nanosecond-of-second value —
+  // combining millisecond/microsecond/nanosecond into one 9-digit number
+  // and truncating to the token's width — so "SSS" keeps meaning exactly
+  // what it always meant (3-digit milliseconds) while wider tokens expose
+  // the precision Temporal actually carries. formatFraction below is the
+  // shared implementation; see its comment for the truncate-not-round
+  // rule and why.
+  ['SSSSSSSSS', (t) => pad.fraction(t, 9), 'millisecond'],
+  ['SSSSSSSS', (t) => pad.fraction(t, 8), 'millisecond'],
+  ['SSSSSSS', (t) => pad.fraction(t, 7), 'millisecond'],
+  ['SSSSSS', (t) => pad.fraction(t, 6), 'millisecond'],
+  ['SSSSS', (t) => pad.fraction(t, 5), 'millisecond'],
+  ['SSSS', (t) => pad.fraction(t, 4), 'millisecond'],
+  ['SSS', (t) => pad.fraction(t, 3), 'millisecond'],
+  ['SS', (t) => pad.fraction(t, 2), 'millisecond'],
+  ['S', (t) => pad.fraction(t, 1), 'millisecond'],
+  // dayPeriod text is locale-specific (AM/PM in en-US, م/ص in ar-EG) but
+  // still needs .hour on the input to compute which period it is
+  ['a', (t, locale) => dayPeriodPart(t.hour!, locale), 'hour'],
+  ['zzz', (t) => t.timeZoneId!, 'timeZoneId'],
+  // Numeric UTC offset tokens (date-fns/Unicode-LDML family). Only
+  // ZonedDateTime carries an offset, so the field check in format() throws
+  // the same "requires offset, which this Temporal object doesn't have"
+  // error zzz throws on PlainDate/PlainTime/PlainDateTime — same
+  // validation path, just a different field name. See formatOffset above
+  // for the per-variant width and Z/numeric distinction.
+  ['xxx', (t) => formatOffset(t.offset!, 'xxx'), 'offset'],
+  ['xx', (t) => formatOffset(t.offset!, 'xx'), 'offset'],
+  ['X', (t) => formatOffset(t.offset!, 'X'), 'offset'],
+  ['XX', (t) => formatOffset(t.offset!, 'XX'), 'offset'],
+  ['XXX', (t) => formatOffset(t.offset!, 'XXX'), 'offset'],
+  ['x', (t) => formatOffset(t.offset!, 'x'), 'offset'],
+
+  // Ordinal day (1st, 2nd, 3rd, ... 21st). English suffix rules only —
+  // locale-aware ordinals ("2." in de-DE, "2日" in ja-JP) are out of scope,
+  // since the rest of this library routes locale-specific names through
+  // Intl.DateTimeFormat, and Intl has no part type for ordinals. Format-only:
+  // the suffix isn't structurally distinguishable from a literal in a parse
+  // context (a "st"/"nd"/"rd"/"th" suffix isn't a digit and would collide
+  // with any adjacent literal text), so there's no good way to read it back.
+  ['do', (t) => {
+    const day = t.day!;
+    const lastDigit = day % 10;
+    // 11, 12, 13 are the exception — they'd otherwise match the 1/2/3 rule
+    // and produce "11st"/"12nd"/"13rd", which is wrong. They always take "th".
+    const lastTwoDigits = day % 100;
+    if (lastTwoDigits >= 11 && lastTwoDigits <= 13) {
+      return day + 'th';
+    }
+    if (lastDigit === 1) return day + 'st';
+    if (lastDigit === 2) return day + 'nd';
+    if (lastDigit === 3) return day + 'rd';
+    return day + 'th';
+  }, 'day'],
+
+  // Quarter computed from month: 1-3=Q1, 4-6=Q2, 7-9=Q3, 10-12=Q4.
+  // `Q` is plain numeric, `QQQ` renders as "Q3" — same convention as
+  // date-fns's `Q` and `QQQ` for parity with the most common prior art.
+  // Both format and parse; parse() cross-checks Q/QQQ against the parsed
+  // month in the same spirit as the EEEE-vs-date cross-check.
+  ['Q', (t) => String(Math.ceil(monthOf(t)! / 3)), 'month'],
+  ['QQQ', (t) => 'Q' + Math.ceil(monthOf(t)! / 3), 'month'],
+
+  // ISO 8601 week and week-numbering year. Both are format-only — parsing
+  // "ww"/"RRRR" back into a real date requires resolving an ISO week + a
+  // weekday (or some other disambiguator) to a specific date, which is a
+  // different parsing surface than the token-based parse() here. The
+  // ISO-week year (RRRR) can differ from the calendar year at the boundary:
+  // Dec 29-31 often belong to week 1 of the *next* year; Jan 1-3 often
+  // belong to week 52/53 of the *previous* year. See isoWeekYearAndWeek().
+  ['ww', (t) => {
+    requireFields(t, 'ww', 'year', 'month', 'day');
+    const { week } = isoWeekYearAndWeek(t.year!, t.month!, t.day!, t.dayOfWeek!);
+    return pad(week, 2);
+  }, 'dayOfWeek'],
+  ['RRRR', (t) => {
+    requireFields(t, 'RRRR', 'year', 'month', 'day');
+    const { isoYear } = isoWeekYearAndWeek(t.year!, t.month!, t.day!, t.dayOfWeek!);
+    return pad(isoYear, 4);
+  }, 'dayOfWeek'],
+
+  // Day of year — number of days since Jan 1 (1-366). Three widths:
+  //   D    — unpadded (1, 2, 366)
+  //   DD   — 2-digit minimum (zero-padded if <100)
+  //   DDD  — 3-digit zero-padded (001, 002, 366)
+  // Format-only — parsing day-of-year requires resolving against a year,
+  // which is a different shape from the token-based parse() surface.
+  // The dayOfYearHelper() in calendarUtils.ts covers the same field for
+  // callers who need the numeric value.
+  ['D', (t) => {
+    requireFields(t, 'D', 'year', 'month');
+    return String(dayOfYear(t.year!, t.month!, t.day!));
+  }, 'day'],
+  ['DD', (t) => {
+    requireFields(t, 'DD', 'year', 'month');
+    return pad(dayOfYear(t.year!, t.month!, t.day!), 2);
+  }, 'day'],
+  ['DDD', (t) => {
+    requireFields(t, 'DDD', 'year', 'month');
+    return pad(dayOfYear(t.year!, t.month!, t.day!), 3);
+  }, 'day'],
+
+  // Stand-alone month — uses Intl's stand-alone form. In most locales
+  // (en, fr, de, es) this is identical to MMMM/MMM. In Slavic/Baltic
+  // locales (cs, sk, pl, ru) the stand-alone form differs from the
+  // format form (nominative vs genitive case). LLLL = long, LLL = short.
+  ['LLLL', (t, locale) => {
+    const custom = getCustomVocab(locale);
+    return localeAwareName(t, locale, { month: 'long' }, 'month', custom?.monthLong, monthOf(t)! - 1);
+  }, 'month'],
+  ['LLL', (t, locale) => {
+    const custom = getCustomVocab(locale);
+    return localeAwareName(t, locale, { month: 'short' }, 'month', custom?.monthShort, monthOf(t)! - 1);
+  }, 'month'],
+
+  // Stand-alone weekday — same pattern as stand-alone month but for
+  // weekday names. cccc = long, ccc = short.
+  ['cccc', (t, locale) => {
+    const custom = getCustomVocab(locale);
+    return localeAwareName(t, locale, { weekday: 'long' }, 'weekday', custom?.weekdayLong, t.dayOfWeek! - 1);
+  }, 'dayOfWeek'],
+  ['ccc', (t, locale) => {
+    const custom = getCustomVocab(locale);
+    return localeAwareName(t, locale, { weekday: 'short' }, 'weekday', custom?.weekdayShort, t.dayOfWeek! - 1);
+  }, 'dayOfWeek'],
+
+  // Era — locale-aware ("AD"/"BC" in en, "ap. J.-C."/"av. J.-C." in fr).
+  // GGGG = long, G = short. Format-only.
+  ['GGGG', (t, locale) => {
+    return intlPart(t, locale, { era: 'long' }, 'era');
+  }, 'year'],
+  ['G', (t, locale) => {
+    return intlPart(t, locale, { era: 'short' }, 'era');
+  }, 'year'],
+
+  // Localized timezone name — uses Intl's longLocalized/short timezone
+  // name option. Format-only — these names are locale-dependent and
+  // vary by season (EST vs EDT), so parsing them back requires a
+  // lookup table that isn't practical to ship.
+  ['zzzz', (t, locale) => {
+    return intlPart(t, locale, { timeZoneName: 'longGeneric' as Intl.DateTimeFormatOptions['timeZoneName'] }, 'timeZoneName' as Intl.DateTimeFormatPartTypes);
+  }, 'timeZoneId'],
+  ['z', (t, locale) => {
+    return intlPart(t, locale, { timeZoneName: 'short' as Intl.DateTimeFormatOptions['timeZoneName'] }, 'timeZoneName' as Intl.DateTimeFormatPartTypes);
+  }, 'timeZoneId'],
+
+];

@@ -1,0 +1,271 @@
+/*
+ * Copyright 2026 DirazCoder
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// Extensibility. Controlled extensibility via
+// createFormatter({ tokens: ... }) rather than uncontrolled global
+// mutation. Custom tokens are passed at formatter-creation time;
+// built-in behavior stays deterministic regardless of what's registered.
+//
+// The existing registerLocaleVocab() is a global-registration escape
+// hatch for the locale-vocabulary case; createFormatter is the
+// per-formatter alternative for custom tokens.
+
+import { type FormattedPart, type CompiledFormat } from '../format/format.js';
+import { TOKENS, type TemporalLike, type FormatOptions, DEFAULT_LOCALE } from '../tokens/tokens.js';
+import { MAX_FORMAT_LENGTH } from './constants.js';
+import { UnknownTokenError } from './errors.js';
+
+export type TokenHandler = (t: TemporalLike, locale: string) => string;
+export type TokenField = keyof TemporalLike;
+
+export interface CustomToken {
+  name: string;
+  handler: TokenHandler;
+  field: TokenField;
+}
+
+export interface FormatterOptions {
+  // Custom tokens to add (or override). Built-in tokens with the same
+  // name are replaced by the custom one.
+  tokens?: CustomToken[];
+  // Default locale for this formatter. Callers can still override per-call.
+  defaultLocale?: string;
+}
+
+export interface Formatter {
+  format(temporal: TemporalLike, formatStr: string, options?: FormatOptions): string;
+  formatToParts(temporal: TemporalLike, formatStr: string, options?: FormatOptions): FormattedPart[];
+  compileFormat(formatStr: string): CompiledFormat;
+}
+
+export function createFormatter(options: FormatterOptions = {}): Formatter {
+  // Build a merged token table: built-ins plus overrides.
+  const mergedTokens: Array<[string, TokenHandler, TokenField]> = [...TOKENS];
+  const customTokenNames = new Set<string>();
+  for (const custom of options.tokens ?? []) {
+    customTokenNames.add(custom.name);
+  }
+  // Replace existing tokens with the same name; append new ones.
+  for (const custom of options.tokens ?? []) {
+    const existingIdx = mergedTokens.findIndex(([name]) => name === custom.name);
+    if (existingIdx >= 0) {
+      mergedTokens[existingIdx] = [custom.name, custom.handler, custom.field];
+    } else {
+      mergedTokens.push([custom.name, custom.handler, custom.field]);
+    }
+  }
+  // Sort longest-first for the greedy tokenizer.
+  mergedTokens.sort((a, b) => b[0].length - a[0].length);
+  const handlerByToken = new Map(mergedTokens.map(([name, handler, field]) => [name, { handler, field }]));
+  const sortedTokenStrings = mergedTokens.map(([name]) => name);
+
+  function customTokenize(formatStr: string) {
+    const pieces: Array<{ kind: 'token' | 'literal'; value: string }> = [];
+    let i = 0;
+    while (i < formatStr.length) {
+      const ch = formatStr[i];
+      if (ch === "'") {
+        // Quoted literal handling — same as tokenize.ts.
+        if (formatStr[i + 1] === "'") {
+          appendLiteral(pieces, "'");
+          i += 2;
+          continue;
+        }
+        let j = i + 1;
+        let literal = '';
+        let closed = false;
+        while (j < formatStr.length) {
+          if (formatStr[j] === "'") {
+            if (formatStr[j + 1] === "'") {
+              literal += "'";
+              j += 2;
+              continue;
+            }
+            closed = true;
+            j += 1;
+            break;
+          }
+          literal += formatStr[j]!;
+          j += 1;
+        }
+        if (!closed) throw new Error(`temporal-fmt: unterminated quote in format string "${formatStr}"`);
+        appendLiteral(pieces, literal);
+        i = j;
+        continue;
+      }
+      const match = sortedTokenStrings.find((tok) => formatStr.startsWith(tok, i));
+      if (match) {
+        // Overlong-run guard, same rule as tokenize.ts: a greedy match of N
+        // chars followed by one more of the same letter ("MMMMM", "ddddd")
+        // is not a valid token of any width — emitting it as "token +
+        // literal" would silently splice an unrelated field onto this one,
+        // exactly the misreading the main tokenizer rejects. Same
+        // UnknownTokenError shape tokenize.ts throws.
+        const runChar = match[match.length - 1];
+        if (formatStr[i + match.length] === runChar) {
+          let end = i + match.length;
+          while (formatStr[end] === runChar) end += 1;
+          throw new UnknownTokenError({
+            token: formatStr.slice(i, end),
+            format: formatStr,
+            message:
+              `temporal-fmt: "${formatStr.slice(i, end)}" in format string "${formatStr}" isn't a recognized token — ` +
+              `did you mean "${match}"?`,
+          });
+        }
+        pieces.push({ kind: 'token', value: match });
+        i += match.length;
+        continue;
+      }
+      appendLiteral(pieces, ch);
+      i += 1;
+    }
+    return pieces;
+  }
+
+  function appendLiteral(pieces: Array<{ kind: 'token' | 'literal'; value: string }>, value: string): void {
+    const last = pieces[pieces.length - 1];
+    if (last && last.kind === 'literal') {
+      last.value += value;
+    } else {
+      pieces.push({ kind: 'literal', value });
+    }
+  }
+
+  const defaultLocale = options.defaultLocale ?? DEFAULT_LOCALE;
+
+  return {
+    format(temporal: TemporalLike, formatStr: string, opts: FormatOptions = {}) {
+      if (formatStr.length > MAX_FORMAT_LENGTH) {
+        throw new Error(`temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters (got ${formatStr.length}).`);
+      }
+      const locale = opts.locale ?? defaultLocale;
+      const pieces = customTokenize(formatStr);
+      let result = '';
+      for (const piece of pieces) {
+        if (piece.kind === 'literal') {
+          result += piece.value;
+          continue;
+        }
+        const handler = handlerByToken.get(piece.value);
+        /* c8 ignore start @preserve -- unreachable: customTokenize only ever produces a
+           `kind: 'token'` piece via sortedTokenStrings.find(...), and
+           handlerByToken is built from that same mergedTokens array, so
+           every token piece is guaranteed a handler entry. Guards against a
+           future customTokenize change that decouples the two lookups. */
+        if (!handler) throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
+        /* c8 ignore stop @preserve */
+        if (temporal[handler.field] === undefined) {
+          throw new Error(
+            `temporal-fmt: token "${piece.value}" requires "${String(handler.field)}", which this Temporal object doesn't have.`
+          );
+        }
+        result += handler.handler(temporal, locale);
+      }
+      return result;
+    },
+    formatToParts(temporal: TemporalLike, formatStr: string, opts: FormatOptions = {}) {
+      if (formatStr.length > MAX_FORMAT_LENGTH) {
+        throw new Error(`temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters (got ${formatStr.length}).`);
+      }
+      const locale = opts.locale ?? defaultLocale;
+      const pieces = customTokenize(formatStr);
+      const out: FormattedPart[] = [];
+      for (const piece of pieces) {
+        if (piece.kind === 'literal') {
+          const last = out[out.length - 1];
+          /* c8 ignore start @preserve -- unreachable: customTokenize's own
+             appendLiteral() already merges adjacent literal chars/quoted
+             spans into a single piece before this loop ever sees them, so
+             two literal pieces are never adjacent here. Kept as a guard
+             against a future customTokenize change that stops merging. */
+          if (last && last.type === 'literal') last.value += piece.value;
+          /* c8 ignore stop @preserve */
+          else out.push({ type: 'literal', value: piece.value });
+          continue;
+        }
+        const handler = handlerByToken.get(piece.value);
+        /* c8 ignore start @preserve -- unreachable: customTokenize only emits
+           kind:'token' pieces found in sortedTokenStrings, the same array
+           handlerByToken is built from, so every token piece is guaranteed
+           a handler entry. Guards against future decoupling of the two. */
+        if (!handler) throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
+        /* c8 ignore stop @preserve */
+        if (temporal[handler.field] === undefined) {
+          throw new Error(`temporal-fmt: token "${piece.value}" requires "${String(handler.field)}".`);
+        }
+        out.push({ type: 'token', value: handler.handler(temporal, locale), token: piece.value });
+      }
+      return out;
+    },
+    compileFormat(formatStr: string): CompiledFormat {
+      if (formatStr.length > MAX_FORMAT_LENGTH) {
+        throw new Error(`temporal-fmt: format string exceeds maximum length of ${MAX_FORMAT_LENGTH} characters (got ${formatStr.length}).`);
+      }
+      const pieces = customTokenize(formatStr);
+      return {
+        formatStr,
+        pieces: pieces.map((p) => p as { kind: 'token' | 'literal'; value: string }),
+        format(temporal: TemporalLike, opts: FormatOptions = {}) {
+          const locale = opts.locale ?? defaultLocale;
+          let result = '';
+          for (const piece of pieces) {
+            if (piece.kind === 'literal') {
+              result += piece.value;
+              continue;
+            }
+            const handler = handlerByToken.get(piece.value);
+            /* c8 ignore start @preserve -- unreachable, see the same guard's comment
+               above in the un-compiled format(). */
+            if (!handler) throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
+            /* c8 ignore stop @preserve */
+            if (temporal[handler.field] === undefined) {
+              throw new Error(`temporal-fmt: token "${piece.value}" requires "${String(handler.field)}".`);
+            }
+            result += handler.handler(temporal, locale);
+          }
+          return result;
+        },
+        formatToParts(temporal: TemporalLike, opts: FormatOptions = {}) {
+          const locale = opts.locale ?? defaultLocale;
+          const out: FormattedPart[] = [];
+          for (const piece of pieces) {
+            if (piece.kind === 'literal') {
+              const last = out[out.length - 1];
+              /* c8 ignore start @preserve -- unreachable, see the same guard's
+                 comment above in the un-compiled formatToParts. */
+              if (last && last.type === 'literal') last.value += piece.value;
+              /* c8 ignore stop @preserve */
+              else out.push({ type: 'literal', value: piece.value });
+              continue;
+            }
+            const handler = handlerByToken.get(piece.value);
+            /* c8 ignore start @preserve -- unreachable, see the same guard's
+               comment above in the un-compiled formatToParts. */
+            if (!handler) throw new Error(`temporal-fmt: unknown token "${piece.value}"`);
+            /* c8 ignore stop @preserve */
+            if (temporal[handler.field] === undefined) {
+              throw new Error(`temporal-fmt: token "${piece.value}" requires "${String(handler.field)}".`);
+            }
+            out.push({ type: 'token', value: handler.handler(temporal, locale), token: piece.value });
+          }
+          return out;
+        },
+      };
+    },
+  };
+}
+
