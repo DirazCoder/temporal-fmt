@@ -9,7 +9,7 @@ The temporal-fmt docs site: sidebar, search, and live npm stats. Plain HTML, CSS
 ## Layout
 
     src/
-      styles/       colours, fonts, spacing (tokens.css)
+      styles/       tokens.css (fonts, reset), flashbang.css (dark and light mode)
       components/   small reusable bits: logo, buttons, code blocks, tables
       content/      the docs themselves, one HTML file per section (edit these)
       sections/     sections.js, which reads content/ in filename order

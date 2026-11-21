@@ -1,12 +1,55 @@
-/* Design tokens and the page reset. Everything else reads from here. */
-:root{--bg:#fbfbfa;--surface:#f3f3f1;--fg:#14161a;--muted:#666c74;--line:#e4e4df;--cold:#0e7490;--warm:#c2410c;--mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;--sans:ui-sans-serif,-apple-system,"Segoe UI",Inter,system-ui,sans-serif;color-scheme:light dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b0d10;--surface:#11141a;--fg:#ecedee;--muted:#8a9099;--line:#1e232b;--cold:#67e8f9;--warm:#fb923c}}
-:root[data-theme="light"]{color-scheme:light}
-:root[data-theme="dark"]{--bg:#0b0d10;--surface:#11141a;--fg:#ecedee;--muted:#8a9099;--line:#1e232b;--cold:#67e8f9;--warm:#fb923c;color-scheme:dark}
+/* Fonts, box model and the page reset. Colours live in flashbang.css. */
+:root{--mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;--sans:ui-sans-serif,-apple-system,"Segoe UI",Inter,system-ui,sans-serif;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 *,*::before,*::after{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:calc(1.5rem + env(safe-area-inset-top,0px))}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.65 var(--sans);-webkit-font-smoothing:antialiased}
 a{color:var(--cold)}
+
+/* Dark and light mode, all of it. Colours for both modes plus the toggle button.
+   script.js flips data-theme on <html>; the head script sets it before first paint.
+   Dark is the default. If JS is off there's no data-theme, so the media query below
+   lets the visitor's system setting decide. */
+:root {
+  --bg: #fbfbfa;
+  --surface: #f3f3f1;
+  --fg: #14161a;
+  --muted: #666c74;
+  --line: #e4e4df;
+  --cold: #0e7490;
+  --warm: #c2410c;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b0d10;
+    --surface: #11141a;
+    --fg: #ecedee;
+    --muted: #8a9099;
+    --line: #1e232b;
+    --cold: #67e8f9;
+    --warm: #fb923c;
+  }
+}
+
+:root[data-theme="light"] { color-scheme: light; }
+
+:root[data-theme="dark"] {
+  --bg: #0b0d10;
+  --surface: #11141a;
+  --fg: #ecedee;
+  --muted: #8a9099;
+  --line: #1e232b;
+  --cold: #67e8f9;
+  --warm: #fb923c;
+  color-scheme: dark;
+}
+
+.theme{position:fixed;top:calc(.9rem + env(safe-area-inset-top,0px));right:1rem;z-index:20;display:grid;place-items:center;width:2.4rem;height:2.4rem;padding:0;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:10px;cursor:pointer}
+.theme:hover,.theme:focus-visible{border-color:var(--cold)}
+.theme svg{width:1.15rem;height:1.15rem}
+.theme::after{content:attr(data-tip);position:absolute;top:calc(100% + .5rem);right:0;width:max-content;max-width:min(15rem,70vw);padding:.5rem .7rem;font:.8rem/1.4 var(--sans);text-align:left;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:8px;opacity:0;pointer-events:none;transition:opacity .15s}
+.theme:hover::after,.theme:focus-visible::after{opacity:1}
 
 code,pre{font-family:var(--mono);font-size:.875em}
 code{background:var(--surface);border:1px solid var(--line);border-radius:5px;padding:.1em .35em}
@@ -33,11 +76,6 @@ th{font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--mu
 .tag{font-size:.7rem;font-weight:600;color:var(--warm);border:1px solid var(--warm);border-radius:99px;padding:0 .45rem;margin-left:.4rem}
 .rel td:last-child{color:var(--muted);text-align:right;white-space:nowrap}
 .empty{display:none;color:var(--muted);padding:3rem 0;text-align:center}
-.theme{position:fixed;top:calc(.9rem + env(safe-area-inset-top,0px));right:1rem;z-index:20;display:grid;place-items:center;width:2.4rem;height:2.4rem;padding:0;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:10px;cursor:pointer}
-.theme:hover,.theme:focus-visible{border-color:var(--cold)}
-.theme svg{width:1.15rem;height:1.15rem}
-.theme::after{content:attr(data-tip);position:absolute;top:calc(100% + .5rem);right:0;width:max-content;max-width:min(15rem,70vw);padding:.5rem .7rem;font:.8rem/1.4 var(--sans);text-align:left;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:8px;opacity:0;pointer-events:none;transition:opacity .15s}
-.theme:hover::after,.theme:focus-visible::after{opacity:1}
 
 .hero h1{font-size:clamp(1.9rem,4.5vw,2.8rem);line-height:1.15;margin:0 0 .8rem;letter-spacing:-.02em}
 .hero em{font-style:normal;background:linear-gradient(90deg,var(--cold),var(--warm));-webkit-background-clip:text;background-clip:text;color:transparent}

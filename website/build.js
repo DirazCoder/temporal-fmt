@@ -13,8 +13,8 @@ try {
   version = JSON.parse(readFileSync(join(here, '../package.json'), 'utf8')).version;
 } catch {}
 
-// Order matters: tokens first, then components, sections, layout.
-const css = ['styles/tokens.css', 'components/ui.css', 'sections/sections.css', 'layout/layout.css']
+// Order matters: tokens, flashbang (colours), components, sections, layout.
+const css = ['styles/tokens.css', 'styles/flashbang.css', 'components/ui.css', 'sections/sections.css', 'layout/layout.css']
   .map((f) => readFileSync(join(here, 'src', f), 'utf8'))
   .join('\n');
 
