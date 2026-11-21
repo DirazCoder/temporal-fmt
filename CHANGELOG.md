@@ -4,6 +4,14 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.87 — 2026-11-21 (`42d0937`)
+
+### Changed
+
+- **Optimised common parsing and formatting hot paths.** Numeric date, time, 12-hour time, ISO datetime, and zoned offset parsing now use fast paths before the general token parser. `formatRFC2822()` uses direct UTC field formatting instead of constructing and scanning `Intl.DateTimeFormat` on every call.
+- **Optimised arithmetic and comparison helpers.** Added direct field-view reads and faster sub-day, month, clamp, and weekend paths while preserving existing wall-clock and Temporal overflow behavior.
+- Package metadata now links the package homepage to https://dirazcoder.github.io/temporal-fmt/.
+
 ## 0.9.86 — 2026-11-21 (`e8405a5`)
 
 ### Fixed
