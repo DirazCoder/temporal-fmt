@@ -29,7 +29,7 @@ jobs:
           for attempt in $(seq 1 120); do
             RUNS=$(gh api "$ENDPOINT")
 
-            COUNT=$(echo "$RUNS" | jq '.workflow_runs | length')
+            COUNT=$(echo "$RUNS" | jq '[.workflow_runs[] | select(.event == "push")] | length')
             if [ "$COUNT" -eq 0 ]; then
               echo "CI workflow run not found yet (attempt ${attempt}/120)..."
               sleep 30
@@ -37,7 +37,7 @@ jobs:
             fi
 
             ACTIVE=$(echo "$RUNS" | jq '[.workflow_runs[] |
-              select(.status != "completed")] | length')
+              select(.event == "push" and .status != "completed")] | length')
             if [ "$ACTIVE" -gt 0 ]; then
               echo "CI workflow is still running (attempt ${attempt}/120)..."
               sleep 30
@@ -45,7 +45,7 @@ jobs:
             fi
 
             CONCLUSION=$(echo "$RUNS" | jq -r '
-              [.workflow_runs[] | select(.status == "completed")]
+              [.workflow_runs[] | select(.event == "push" and .status == "completed")]
               | sort_by(.created_at)
               | if length == 0 then "not_found"
                 else (last | .conclusion // "unknown")
