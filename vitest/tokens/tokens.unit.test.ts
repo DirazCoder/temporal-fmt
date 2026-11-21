@@ -227,6 +227,27 @@ describe('intlPart input arms', () => {
     expect(() => format(bag, 'MMMM')).toThrow(/needs a value that implements toLocaleString/);
   });
 
+  it('throws when Intl returns no requested part for a ZonedDateTime', () => {
+    const originalDateTimeFormat = Intl.DateTimeFormat;
+    const zoned = Temporal.ZonedDateTime.from('2026-08-04T00:00[UTC]');
+    Object.defineProperty(Intl, 'DateTimeFormat', {
+      configurable: true,
+      value: class {
+        formatToParts() { return []; }
+      },
+    });
+    try {
+      expect(() => format(zoned, 'MMMM', { locale: 'en-US-x-no-parts' }))
+        .toThrow(/produced no "month" part/);
+    } finally {
+      Object.defineProperty(Intl, 'DateTimeFormat', {
+        configurable: true,
+        writable: true,
+        value: originalDateTimeFormat,
+      });
+    }
+  });
+
   it('rethrows a RangeError from toLocaleString after ruling the locale out', () => {
     // toLocaleString threw a RangeError, but the locale is fine, so the
     // original error is rethrown rather than blamed on the locale
