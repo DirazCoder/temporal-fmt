@@ -4,6 +4,22 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.92 - 2026-11-22 (`28a7160`)
+
+### Changed
+
+- **Published package is now 88% smaller** — unpacked size down from 4.3 MB to ~508 KB,
+  tarball down from 1.1 MB to 141 KB. The build pipeline now uses rollup + terser instead
+  of tsup for publish builds: rollup's chunk sharing avoids duplicating shared code across
+  the 11 entry points in both ESM and CJS, and terser with top-level mangling squeezes
+  more than esbuild's minifier alone. Sourcemaps are no longer shipped in the tarball
+  (they were 3.2 MB of the old 4.8 MB dist). All 1528 tests pass against the minified
+  output. CJS is unchanged. (`d4c59f6`)
+- The release workflow now runs `build:publish` after `test:all`, so every npm release
+  ships the minified build automatically. A sanity check step blocks the release if
+  minification didn't actually run. (`28a7160`)
+
+
 ## 0.9.90 - 2026-11-22 (`37ba11d`)
 
 Security hotfix release.
