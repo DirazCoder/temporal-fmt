@@ -1,27 +1,26 @@
-# Version Support
 ## Staying up to date
 
-**Latest LTS (recommended):**
-
-```
-npm install temporal-fmt@0.8-lts
-```
-
-This is what we recommend for production: long-term stability over chasing every release. Security fixes keep coming, nothing changes under you, no surprise breakage. If you're not actively blocked on a new feature, this is the one to run.
-
-**Latest active version:**
+**Recommended right now:**
 
 ```
 npm install temporal-fmt@latest
 ```
 
-Gets new features first, but also new bugs first. Only use this if you actually need something from it.
+`0.8-lts` only exists because of how the LTS policy works — when `0.9.x` went active, `0.8.x` became LTS instead of dying. But LTS means security-only, so dozens of bugs fixed in `0.9.x` were never backported. You're not getting a stable, battle-hardened release; you're getting an older one frozen in place with known bugs unfixed. Use `latest`.
 
-Pin whichever one you pick in `package.json` so every install matches:
+**When `0.10.x` ships, switch to `0.9-lts`:**
+
+```
+npm install temporal-fmt@0.9-lts
+```
+
+Once `0.10.x` goes active there'll be two LTS lines, and the newer one (`0.9-lts`) gets bug fixes on top of security patches. That's when LTS is actually worth it.
+
+Pin whichever one you're on in `package.json` so every install matches:
 
 ```json
 "dependencies": {
-  "temporal-fmt": "0.8-lts"
+  "temporal-fmt": "latest"
 }
 ```
 
