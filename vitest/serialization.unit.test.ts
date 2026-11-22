@@ -26,6 +26,11 @@ describe('parseISO / formatISO', () => {
   it('throws on garbage input', () => {
     expect(() => parseISO('not-a-date')).toThrow(/doesn't look like an ISO 8601/);
   });
+
+  it('rejects invalid ISO and oversized inputs', () => {
+    expect(() => parseISO(42 as unknown as string)).toThrow(/expects a string/);
+    expect(() => parseISO('x'.repeat(100_001))).toThrow(/maximum length/);
+  });
 });
 
 describe('parseRFC3339 / formatRFC3339', () => {
@@ -38,6 +43,10 @@ describe('parseRFC3339 / formatRFC3339', () => {
   it('throws when the input has no timezone', () => {
     expect(() => parseRFC3339('2026-08-04T15:45:30')).toThrow(/does not match RFC 3339/);
   });
+
+  it('rejects oversized input before grammar validation', () => {
+    expect(() => parseRFC3339('x'.repeat(100_001))).toThrow(/maximum length/);
+  });
 });
 
 describe('parseRFC2822 / formatRFC2822', () => {
@@ -48,6 +57,10 @@ describe('parseRFC2822 / formatRFC2822', () => {
 
   it('throws on garbage input', () => {
     expect(() => parseRFC2822('not a valid date string')).toThrow(/not a valid RFC 2822 date/);
+  });
+
+  it('rejects oversized input before grammar validation', () => {
+    expect(() => parseRFC2822('x'.repeat(100_001))).toThrow(/maximum length/);
   });
 });
 
