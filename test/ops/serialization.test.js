@@ -63,6 +63,19 @@ test('parseISO: negative UTC offset round-trips as ZonedDateTime', () => {
   assert.equal(r.toString(), '2026-08-04T15:45:30-08:00[-08:00]');
 });
 
+test('parseISO: rejects non-string and oversized input', () => {
+  assert.throws(() => parseISO(42), /expects a string/);
+  assert.throws(() => parseISO('x'.repeat(100_001)), /maximum length/);
+});
+
+test('parseISO: exercises colonized and compact offset suffix parsing', () => {
+  assert.throws(() => parseISO('2026-08-04T15:45:30+05:30:30'), /INVALID_DATE|does not describe a valid date/);
+  assert.throws(() => parseISO('2026-08-04T15:45:30+053030'), /INVALID_DATE|does not describe a valid date/);
+  assert.throws(() => parseISO('2026-08-04T15:45:30+053x'), /doesn't look|does not describe/);
+  assert.throws(() => parseISO('2026-08-04T15:45:30+05:3x'), /doesn't look|does not describe/);
+  assert.throws(() => parseISO('2026-08-04T15:45:30+X5:30'), /doesn't look|does not describe/);
+});
+
 test('formatISO: throws on a value without toString()', () => {
   assert.throws(() => formatISO(null), /expects a Temporal value with toString/);
   // A plain number has toString() via its prototype, so it's not a
@@ -81,6 +94,12 @@ test('parseRFC3339: accepts fractional seconds', () => {
   assert.match(r.toString(), /15:45:30\.123/);
 });
 
+test('parseRFC3339: rejects invalid fractions and non-string input', () => {
+  assert.throws(() => parseRFC3339('2026-08-04T15:45:30.1234567890Z'), /nanosecond precision/);
+  assert.throws(() => parseRFC3339('2026-08-04T15:45:30.xZ'), /nanosecond precision/);
+  assert.throws(() => parseRFC3339(42), /expects a string/);
+});
+
 test('formatRFC3339: formats an Instant', () => {
   // ZonedDateTime.toString() always appends a bracketed zone (e.g.
   // "[UTC]"), which the RFC 3339 regex rejects — so ZonedDateTime
@@ -91,6 +110,11 @@ test('formatRFC3339: formats an Instant', () => {
   assert.equal(formatRFC3339(inst), '2026-08-04T15:45:30Z');
 });
 
+test('formatRFC3339: formats a negative numeric offset', () => {
+  const zdt = Temporal.ZonedDateTime.from('2026-08-04T15:45:30-08:00[-08:00]');
+  assert.equal(formatRFC3339(zdt), '2026-08-04T15:45:30-08:00');
+});
+
 test('formatRFC3339: throws when the value has no time component', () => {
   // A bare PlainDate's toString() is just "2026-08-04" — doesn't match
   // the RFC 3339 date-time shape, so the output-validation check fires.
@@ -98,8 +122,32 @@ test('formatRFC3339: throws when the value has no time component', () => {
   assert.throws(() => formatRFC3339(d), /did not produce RFC 3339-compliant output/);
 });
 
+test('formatRFC3339: rejects malformed duck-typed strings', () => {
+  assert.throws(() => formatRFC3339({ toString: () => '2026-08-04T15:45:30.XZ' }), /did not produce RFC 3339/);
+  assert.throws(() => formatRFC3339({ toString: () => 'not-a-rfc3339-date' }), /did not produce RFC 3339/);
+});
+
 test('parseRFC2822: throws on garbage input', () => {
   assert.throws(() => parseRFC2822('not a valid date string'), /not a valid RFC 2822 date/);
+});
+
+test('parseRFC2822: rejects malformed shapes, oversized input, and non-string input', () => {
+  assert.throws(() => parseRFC2822(''), /not a valid RFC 2822/);
+  assert.throws(() => parseRFC2822('04 Aug 2026'), /not a valid RFC 2822/);
+  assert.throws(() => parseRFC2822('04 Aug 2026 15:45'), /not a valid RFC 2822/);
+  assert.throws(() => parseRFC2822('Xxx, 04 Aug 2026 15:45:30 +0000'), /not a valid RFC 2822/);
+  assert.throws(() => parseRFC2822('Mon, 4x Aug 2026 15:45:30 +0000'), /not a valid RFC 2822/);
+  assert.throws(() => parseRFC2822('Mon, 04 Aug 2026 xx:45:30 +0000'), /not a valid RFC 2822/);
+  assert.throws(() => parseRFC2822('Mon, 04 Aug 2026 15:45:30 +X000'), /not a valid RFC 2822/);
+  assert.throws(() => parseRFC2822('Mon, 04 Aug 2026 15:45:30 12A'), /not a valid RFC 2822/);
+  assert.throws(() => parseRFC2822('x'.repeat(100_001)), /maximum length/);
+  assert.throws(() => parseRFC2822(42), /expects a string/);
+});
+
+test('parseRFC2822: accepts remaining obsolete alphabetic zones', () => {
+  for (const zone of ['EDT', 'CST', 'CDT', 'MST', 'MDT', 'PST', 'PDT']) {
+    assert.ok(parseRFC2822(`Mon, 04 Aug 2026 15:45:30 ${zone}`));
+  }
 });
 
 test('formatRFC2822: throws when toInstant() returns something without a numeric epochMilliseconds', () => {
@@ -132,6 +180,11 @@ test('formatRFC2822: throws when nothing matches', () => {
 
 test('parseHTTPDate: throws on garbage input', () => {
   assert.throws(() => parseHTTPDate('not a date at all'), /not a valid HTTP-date/);
+});
+
+test('parseHTTPDate: rejects oversized and non-string input', () => {
+  assert.throws(() => parseHTTPDate('x'.repeat(100_001)), /maximum length/);
+  assert.throws(() => parseHTTPDate(42), /expects a string/);
 });
 
 test('formatHTTPDate: dispatches on toInstant() and on a raw epochMilliseconds property', () => {

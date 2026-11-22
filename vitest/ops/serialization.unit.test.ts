@@ -47,6 +47,10 @@ describe('parseRFC3339 / formatRFC3339', () => {
   it('throws when the input has no timezone', () => {
     expect(() => parseRFC3339('2026-08-04T15:45:30')).toThrow(/does not match RFC 3339/);
   });
+
+  it('rejects oversized input before grammar validation', () => {
+    expect(() => parseRFC3339('x'.repeat(100_001))).toThrow(/maximum length/);
+  });
 });
 
 describe('parseRFC2822 / formatRFC2822', () => {
@@ -57,6 +61,10 @@ describe('parseRFC2822 / formatRFC2822', () => {
 
   it('throws on garbage input', () => {
     expect(() => parseRFC2822('not a valid date string')).toThrow(/not a valid RFC 2822 date/);
+  });
+
+  it('rejects oversized input before grammar validation', () => {
+    expect(() => parseRFC2822('x'.repeat(100_001))).toThrow(/maximum length/);
   });
 });
 
@@ -127,6 +135,19 @@ describe('parseISO (dispatch branches)', () => {
     expect(() => parseISO('2026-02-30T10:00:00Z')).toThrow(/does not describe a valid date/); // Feb 30
     expect(() => parseISO('2026-13-01T00:00:00')).toThrow(InvalidDateError); // month 13
   });
+
+  it('rejects non-string and oversized ISO inputs', () => {
+    expect(() => parseISO(42 as unknown as string)).toThrow(/expects a string/);
+    expect(() => parseISO('x'.repeat(100_001))).toThrow(/maximum length/);
+  });
+
+  it('rejects second-precision offsets and malformed suffixes', () => {
+    expect(() => parseISO('2026-08-04T15:45:30+05:30:30')).toThrow(InvalidDateError);
+    expect(() => parseISO('2026-08-04T15:45:30+053030')).toThrow(InvalidDateError);
+    expect(() => parseISO('2026-08-04T15:45:30+053x')).toThrow(InvalidDateError);
+    expect(() => parseISO('2026-08-04T15:45:30+05:3x')).toThrow(InvalidDateError);
+    expect(() => parseISO('2026-08-04T15:45:30+X5:30')).toThrow(InvalidDateError);
+  });
 });
 
 describe('formatISO (guard branch)', () => {
@@ -151,9 +172,20 @@ describe('parseRFC3339 (grammar variants)', () => {
     expect(() => parseRFC3339('2026-8-4T15:45:30Z')).toThrow(/does not match RFC 3339/);
     expect(() => parseRFC3339('2026-08-04 15:45:30Z')).toThrow(/does not match RFC 3339/);
   });
+
+  it('rejects invalid fractional precision and non-string input', () => {
+    expect(() => parseRFC3339('2026-08-04T15:45:30.1234567890Z')).toThrow(/nanosecond precision/);
+    expect(() => parseRFC3339('2026-08-04T15:45:30.xZ')).toThrow(/nanosecond precision/);
+    expect(() => parseRFC3339(42 as unknown as string)).toThrow(/expects a string/);
+  });
 });
 
 describe('formatRFC3339 (validation branch)', () => {
+  it('formats negative numeric offsets', () => {
+    const zdt = Temporal.ZonedDateTime.from('2026-08-04T15:45:30-08:00[-08:00]');
+    expect(formatRFC3339(zdt)).toBe('2026-08-04T15:45:30-08:00');
+  });
+
   it('rejects values whose toString() is not RFC 3339 shaped', () => {
     // PlainDate: no time or offset.
     expect(() => formatRFC3339(Temporal.PlainDate.from('2026-08-04'))).toThrow(/did not produce RFC 3339/);
@@ -169,6 +201,11 @@ describe('formatRFC3339 (validation branch)', () => {
 
   it('passes an Instant with fractional seconds straight through', () => {
     expect(formatRFC3339(Temporal.Instant.from('2026-08-04T15:45:30.123Z'))).toBe('2026-08-04T15:45:30.123Z');
+  });
+
+  it('rejects malformed strings returned by a duck-typed value', () => {
+    expect(() => formatRFC3339({ toString: () => '2026-08-04T15:45:30.XZ' })).toThrow(/did not produce RFC 3339/);
+    expect(() => formatRFC3339({ toString: () => 'not-a-rfc3339-date' })).toThrow(/did not produce RFC 3339/);
   });
 });
 
@@ -190,6 +227,14 @@ describe('parseRFC2822 (optional parts and zone forms)', () => {
   it('rejects shape-valid input that Date.parse cannot resolve (NaN branch)', () => {
     expect(() => parseRFC2822('Sun, 99 Aug 2026 15:45:30 +0000')).toThrow(/not a valid RFC 2822 date/);
     expect(() => parseRFC2822('Mon, 04 Aug 2026 15:45:30 QQQQQ')).toThrow(/not a valid RFC 2822 date/);
+  });
+
+  it('rejects malformed day names, times, zones, and types', () => {
+    expect(() => parseRFC2822('Xxx, 04 Aug 2026 15:45:30 +0000')).toThrow(/not a valid RFC 2822/);
+    expect(() => parseRFC2822('Mon, 4x Aug 2026 15:45:30 +0000')).toThrow(/not a valid RFC 2822/);
+    expect(() => parseRFC2822('Mon, 04 Aug 2026 xx:45:30 +0000')).toThrow(/not a valid RFC 2822/);
+    expect(() => parseRFC2822('Mon, 04 Aug 2026 15:45:30 +X000')).toThrow(/not a valid RFC 2822/);
+    expect(() => parseRFC2822(42 as unknown as string)).toThrow(/expects a string/);
   });
 });
 
@@ -219,6 +264,11 @@ describe('formatRFC2822 (epoch-source dispatch)', () => {
 describe('parseHTTPDate (variants and rejection)', () => {
   it('rejects unparseable input (NaN branch)', () => {
     expect(() => parseHTTPDate('definitely not a date')).toThrow(/not a valid HTTP-date/);
+  });
+
+  it('rejects oversized and non-string input', () => {
+    expect(() => parseHTTPDate('x'.repeat(100_001))).toThrow(/maximum length/);
+    expect(() => parseHTTPDate(42 as unknown as string)).toThrow(/expects a string/);
   });
 
   it('accepts the RFC 850 and asctime formats too', () => {

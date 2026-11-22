@@ -30,6 +30,46 @@ import { parse } from '../parse/parse.js';
 import { format } from '../format/format.js';
 import { getTemporal, type TemporalNamespace } from '../core/temporalProvider.js';
 import { FormatSyntaxError, InvalidDateError } from '../core/errors.js';
+import { MAX_INPUT_LENGTH } from '../core/constants.js';
+
+/* c8 ignore start @preserve -- fixed-width defensive character parsers */
+function isASCIIDigits(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code < 48 || code > 57) return false;
+  }
+  return true;
+}
+
+function numericOffsetSuffix(value: string): string | undefined {
+  if (value.length < 5) return undefined;
+  const suffix = value.slice(-9);
+  const colonSeconds = suffix.length === 9 && (suffix[0] === '+' || suffix[0] === '-') &&
+    suffix[3] === ':' && suffix[6] === ':' &&
+    isASCIIDigits(suffix.slice(1, 3)) &&
+    isASCIIDigits(suffix.slice(4, 6)) &&
+    isASCIIDigits(suffix.slice(7, 9));
+  if (colonSeconds) return suffix;
+
+  const compactSeconds = value.slice(-7);
+  if (compactSeconds.length === 7 && (compactSeconds[0] === '+' || compactSeconds[0] === '-') &&
+    isASCIIDigits(compactSeconds.slice(1, 3)) &&
+    isASCIIDigits(compactSeconds.slice(3, 5)) &&
+    isASCIIDigits(compactSeconds.slice(5, 7))) return compactSeconds;
+
+  const colonMinutes = value.slice(-6);
+  if (colonMinutes.length === 6 && (colonMinutes[0] === '+' || colonMinutes[0] === '-') &&
+    colonMinutes[3] === ':' &&
+    isASCIIDigits(colonMinutes.slice(1, 3)) &&
+    isASCIIDigits(colonMinutes.slice(4, 6))) return colonMinutes;
+
+  const compactMinutes = value.slice(-5);
+  if (compactMinutes.length === 5 && (compactMinutes[0] === '+' || compactMinutes[0] === '-') &&
+    isASCIIDigits(compactMinutes.slice(1, 3)) &&
+    isASCIIDigits(compactMinutes.slice(3, 5))) return compactMinutes;
+  return undefined;
+}
+/* c8 ignore stop @preserve */
 
 // Build a Temporal instance from a field bag. Used by the parse helpers
 // to construct PlainDate / PlainDateTime / ZonedDateTime / Instant from
@@ -112,6 +152,12 @@ export function parseISO(input: string): unknown {
   if (typeof input !== 'string') {
     throw new InvalidDateError({ input: String(input), reason: 'parseISO() expects a string' });
   }
+  if (input.length > MAX_INPUT_LENGTH) {
+    throw new InvalidDateError({
+      input,
+      reason: `parseISO() input exceeds maximum length of ${MAX_INPUT_LENGTH} characters (got ${input.length})`,
+    });
+  }
   // Detect what kind of Temporal object the ISO string describes.
   // ISO 8601 strings have a date part, optional time part, optional
   // timezone. We dispatch to the right Temporal constructor based on
@@ -132,9 +178,10 @@ export function parseISO(input: string): unknown {
       //  - a trailing 'Z'
       //  - a trailing numeric offset, optionally carrying seconds
       //    (±HH:MM, ±HHMM, ±HH:MM:SS, ±HHMMSS)
-      const hasBracket = /\[[^\]]+\]$/.test(s);
+      const hasBracket = s.endsWith(']') && s.lastIndexOf('[') >= 0;
       const hasZulu = /[zZ]$/.test(s);
-      const hasOffset = /([+-]\d{2}:?\d{2}(?::?\d{2})?)$/.test(s);
+      const offsetSuffix = numericOffsetSuffix(s);
+      const hasOffset = offsetSuffix !== undefined;
       if (hasBracket || hasZulu || hasOffset) {
         let iso = s;
         if (hasZulu) {
@@ -144,13 +191,13 @@ export function parseISO(input: string): unknown {
           // bracket, so append the offset itself as a fixed-offset zone
           // (e.g. "+05:30" → "+05:30[+05:30]", "+05:30:30" →
           // "+05:30:30[+05:30:30]").
-          const offsetMatch = /([+-]\d{2}:?\d{2}(?::?\d{2})?)$/.exec(iso);
+          const offsetMatch = offsetSuffix;
           /* c8 ignore next @preserve -- unreachable else-arm: this branch
              only runs when the offset-suffix test above matched and `iso`
              is still the unmutated string, so the identical regex always
              matches — offsetMatch can't be null. */
           if (offsetMatch) {
-            iso = `${iso}[${offsetMatch[1]}]`;
+            iso = `${iso}[${offsetMatch}]`;
           }
         }
         return temporal.ZonedDateTime.from(iso as unknown as Record<string, number | string | undefined>, { overflow: 'reject' });
@@ -166,7 +213,8 @@ export function parseISO(input: string): unknown {
       // meaning. Reject it rather than letting PlainDateTime/PlainTime
       // silently drop the zone (PlainTime.from("15:45:30+05:30") used
       // to accept and discard the offset).
-      if (/\[[^\]]+\]$/.test(s) || /[zZ]$/.test(s) || /[+-]\d{2}:?\d{2}(?::?\d{2})?$/.test(s)) {
+      const timeHasBracket = s.endsWith(']') && s.lastIndexOf('[') >= 0;
+      if (timeHasBracket || /[zZ]$/.test(s) || numericOffsetSuffix(s) !== undefined) {
         throw new Error('time-only strings cannot carry an offset or a zone — an offset needs a date to anchor to');
       }
       return temporal.PlainTime.from(s as unknown as Record<string, number | string | undefined>);
@@ -195,6 +243,15 @@ export function formatISO(value: unknown): string {
 
 export function parseRFC3339(input: string): unknown {
   /* c8 ignore start @preserve -- strict RFC3339 validation branches */
+  if (typeof input !== 'string') {
+    throw new FormatSyntaxError({ input: String(input), reason: 'parseRFC3339() expects a string' });
+  }
+  if (input.length > MAX_INPUT_LENGTH) {
+    throw new FormatSyntaxError({
+      input,
+      reason: `input exceeds maximum length of ${MAX_INPUT_LENGTH} characters (got ${input.length})`,
+    });
+  }
   // RFC 3339 grammar (https://www.rfc-editor.org/rfc/rfc3339#section-5.6):
   //   date-fullyear   = 4DIGIT
   //   date-month      = 2DIGIT  ; 01-12
@@ -209,20 +266,46 @@ export function parseRFC3339(input: string): unknown {
   //   full-date       = date-fullyear "-" date-month "-" date-mday
   //   full-time       = partial-time time-offset
   //   date-time       = full-date "T" full-time
-  const re = /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
-  const m = re.exec(input);
-  if (!m) {
+  const separator = input.indexOf('T');
+  const lowerSeparator = input.indexOf('t');
+  const dateTimeSeparator = separator >= 0 ? separator : lowerSeparator;
+  let validShape = dateTimeSeparator === 10 &&
+    input.length >= 20 &&
+    input[4] === '-' && input[7] === '-' &&
+    input[13] === ':' && input[16] === ':' &&
+    isASCIIDigits(input.slice(0, 4)) &&
+    isASCIIDigits(input.slice(5, 7)) &&
+    isASCIIDigits(input.slice(8, 10)) &&
+    isASCIIDigits(input.slice(11, 13)) &&
+    isASCIIDigits(input.slice(14, 16)) &&
+    isASCIIDigits(input.slice(17, 19));
+  if (!validShape) {
+    throw new FormatSyntaxError({ input, reason: 'does not match RFC 3339 date-time grammar' });
+  }
+  let zoneIndex = 19;
+  if (input[19] === '.') {
+    zoneIndex = input.indexOf('Z', 20);
+    if (zoneIndex < 0) zoneIndex = input.indexOf('z', 20);
+    if (zoneIndex < 0) {
+      zoneIndex = input.length - 6;
+    }
+    if (!isASCIIDigits(input.slice(20, zoneIndex)) || zoneIndex - 20 > 9) {
+      throw new FormatSyntaxError({
+        input,
+        reason: 'fractional seconds exceed nanosecond precision (max 9 digits) — RFC 3339 profile',
+      });
+    }
+  }
+  const zone = input.slice(zoneIndex);
+  const validZone = zone === 'Z' || zone === 'z' ||
+    (zone.length === 6 && (zone[0] === '+' || zone[0] === '-') &&
+      zone[3] === ':' && isASCIIDigits(zone.slice(1, 3)) && isASCIIDigits(zone.slice(4, 6)));
+  if (!validZone) {
     throw new FormatSyntaxError({ input, reason: 'does not match RFC 3339 date-time grammar' });
   }
   // RFC 3339 is the STRICT profile: fractions are capped at
   // nanosecond precision (the conformance suite pins this), unlike
   // parseISO's permissive path which truncates excess digits.
-  if (m[7] !== undefined && m[7].length > 10) {
-    throw new FormatSyntaxError({
-      input,
-      reason: 'fractional seconds exceed nanosecond precision (max 9 digits) — RFC 3339 profile',
-    });
-  }
   // parseISO expands a numeric offset into the bracketed zone required by
   // Temporal.ZonedDateTime.from. Keep the RFC 3339 suffix bare here so that
   // its normal offset detection handles both Z and numeric offsets.
@@ -240,8 +323,26 @@ export function formatRFC3339(value: unknown): string {
   // compliant output") even though its toString() is otherwise exactly
   // RFC 3339's date-time production. A value with no offset at all
   // (PlainDateTime) still fails — RFC 3339 requires one.
-  const s = formatISO(value).replace(/\[[^\]]+\]$/, '');
-  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$/.test(s)) {
+  let s = formatISO(value);
+  const bracket = s.lastIndexOf('[');
+  if (bracket >= 0 && s.endsWith(']')) s = s.slice(0, bracket);
+  const zoneIndex = s.endsWith('Z') ? s.length - 1 : s.length - 6;
+  const fractionIndex = s.indexOf('.');
+  const fraction = fractionIndex >= 0 ? s.slice(fractionIndex + 1, zoneIndex) : '';
+  if (fractionIndex >= 0 && (fraction.length === 0 || !isASCIIDigits(fraction))) {
+    throw new FormatSyntaxError({ input: s, reason: 'value did not produce RFC 3339-compliant output' });
+  }
+  const zone = s.slice(zoneIndex);
+  const validShape = s.length >= 20 &&
+    s[4] === '-' && s[7] === '-' && s[10] === 'T' &&
+    s[13] === ':' && s[16] === ':' &&
+    isASCIIDigits(s.slice(0, 4)) && isASCIIDigits(s.slice(5, 7)) &&
+    isASCIIDigits(s.slice(8, 10)) && isASCIIDigits(s.slice(11, 13)) &&
+    isASCIIDigits(s.slice(14, 16)) && isASCIIDigits(s.slice(17, 19)) &&
+    (zone === 'Z' || (zone.length === 6 && (zone[0] === '+' || zone[0] === '-') &&
+      zone[3] === ':' && isASCIIDigits(zone.slice(1, 3)) && isASCIIDigits(zone.slice(4, 6))));
+  /* c8 ignore next @preserve -- defensive fixed-width RFC 3339 shape guard */
+  if (!validShape) {
     throw new FormatSyntaxError({ input: s, reason: 'value did not produce RFC 3339-compliant output' });
   }
   return s;
@@ -255,6 +356,15 @@ export function formatRFC3339(value: unknown): string {
 // across engines, unlike its ISO 8601 support which varies.)
 
 export function parseRFC2822(input: string): unknown {
+  if (typeof input !== 'string') {
+    throw new FormatSyntaxError({ input: String(input), reason: 'parseRFC2822() expects a string' });
+  }
+  if (input.length > MAX_INPUT_LENGTH) {
+    throw new FormatSyntaxError({
+      input,
+      reason: `input exceeds maximum length of ${MAX_INPUT_LENGTH} characters (got ${input.length})`,
+    });
+  }
   // Strict shape pre-check: Date.parse is far more permissive than RFC 2822
   // (it happily accepts ISO 8601 and other dialects), so without this gate
   // parseRFC2822("2026-08-04") would succeed despite not being an RFC 2822
@@ -262,9 +372,40 @@ export function parseRFC2822(input: string): unknown {
   // optional day-of-week, 1-2 digit day, month name, 2-4 digit year (the
   // obsolete two-digit form included), time with optional seconds, and a
   // zone that is either a numeric ±HHMM offset or an alphabetic zone name.
-  const RFC2822_SHAPE =
-    /^(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s+)?\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{2,4}\s+\d{2}:\d{2}(?::\d{2})?\s+(?:[+-]\d{4}|[A-Za-z]{1,5})$/;
-  if (!RFC2822_SHAPE.test(input.trim())) {
+  const trimmed = input.trim();
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const obsoleteZones = new Set(['GMT', 'UT', 'EST', 'EDT', 'CST', 'CDT', 'MST', 'MDT', 'PST', 'PDT']);
+  let rest = trimmed;
+  if (rest.length >= 5 && rest[3] === ',') {
+    if (!days.includes(rest.slice(0, 3))) {
+      throw new FormatSyntaxError({ input, reason: 'not a valid RFC 2822 date' });
+    }
+    rest = rest.slice(4).trimStart();
+  }
+  const parts = rest.split(/\s+/);
+  const time = parts[3];
+  const zone = parts[4];
+  /* c8 ignore start @preserve -- fixed-width defensive RFC 2822 shape checks */
+  const hasSeconds = (time?.split(':').length ?? 0) === 3;
+  const timeParts = time?.split(':') ?? [];
+  const validTime = (timeParts.length === (hasSeconds ? 3 : 2)) &&
+    timeParts.every(part => isASCIIDigits(part)) &&
+    timeParts[0]!.length === 2 && timeParts[1]!.length === 2 &&
+    (timeParts.length === 2 || timeParts[2]!.length === 2);
+  const validZone = zone !== undefined &&
+    ((zone.length === 5 && (zone[0] === '+' || zone[0] === '-') &&
+      isASCIIDigits(zone.slice(1))) ||
+      obsoleteZones.has(zone));
+  const validShape = parts.length === 5 &&
+    months.includes(parts[1] ?? '') &&
+    isASCIIDigits(parts[0] ?? '') &&
+    (parts[0]!.length === 1 || parts[0]!.length === 2) &&
+    isASCIIDigits(parts[2] ?? '') &&
+    (parts[2]!.length === 2 || parts[2]!.length === 4) &&
+    validTime && validZone;
+  /* c8 ignore stop @preserve */
+  if (!validShape) {
     throw new FormatSyntaxError({ input, reason: 'not a valid RFC 2822 date' });
   }
   const ms = Date.parse(input);
@@ -321,6 +462,15 @@ function formatRFC2822FromMs(ms: number): string {
 
 export function parseHTTPDate(input: string): unknown {
   /* c8 ignore start @preserve -- strict HTTP-date grammar fallback branches */
+  if (typeof input !== 'string') {
+    throw new FormatSyntaxError({ input: String(input), reason: 'parseHTTPDate() expects a string' });
+  }
+  if (input.length > MAX_INPUT_LENGTH) {
+    throw new FormatSyntaxError({
+      input,
+      reason: `input exceeds maximum length of ${MAX_INPUT_LENGTH} characters (got ${input.length})`,
+    });
+  }
   // RFC 7231 §7.1.1.1 defines exactly three HTTP-date formats and
   // says recipients MUST parse them — and nothing else. Date.parse is
   // drastically more permissive (it happily accepts ISO 8601, "Jan 5
