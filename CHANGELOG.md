@@ -4,11 +4,12 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
-## 0.8.988 - 2026-11-21 (`hash`)
+## 0.8.988 - 2026-11-21 (`66af78f`)
 
   The two availability/security fixes 
   (the `parseDuration()` ReDoS and the `splitInterval()`/`take()` OOM
   caps) are also backported to the 0.8.x LTS line.
+  - Dev dependency bumps: `vitest` 5.1.0 → 5.1.1.
 
 ## 0.9.89 — 2026-11-21 (`4f4169f`)
 
