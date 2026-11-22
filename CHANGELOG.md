@@ -4,6 +4,30 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## 0.9.90 - 2026-11-22 (`37ba11d`)
+
+Security hotfix release.
+
+- Hardened serialization and date-format parsing against
+  polynomial-regex-style CodeQL alerts and unbounded input:
+  added bounded input length guards (100,000 characters) and replaced
+  vulnerable suffix/date-shape regex checks with linear, fixed-width
+  character parsing.
+- Added serialization regressions for oversized inputs, malformed RFC
+  3339/RFC 2822/HTTP-date values, and numeric offset suffixes.
+
+## 0.8.989 - 2026-11-22 (`f49b0e2`)
+
+Backported the serialization availability/security
+hardening 
+
+- Added bounded 100,000-character input guards to the serialization
+  parsers.
+- Replaced polynomial-regex-prone serialization suffix/date-shape checks
+  with linear fixed-width parsing.
+- Updated the 0.8.x package homepage to
+  https://dirazcoder.github.io/temporal-fmt/.
+
 ## 0.8.988 - 2026-11-21 (`66af78f`)
 
   The two availability/security fixes 
