@@ -144,7 +144,8 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsup && tsc --declaration --emitDeclarationOnly && node scripts/emit-cjs-types.mjs && node scripts/emit-node10-shims.mjs",
-    "build:publish": "cross-env TSUP_MINIFY=true npm run build",
+    "build:slim": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && rollup -c rollup.slim.config.mjs && tsc --declaration --emitDeclarationOnly --removeComments && node scripts/emit-cjs-types.mjs && node scripts/emit-node10-shims.mjs",
+    "build:publish": "npm run build:slim",
     "dev": "tsup --watch",
     "test": "node scripts/run-tests.mjs",
     "test:conformance": "node scripts/run-conformance.mjs",
@@ -157,7 +158,7 @@
     "test:pack": "attw --pack . && publint .",
     "test:smoke": "node smoke-test/run.mjs",
     "test:all": "node scripts/test-all.mjs",
-    "prepublishOnly": "npm run build && npm test",
+    "prepublishOnly": "npm run build:publish && npm test",
     "bench": "node benchmarks/run.mjs",
     "bench:format": "node benchmarks/run.mjs --suite=format",
     "bench:parse": "node benchmarks/run.mjs --suite=parse"
@@ -194,7 +195,11 @@
     "temporal-polyfill": "^1.0.8",
     "tsup": "^9.0.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.1.1"
+    "vitest": "^5.1.1",
+    "rollup": "^4.68.8",
+    "@rollup/plugin-terser": "^1.0.2",
+    "terser": "^5.51.4",
+    "rollup-plugin-esbuild": "^6.2.1"
   },
   "overrides": {
     "esbuild": "0.28.2"
