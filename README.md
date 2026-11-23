@@ -1,18 +1,18 @@
-# temporal-fmt 🥶🔥
+# temporal-fmt
 
 [Check out my live site](https://dirazcoder.github.io/temporal-fmt/)
 
 ![coverage](https://img.shields.io/badge/coverage-100%25%20(c8)-brightgreen?style=flat-square)
 
-Format and parse `Temporal` values (`PlainDate`, `PlainTime`, `PlainDateTime`, `ZonedDateTime`) using date-fns-style tokens. Bad input throws — no silent garbage. Locale-aware, zero dependencies.
+Format and parse `Temporal` values (`PlainDate`, `PlainTime`, `PlainDateTime`, `ZonedDateTime`) with date-fns-style tokens. Bad input throws. No silent garbage. Locale-aware, zero dependencies.
 
-Node 26 shipped `Temporal` without a string formatter. TC39's position: use `Intl.DateTimeFormat` and leave token-style formatting to userland. Fair enough — but if `'yyyy-MM-dd'` is muscle memory from date-fns or Day.js, this exists so you don't have to give that up.
+Node 26 shipped `Temporal` without a string formatter. TC39's position: use `Intl.DateTimeFormat` and leave token-style formatting to userland. Fair enough — but if `'yyyy-MM-dd'` is muscle memory from date-fns or Day.js, this library exists so you don't have to give that up.
 
-Native on Node 26+. Below that, bring your own `Temporal` via a polyfill or `setTemporal()`. Import from subpaths to pull only what you use — see [Subpath imports](#subpath-imports).
+Native on Node 26+. On older runtimes you bring your own `Temporal`, via a polyfill or `setTemporal()`. Import through subpaths and your bundle carries only what you call; see [Subpath imports](#subpath-imports).
 
-Locale-aware tokens need Node 20+ regardless of path. Untested below Node 20.
+Locale-aware tokens need Node 20+ no matter which import path you take. Untested below that.
 
-> **Just want `format`/`parse`, nothing else, ever?** [`temporal-fmt-lite`](https://github.com/DirazCoder/temporal-fmt-lite) is a frozen snapshot of the 0.8.2 surface: same two functions, same locale support, no recurrence/business-calendar weight, no new tokens or exports coming. Security and correctness fixes only, no LTS promise. If you outgrow it, migrating to the full package is additive, not a rewrite.
+> **Just want `format`/`parse`, nothing else, ever?** [`temporal-fmt-lite`](https://github.com/DirazCoder/temporal-fmt-lite) is a frozen snapshot of the 0.8.2 surface: same two functions, same locale support, none of the recurrence or business-calendar weight, and no new tokens or exports coming. Security and correctness fixes only, no LTS promise. If you outgrow it, moving up to the full package is additive, not a rewrite.
 
 ## Install
 
@@ -32,11 +32,11 @@ format(date, 'yyyy-MM-dd');                      // "2026-08-04"
 parse('yyyy-MM-dd HH:mm', '2026-08-04 15:45');   // Temporal.PlainDateTime
 ```
 
-`format(temporal, formatStr)` in, `parse(formatStr, input)` out — same shape as date-fns or Day.js. Import from the subpaths shown above, not the bare package: a bundler only ships what you actually call that way. Measured with esbuild: ~27KB for `format` alone via the subpath vs. ~68KB pulled from the bare entry.
+The shape is the one you already know: `format(temporal, formatStr)` in, `parse(formatStr, input)` out, same as date-fns or Day.js. Import from the subpaths above rather than the bare package, because then a bundler ships only what you actually call. Measured with esbuild, `format` alone comes to ~27KB through the subpath, against ~68KB from the bare entry.
 
-Below Node 26, `Temporal` isn't global — see [Providing `Temporal`](#providing-temporal). On Node 26+ the snippet above just works.
+On Node 26+ the snippet just works. Below that, `Temporal` isn't global; see [Providing `Temporal`](#providing-temporal).
 
-The package is large on npm (locales, recurrence, business calendars, timezone disambiguation, an analyzer, config layers), but none of that ships in your bundle unless you import it. Everything lives behind its own subpath — see [Subpath imports](#subpath-imports).
+The package on npm is large: locales, recurrence, business calendars, timezone disambiguation, an analyzer, config layers. None of it reaches your bundle unless you import it. Each piece lives behind its own subpath; see [Subpath imports](#subpath-imports).
 
 ## Contents
 
@@ -74,7 +74,7 @@ The package is large on npm (locales, recurrence, business calendars, timezone d
 
 ### Node 26+
 
-`Temporal` is native and used automatically.
+`Temporal` is native and gets picked up automatically.
 
 ### Polyfill
 
@@ -97,9 +97,9 @@ import { parse } from 'temporal-fmt/parse';
 setTemporal(Temporal);
 ```
 
-`setTemporal()` takes precedence over native or global `Temporal`. Call it with no argument to clear the override. Useful for libraries that don't want to touch the global namespace.
+`setTemporal()` takes precedence over native or global `Temporal`. Called with no argument, it clears the override. Handy for libraries that would rather not touch the global namespace.
 
-Functions that construct a value from scratch need this: `parse()`, `parseISO()`, `resolveZoned()`, and a few others. Functions that only read fields off an existing value (`format()`, `compare()`, `add()`) don't touch the namespace at all.
+Only functions that construct a value from scratch need the namespace: `parse()`, `parseISO()`, `resolveZoned()`, and a few others. Functions that just read fields off an existing value (`format()`, `compare()`, `add()`) never touch it at all.
 
 ## Formatting
 
@@ -117,17 +117,17 @@ const zdt = Temporal.ZonedDateTime.from('2026-08-04T15:45:30-04:00[America/New_Y
 format(zdt, 'yyyy-MM-dd HH:mm zzz');   // "2026-08-04 15:45 America/New_York"
 ```
 
-Wrap literal text in single quotes. For a literal single quote in output, use `''`.
+Wrap literal text in single quotes. A literal single quote in the output is `''`.
 
-Using a token the input type doesn't support — `HH` on a `PlainDate`, say — throws a descriptive error instead of silently emitting `undefined`.
+Ask for a token the input type doesn't support, `HH` on a `PlainDate` say, and you get a descriptive error rather than a silent `undefined`.
 
 - `format(temporal, formatStr, options?)` — returns a string.
-- `formatToParts(temporal, formatStr, options?)` — returns `{ type: 'literal' | 'token', value, token? }[]`. Mirrors `Intl.DateTimeFormat.formatToParts`, useful for styling individual pieces.
-- `compileFormat(formatStr)` — pre-tokenizes once, returns an object with `.format()`/`.formatToParts()`, `.pieces`, and `.formatStr`. Format strings are already LRU-cached internally (500 entries), so this mainly buys up-front validation — a bad format string throws at compile time rather than on first use.
+- `formatToParts(temporal, formatStr, options?)` — returns `{ type: 'literal' | 'token', value, token? }[]`. Same shape as `Intl.DateTimeFormat.formatToParts`, useful when you want to style individual pieces yourself.
+- `compileFormat(formatStr)` — pre-tokenizes once, returning an object with `.format()`/`.formatToParts()`, `.pieces`, and `.formatStr`. Format strings are already LRU-cached internally (500 entries), so what this mainly buys is up-front validation: a bad format string throws at compile time instead of on first use.
 
 ## Parsing
 
-`parse()` builds a `PlainDate`, `PlainTime`, `PlainDateTime`, or `ZonedDateTime` depending on which tokens are present:
+`parse()` builds a `PlainDate`, `PlainTime`, `PlainDateTime`, or `ZonedDateTime`, depending on which tokens are present:
 
 ```js
 import { parse } from 'temporal-fmt/parse';
@@ -137,9 +137,9 @@ parse('yyyy-MM', '2026-08-04T15:45:30');         // throws — shape mismatch
 parse('yyyy-MM-dd', '2026-02-30');               // throws — not a real date
 ```
 
-Because the return type depends on which tokens are present, you'll need `instanceof` or a type guard to narrow it in TypeScript — see [Type guards](#type-guards).
+Which type comes back depends on the tokens, so narrowing in TypeScript needs `instanceof` or a type guard. See [Type guards](#type-guards).
 
-`parse()` also catches contradictions a regex would miss:
+It also catches contradictions a regex would miss:
 
 ```js
 parse('EEEE, yyyy-MM-dd', 'Tuesday, 2026-08-04');  // fine
@@ -156,10 +156,10 @@ Other entry points:
 ### Parsing notes
 
 - **`yy` (2-digit year)** follows POSIX strptime: `00–68` → `2000–2068`, `69–99` → `1900–1999`.
-- **`hh`/`h` without `a` throws.** Mixing `HH`/`H` with `hh`/`h` also throws — `parse()` won't pick one.
-- **`HH`/`H` with `a` is allowed and cross-checked.** `parse('HH:mm a', '13:05 PM')` succeeds; `parse('HH:mm a', '01:05 PM')` throws — the AM/PM contradicts the hour.
-- **`a` is case-insensitive** — `pm`, `Pm`, `PM` all work. Month and weekday names stay case-sensitive.
-- **`S`–`SSSSSSSSS`** go to nanosecond precision. Format truncates to the requested width; parse right-pads short input (`SSSSSSSSS` reading `.5` → 500ms worth of nanoseconds).
+- **`hh`/`h` without `a` throws.** Mixing `HH`/`H` with `hh`/`h` also throws; `parse()` won't pick one for you.
+- **`HH`/`H` with `a` is allowed and cross-checked.** `parse('HH:mm a', '13:05 PM')` succeeds; `parse('HH:mm a', '01:05 PM')` throws, because the AM/PM label contradicts the hour.
+- **`a` is case-insensitive** (`pm`, `Pm`, `PM` all work). Month and weekday names stay case-sensitive.
+- **`S`–`SSSSSSSSS`** go to nanosecond precision. Format truncates to the requested width; parse right-pads short input (`SSSSSSSSS` reading `.5` gives you 500ms worth of nanoseconds).
 - **`MMMM`/`MMM` assume a 12-month calendar.** Numeric tokens are unaffected.
 
 ### Ambiguous input and lenient mode
@@ -171,19 +171,19 @@ parse('yyyy-Md', '2026-121')                               // throws — ambiguo
 parse('yyyy-Md', '2026-121', { lenient: true }).toString() // '2026-12-01'
 ```
 
-Lenient heuristic: if one token in the ambiguous run is `d`, prefer the split where day ≤ 12. When that doesn't narrow it down, falls back to the first valid split. Avoid ambiguity entirely by zero-padding (`MM`/`dd`) or adding a separator (`M/d`).
+The lenient heuristic: if one token in the ambiguous run is `d`, prefer the split where day ≤ 12. If that doesn't settle it, fall back to the first valid split. Zero-padding (`MM`/`dd`) or a separator (`M/d`) avoids the ambiguity altogether.
 
 ### Offset tokens (`X`/`XX`/`XXX`/`x`/`xx`/`xxx`)
 
-Uppercase collapses `+00:00` to `Z`; lowercase never emits `Z`. Single-letter forms drop minutes when zero (`+05`, `+0530`).
+Uppercase collapses `+00:00` to `Z`; lowercase never emits `Z`. Single-letter forms drop the minutes when they're zero (`+05`, `+0530`).
 
-On parse, an offset token needs a full date and time. Without `zzz`, the result's `timeZoneId` is the offset string itself. With both `zzz` and an offset token, `zzz` wins for `timeZoneId` and the offset is cross-checked — a mismatch throws.
+On parse, an offset token needs a full date and time. Without `zzz`, the result's `timeZoneId` is the offset string itself. With both `zzz` and an offset token, `zzz` wins for `timeZoneId` and the offset gets cross-checked; a mismatch throws.
 
-Sub-minute offsets (pre-railway local-mean-time zones): only `xxx` passes them through. The others throw rather than silently truncating. Range: `-12:00` to `+14:00`.
+Sub-minute offsets (pre-railway local-mean-time zones): only `xxx` passes them through. The others throw rather than silently truncating. Range is `-12:00` to `+14:00`.
 
 ## Locales
 
-Pass a BCP 47 tag via `options.locale`. Defaults to `'en-US'`.
+Pass a BCP 47 tag via `options.locale`. The default is `'en-US'`.
 
 ```js
 format(date, 'MMMM d, yyyy', { locale: 'fr-FR' });   // "août 4, 2026"
@@ -191,22 +191,22 @@ format(date, 'EEEE d MMMM', { locale: 'ar-EG' });    // Arabic weekday/month nam
 format(dt, 'h:mm a', { locale: 'ja-JP' });            // "3:45 午後"
 ```
 
-Named-vocabulary tokens (`MMMM`, `MMM`, `EEEE`, `EEE`, `a`) go through `Intl.DateTimeFormat`, so non-Gregorian calendars work when the `Temporal` object already carries one:
+Named-vocabulary tokens (`MMMM`, `MMM`, `EEEE`, `EEE`, `a`) go through `Intl.DateTimeFormat`, so non-Gregorian calendars work whenever the `Temporal` object already carries one:
 
 ```js
 const hebrewDate = date.withCalendar('hebrew');
 format(hebrewDate, 'MMMM d, yyyy');   // "Av 21, 5786"
 ```
 
-Numeric tokens read directly off the object's fields and never touch `Intl`. Same locale handling applies to `parse()`.
+Numeric tokens read straight off the object's fields and never touch `Intl`. `parse()` handles locales the same way.
 
-**Numeric output is always Western digits by default**, regardless of locale. `{ locale: 'ar-EG' }` alone doesn't switch `yyyy`/`MM`/`dd` to Arabic-Indic digits — see [Numbering systems](#numbering-systems) for the opt-in.
+Numeric output is always Western digits by default, whatever the locale. `{ locale: 'ar-EG' }` alone won't turn `yyyy`/`MM`/`dd` into Arabic-Indic digits. That part is an opt-in; see [Numbering systems](#numbering-systems).
 
 ### Registering custom vocabulary
 
-`Intl` doesn't cover every case well — a 13-month Hebrew leap year is the standing example.
+`Intl` doesn't cover every case well. A 13-month Hebrew leap year is the standing example.
 
-**`registerLocaleVocab(locale, vocab)`** — months, weekdays, day periods only:
+**`registerLocaleVocab(locale, vocab)`** covers months, weekdays, and day periods only:
 
 ```js
 import { registerLocaleVocab } from 'temporal-fmt';
@@ -220,7 +220,7 @@ registerLocaleVocab('en-u-ca-hebrew-leap', {
 });
 ```
 
-**`registerLocale(locale, vocab)`** — everything above plus quarters, eras, ordinals, duration units, and relative-time language:
+**`registerLocale(locale, vocab)`** takes everything above plus quarters, eras, ordinals, duration units, and relative-time language:
 
 ```js
 import { registerLocale } from 'temporal-fmt';
@@ -244,7 +244,7 @@ registerLocale('test-locale-1', {
 
 `getLocale(locale)` returns the registered vocab or falls back to `Intl`. `hasLocale(locale)` checks without pulling the fallback.
 
-Validation is strict: wrong array lengths, empty strings, duplicate entries, and identical AM/PM values all throw at registration time. Registering invalidates the cache for that locale key immediately.
+Validation is strict. Wrong array lengths, empty strings, duplicate entries, identical AM/PM values: everything throws at registration time, and registering invalidates the cache for that locale key immediately.
 
 ## Tokens
 
@@ -294,13 +294,13 @@ Validation is strict: wrong array lengths, empty strings, duplicate entries, and
 | `GGGG` | Long era name, locale-aware. Format-only | `Anno Domini` |
 | `G` | Short era name, locale-aware. Format-only | `AD` |
 
-Every token's structured metadata (round-trip safety, locale/calendar/timezone sensitivity, supported types) is available via `tokenInfo(name)` or `TOKEN_METADATA` — see [Introspection and the analyzer](#introspection-and-the-analyzer).
+Structured metadata for every token (round-trip safety, locale/calendar/timezone sensitivity, supported types) is available through `tokenInfo(name)` or `TOKEN_METADATA`. See [Introspection and the analyzer](#introspection-and-the-analyzer).
 
-**`do`** is format-only — the ordinal suffix isn't structurally distinguishable from adjacent literal text on parse. English-only by design: `Intl.DateTimeFormat` has no part type for ordinals.
+**`do`** is format-only, because an ordinal suffix isn't structurally distinguishable from adjacent literal text on parse. English-only by design: `Intl.DateTimeFormat` has no part type for ordinals.
 
-**`Q`/`QQQ`** format and parse, cross-checking against any month/date tokens in the same string.
+**`Q`/`QQQ`** format and parse, cross-checking against any month or date tokens in the same string.
 
-**`ww`/`RRRR`** are format-only. `RRRR` is the ISO week-numbering year, not the calendar year — they diverge at year boundaries:
+**`ww`/`RRRR`** are format-only. `RRRR` is the ISO week-numbering year, not the calendar year, and the two diverge at year boundaries:
 
 ```
 format(PlainDate.from('2026-12-31'), 'ww RRRR') // "53 2026"
@@ -308,13 +308,13 @@ format(PlainDate.from('2027-01-01'), 'ww RRRR') // "53 2026" — still ISO year 
 format(PlainDate.from('2027-01-04'), 'ww RRRR') // "01 2027"
 ```
 
-**`LLLL`/`LLL`/`cccc`/`ccc`** are stand-alone forms (nominative case in Slavic locales). They render identically to `MMMM`/`MMM`/`EEEE`/`EEE` in most locales.
+**`LLLL`/`LLL`/`cccc`/`ccc`** are the stand-alone forms (nominative case in Slavic locales). In most locales they render identically to `MMMM`/`MMM`/`EEEE`/`EEE`.
 
 ## Duration formatting
 
-`formatDuration(duration, formatStr, options?)` formats a `Temporal.Duration` or plain field bag `{ years, months, weeks, days, hours, minutes, seconds, milliseconds }`.
+`formatDuration(duration, formatStr, options?)` formats a `Temporal.Duration` or a plain field bag `{ years, months, weeks, days, hours, minutes, seconds, milliseconds }`.
 
-Each unit has three forms:
+Each unit comes in three forms:
 
 | Token | Form | Example |
 |-------|------|---------|
@@ -337,9 +337,9 @@ formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm')  // "2 hours 30 minutes"
 formatDuration({ hours: 2, minutes: 30 }, 'h:mm')     // "2:30"
 ```
 
-Zero-value units are omitted by default — trailing literal separators from the format string are the caller's problem. Pass `{ showZeroValues: true }` to render them anyway.
+Zero-value units are omitted by default, so any trailing literal separators left over from the format string are the caller's problem. Pass `{ showZeroValues: true }` to render them anyway.
 
-Pass `{ locale }` to localize short/long unit names via `Intl.NumberFormat`'s `style: 'unit'` mode. Numeric-only tokens always stay ASCII digits. Note: `locale: 'en-US'` explicit ≠ omitting locale — `Intl`'s spacing differs from the built-in English table (`"2 hr"` vs `"2h"`).
+Pass `{ locale }` to localize short and long unit names through `Intl.NumberFormat`'s `style: 'unit'` mode. Numeric-only tokens always stay ASCII digits. One gotcha: explicit `locale: 'en-US'` ≠ omitting the locale. `Intl`'s spacing differs from the built-in English table (`"2 hr"` vs `"2h"`).
 
 ```js
 formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm', { locale: 'fr-FR' }) // "2 heures 30 minutes"
@@ -375,7 +375,7 @@ formatDistance(today, today)                              // "now"
 formatDistance(today, today.add({ days: 2 }), { locale: 'fr-FR' }) // "dans 2 jours"
 ```
 
-Direction: `diff = date1 - date2`. Positive → "in X". Negative → "X ago".
+Direction: `diff = date1 - date2`. Positive reads as "in X", negative as "X ago".
 
 Default unit-selection cutoffs:
 
@@ -388,9 +388,9 @@ Default unit-selection cutoffs:
 | < 365 days | months | `months: 365` (in days) |
 | otherwise | years | — |
 
-Override any subset per call via `{ cutoffs }`. The `months` cutoff is in days because a month isn't a fixed length. Non-monotonic boundaries and non-positive values throw.
+Override any subset per call with `{ cutoffs }`. The `months` cutoff is expressed in days, since a month isn't a fixed length. Non-monotonic boundaries and non-positive values throw.
 
-Accepts `PlainDate`, `PlainDateTime`, or `ZonedDateTime`. A `PlainDate` is treated as midnight when diffed against a `PlainDateTime`. Throws on `PlainTime` and partial-date shapes.
+Accepts `PlainDate`, `PlainDateTime`, or `ZonedDateTime`. A `PlainDate` diffed against a `PlainDateTime` is treated as midnight. `PlainTime` and partial-date shapes throw.
 
 `formatDistanceToNow(date, options?)` reads the system clock at call time:
 
@@ -401,15 +401,15 @@ formatDistanceToNow(threeHoursAgo)  // "3 hours ago"
 formatDistanceToNow(tomorrow)       // "in 1 day"
 ```
 
-Reference is captured fresh on every call, never cached.
+The reference is captured fresh on every call, never cached.
 
 ### `formatRelative` / `formatRelativeToNow`
 
-Returns calendar-relative labels ("yesterday", "last week") rather than numeric distance. `formatRelativeToNow(date, options?)` is `formatRelative(date, now)`.
+These return calendar-relative labels ("yesterday", "last week") instead of numeric distance. `formatRelativeToNow(date, options?)` is `formatRelative(date, now)`.
 
 ## Natural-language date parsing
 
-`parseRelative(input, referenceDate, options?)` resolves relative-date phrases against a reference date, returning a `Temporal.PlainDate`. English by default; pass `{ locale: 'es' }`, `'fr'`, or `'de'` for those languages.
+`parseRelative(input, referenceDate, options?)` resolves relative-date phrases against a reference date and returns a `Temporal.PlainDate`. English by default; pass `{ locale: 'es' }`, `'fr'`, or `'de'` for those languages.
 
 Supported:
 
@@ -430,7 +430,7 @@ Supported:
 | 2 weeks ago | `2 weeks ago` | `hace 2 semanas` | `il y a 2 semaines` | `vor 2 Wochen` |
 | March 5 | `March 5th` | `5 de marzo` | `5 mars` | `5. März` |
 
-Diacritics are stripped before matching, so `"miercoles"` matches `"miércoles"`. German umlaut transliterations are expanded (`ä`→`ae`, etc.).
+Diacritics are stripped before matching, so `"miercoles"` matches `"miércoles"`. German umlaut transliterations get expanded (`ä`→`ae`, etc.).
 
 ```js
 import { parseRelative } from 'temporal-fmt';
@@ -449,14 +449,14 @@ parseRelative('morgen', today, { locale: 'de-DE' }).toString()  // '2026-08-05'
 
 **Documented ambiguous-case choices:**
 
-- "next Tuesday" on a Tuesday = 7 days out. "this Tuesday" handles the same-week case.
-- "last Tuesday" on a Tuesday = 7 days ago.
-- "March 5th" without a year = next occurrence. Past dates this year roll to next year.
-- Bare number phrases ("5 days" without "in"/"ago") throw — same strict contract as `parse()`.
+- "next Tuesday" said on a Tuesday means 7 days out. "this Tuesday" covers the same-week case.
+- "last Tuesday" said on a Tuesday means 7 days ago.
+- "March 5th" with no year resolves to the next occurrence. Past dates this year roll to next year.
+- Bare number phrases ("5 days" without "in" or "ago") throw, same strict contract as `parse()`.
 
-This "next X on X = 7 days" convention holds across all four supported languages by design.
+The "next X on X = 7 days" convention holds across all four supported languages, by design.
 
-`parseRelative` throws a descriptive error for unrecognized phrases. Accepts `PlainDate`, `PlainDateTime`, or `ZonedDateTime` as reference; throws on `PlainTime`.
+`parseRelative` throws a descriptive error on unrecognized phrases. The reference can be a `PlainDate`, `PlainDateTime`, or `ZonedDateTime`; a `PlainTime` throws.
 
 ### Typo tolerance (`{ fuzzy: true }`)
 
@@ -466,13 +466,13 @@ parseRelative('next tuesady', today, { fuzzy: true }).toString()  // '2026-08-11
 parseRelative('tommorow', today);                                  // throws
 ```
 
-Tokenizes the input on whitespace and corrects any word that isn't an exact vocabulary match, using edit distance 2. Covers dropped letters (distance 1) and transposed pairs (distance 2) without over-correcting.
+Input gets tokenized on whitespace, and any word that isn't an exact vocabulary match is corrected using edit distance 2. That covers dropped letters (distance 1) and transposed pairs (distance 2) without over-correcting.
 
-Numbers are never corrected. `"5 dyas"` → corrects to `"5 days"` → still throws the usual past-or-future ambiguity error.
+Numbers are never corrected. `"5 dyas"` corrects to `"5 days"`, then still throws the usual past-or-future ambiguity error.
 
-Fuzzy mode is English-only. Other grammars have enough positional variation that one word-substitution corrector doesn't fit without per-language tuning. Combining `{ fuzzy: true }` with a non-English locale throws a clear error rather than silently skipping the correction pass.
+Fuzzy mode is English-only. The other grammars have enough positional variation that one word-substitution corrector doesn't fit without per-language tuning. Combining `{ fuzzy: true }` with a non-English locale throws a clear error instead of silently skipping the correction pass.
 
-`registerRelativeGrammar(grammar)` registers a new language. `listRegisteredGrammars()` lists what's currently registered.
+`registerRelativeGrammar(grammar)` registers a new language. `listRegisteredGrammars()` lists what's registered.
 
 ## Date arithmetic, comparison, and rounding
 
@@ -487,7 +487,7 @@ difference(a, b, 'hours');
 ```
 
 - `add(value, amount, unit)` / `subtract(value, amount, unit)` — `unit`: `'years' | 'months' | 'weeks' | 'days' | 'hours' | 'minutes' | 'seconds' | 'milliseconds'`.
-- Per-unit wrappers: `addYears`, `addMonths`, `addWeeks`, `addDays`, `addHours`, `addMinutes`, `addSeconds`, `addMilliseconds`, and matching `subtract*` set.
+- Per-unit wrappers: `addYears`, `addMonths`, `addWeeks`, `addDays`, `addHours`, `addMinutes`, `addSeconds`, `addMilliseconds`, and the matching `subtract*` set.
 - `difference(a, b, unit)` — integer count of unit boundaries crossed.
 - Per-unit wrappers: `differenceInYears`, `differenceInMonths`, `differenceInWeeks`, `differenceInDays`, `differenceInHours`, `differenceInMinutes`, `differenceInSeconds`, `differenceInMilliseconds`.
 
@@ -529,7 +529,7 @@ getQuarter(date);
 - `getQuarter(value, options?)`, `getMonth(value)`, `getWeekday(value)`.
 - `startOf(value, unit)` / `endOf(value, unit)` — `unit`: `'day' | 'month' | 'year' | 'hour' | 'minute' | 'second'`.
 
-`getQuarter` defaults to calendar quarters (Jan–Mar = Q1). Pass `{ startMonth }` to shift the fiscal year start:
+`getQuarter` defaults to calendar quarters (January through March is Q1). Pass `{ startMonth }` to shift the fiscal year start:
 
 ```js
 getQuarter({ month: 8 });                     // 3 — calendar quarter
@@ -537,9 +537,9 @@ getQuarter({ month: 8 }, { startMonth: 7 });   // 1 — fiscal year starting Jul
 getQuarter({ month: 8 }, { startMonth: 10 });  // 4 — fiscal year starting October (Apple's FY)
 ```
 
-`startMonth` must be 1–12; anything else throws.
+`startMonth` must be 1–12. Anything else throws.
 
-**Gregorian-only limitation**: `daysInMonth`, `daysInYear`, `isLeapYear`, `monthsInYear`, `isLeapMonth`, `dayOfYear`, `weekOfYear`, and `weekYear` all use Gregorian rules and give wrong answers on non-Gregorian calendars. For those, use the `Temporal` object's own calendar-aware properties:
+**Gregorian-only limitation:** `daysInMonth`, `daysInYear`, `isLeapYear`, `monthsInYear`, `isLeapMonth`, `dayOfYear`, `weekOfYear`, and `weekYear` all apply Gregorian rules, so they give wrong answers on non-Gregorian calendars. Use the `Temporal` object's own calendar-aware properties instead:
 
 ```js
 const pd = Temporal.PlainDate.from('5784-05-10[u-ca=hebrew]');
@@ -566,8 +566,8 @@ formatRange(iv, 'MMM d');
 
 - `interval(start, end, bounds?)` — `bounds`: `'closed'` (default) | `'open'` | `'half-open-start'` | `'half-open-end'`.
 - `contains(iv, value)`, `overlaps(a, b)`, `intersects(a, b)`.
-- `isBefore(a, b)` / `isAfter(a, b)` — imported as `intervalIsBefore`/`intervalIsAfter` from the main entry to avoid collision with the date versions.
-- `intersection(a, b)`, `union(a, b)` — return `null` when intervals don't overlap enough to combine.
+- `isBefore(a, b)` / `isAfter(a, b)` — imported as `intervalIsBefore`/`intervalIsAfter` from the main entry, to avoid colliding with the date versions.
+- `intersection(a, b)`, `union(a, b)` — return `null` when the intervals don't overlap enough to combine.
 - `difference(a, b)` / `subtract(a, b)` — imported as `intervalDifference`/`intervalSubtract` from the main entry.
 - `mergeIntervals(intervals)` — combines overlapping intervals into their union set.
 - `splitInterval(iv, n)` — splits one interval into `n` equal sub-intervals.
@@ -592,7 +592,7 @@ between(startDate, rule, rangeStart, rangeEnd);
 
 ## Business calendars and holidays
 
-A business-day calendar (weekends, working hours, half days) and a holiday calendar (specific excluded dates) are separate — compose them by passing a holiday calendar's dates to a business calendar's options.
+A business-day calendar (weekends, working hours, half days) and a holiday calendar (specific excluded dates) are two separate things. To compose them, pass a holiday calendar's dates into a business calendar's options.
 
 ```js
 import { createBusinessCalendar, isBusinessDay, addBusinessDays } from 'temporal-fmt';
@@ -621,11 +621,11 @@ nextHoliday(holidays, someDate);
 ```
 
 - `createHolidayCalendar(specs)` — each spec is a fixed `{ month, day }` or a `compute(year) => { month, day }` function for floating holidays.
-- The returned calendar has `.isHoliday(value)` and `.holidaysBetween(start, end)` as methods.
+- The returned calendar carries `.isHoliday(value)` and `.holidaysBetween(start, end)` as methods.
 - `nextHoliday(cal, value)` / `previousHoliday(cal, value)` — capped at a 5-year lookahead/lookbehind.
 - `holidaysBetween(cal, start, end)` — standalone wrapper around `cal.holidaysBetween()`.
 
-Country-specific holiday datasets are out of scope — `createHolidayCalendar` is the abstraction; populating it is the caller's job.
+Country-specific holiday datasets are out of scope. `createHolidayCalendar` is the abstraction; populating it is the caller's job.
 
 ## Time zones
 
@@ -637,9 +637,9 @@ isDST(zonedDateTime);
 getTransitions(rangeStart, rangeEnd);
 ```
 
-- `resolveZoned(fields, timeZone, options?)` — constructs a `ZonedDateTime` with an explicit disambiguation mode for gaps/overlaps: `'compatible' | 'earlier' | 'later' | 'reject'`.
+- `resolveZoned(fields, timeZone, options?)` — constructs a `ZonedDateTime` with an explicit disambiguation mode for gaps and overlaps: `'compatible' | 'earlier' | 'later' | 'reject'`.
 - `getTimeZone(value)`, `getOffset(value)`, `getOffsetNanoseconds(value)`.
-- `isDST(value)` — heuristic: compares the current offset against the January offset. Correct for Northern Hemisphere; Southern Hemisphere zones have DST in January, so it can read backwards there.
+- `isDST(value)` — heuristic: compares the current offset against the January offset. Correct for the Northern Hemisphere; Southern Hemisphere zones have DST in January, so it can read backwards there.
 - `getNextTransition(value)` / `getPreviousTransition(value)`.
 - `getTransitions(start, end)` — every DST/offset transition within a range.
 - `possibleInstantsFor(fields, timeZone)` — empty for a DST gap, two for an overlap, one otherwise.
@@ -692,7 +692,7 @@ analyzeFormat("MMMM d, yyyy 'at' h:mm a");
 - `tokenizeFormat(formatStr)` — raw literal/token piece list.
 - `fieldForToken(token)` — which `TemporalLike` field a token reads.
 
-`TOKEN_METADATA`, `ALL_TOKEN_NAMES`, and `FORMAT_ONLY_TOKENS` are also exported directly for tooling that wants the raw table (`do`, `ww`, `RRRR`, `D`/`DD`/`DDD`, `LLLL`/`LLL`, `cccc`/`ccc`, `GGGG`/`G`, `zzzz`/`z`).
+`TOKEN_METADATA`, `ALL_TOKEN_NAMES`, and `FORMAT_ONLY_TOKENS` are exported directly too, for tooling that wants the raw table (`do`, `ww`, `RRRR`, `D`/`DD`/`DDD`, `LLLL`/`LLL`, `cccc`/`ccc`, `GGGG`/`G`, `zzzz`/`z`).
 
 **Round-trip safety by token family:**
 
@@ -710,7 +710,7 @@ analyzeFormat("MMMM d, yyyy 'at' h:mm a");
 
 Main API errors are typed `TemporalFmtError` subclasses. All inherit `code`, `input`, `format`, `token`, `position`, `expected`, `actual`, `reason`.
 
-> **Deprecated compatibility API:** `temporal-fmt/legacy` is retained to help existing code migrate. No removal date announced, but not recommended for new code. Use the main API.
+> **Deprecated compatibility API:** `temporal-fmt/legacy` is kept around to help existing code migrate. No removal date announced, but it isn't recommended for new code. Use the main API.
 
 For code that still depends on plain-`Error` identity or `err.name === 'Error'`:
 
@@ -719,7 +719,7 @@ import { format, parse } from 'temporal-fmt';
 import { format as legacyFormat, parse as legacyParse } from 'temporal-fmt/legacy';
 ```
 
-`temporal-fmt/legacy` also provides `formatToParts`, `compileFormat`, `safeParse`, `tryParse`, `parseToParts`, `compileParser`, and `matchesFormat`. `matchesFormat` is also available from the package root for older imports — it checks token shape and vocabulary, not date validity, and is retained for compatibility with existing scripts.
+`temporal-fmt/legacy` also provides `formatToParts`, `compileFormat`, `safeParse`, `tryParse`, `parseToParts`, `compileParser`, and `matchesFormat`. `matchesFormat` is available from the package root as well, for older imports. It checks token shape and vocabulary, not date validity, and is retained for compatibility with existing scripts.
 
 | Class | Code | Fires when |
 |-------|------|------------|
@@ -737,9 +737,9 @@ import { format as legacyFormat, parse as legacyParse } from 'temporal-fmt/legac
 
 ### Common error messages
 
-**"no valid pattern matches the format string and input shape"** — input doesn't match the format string. Usually a missing separator, wrong digit count, or `zzz` capturing something that isn't a real IANA zone ID.
+**"no valid pattern matches the format string and input shape"** — the input doesn't match the format string. Usually a missing separator, a wrong digit count, or `zzz` capturing something that isn't a real IANA zone ID.
 
-**"token X requires Y, which this Temporal object doesn't have"** — token reads a field the value doesn't carry. `format(plainDate, 'HH:mm')` throws because `PlainDate` has no hour field.
+**"token X requires Y, which this Temporal object doesn't have"** — the token reads a field the value doesn't carry. `format(plainDate, 'HH:mm')` throws because `PlainDate` has no hour field.
 
 **"format string mixes 'yyyy' and 'yy' year representations"** — don't combine both year tokens in one format string.
 
@@ -747,11 +747,11 @@ import { format as legacyFormat, parse as legacyParse } from 'temporal-fmt/legac
 
 **"X is ambiguous — N different ways to read tokens Y are all individually valid"** — add a separator, zero-pad, or pass `{ lenient: true }`.
 
-**"offset hours X out of range (max 14 — Kiritimati, Line Islands is +14:00)"** — offset's hour component is past the IANA range.
+**"offset hours X out of range (max 14 — Kiritimati, Line Islands is +14:00)"** — the offset's hour component is past the IANA range.
 
-**"X has no such wall-clock time on this date — it falls in a DST gap"** — the time doesn't exist. Pick a different time or pass `{ disambiguation: 'compatible' }` to `resolveZoned`.
+**"X has no such wall-clock time on this date — it falls in a DST gap"** — the time doesn't exist. Pick a different time, or pass `{ disambiguation: 'compatible' }` to `resolveZoned`.
 
-**"has both a 'zzz' zone (X) and an offset token (Y), but the zone's actual offset at this date/time is Z, not Y"** — zone name and explicit offset disagree at the parsed instant.
+**"has both a 'zzz' zone (X) and an offset token (Y), but the zone's actual offset at this date/time is Z, not Y"** — the zone name and the explicit offset disagree at the parsed instant.
 
 ## Type guards
 
@@ -763,15 +763,15 @@ assertZonedDateTime(value); // throws descriptively if not
 ```
 
 - `isTemporal`, `isInstant`, `isPlainDate`, `isPlainTime`, `isPlainDateTime`, `isZonedDateTime`, `isPlainYearMonth`, `isPlainMonthDay`, `isDuration`.
-- `assertTemporal`, `assertInstant`, `assertPlainDate`, `assertPlainTime`, `assertPlainDateTime`, `assertZonedDateTime`, `assertPlainYearMonth`, `assertPlainMonthDay`, `assertDuration` — same checks, throwing descriptively on mismatch. Useful for narrowing the `unknown` `parse()` returns.
+- `assertTemporal`, `assertInstant`, `assertPlainDate`, `assertPlainTime`, `assertPlainDateTime`, `assertZonedDateTime`, `assertPlainYearMonth`, `assertPlainMonthDay`, `assertDuration` — same checks, throwing descriptively on mismatch. Useful for narrowing whatever `parse()` returns.
 
 ## Config
 
-`createConfig(overrides?)` returns a frozen config object bundling `locale`, `calendar`, `timeZone`, `numberingSystem`, week rules, rounding, disambiguation, overflow, `parseLenient`, and `durationShowZeroValues`. `mergeWithConfig(config, perCall)` folds config defaults into a per-call options object, with per-call options taking precedence.
+`createConfig(overrides?)` returns a frozen config object bundling `locale`, `calendar`, `timeZone`, `numberingSystem`, week rules, rounding, disambiguation, overflow, `parseLenient`, and `durationShowZeroValues`. `mergeWithConfig(config, perCall)` folds config defaults into a per-call options object, with per-call options winning.
 
 ## Numbering systems
 
-Numeric tokens output Western digits by default. Override per call:
+Numeric tokens output Western digits by default. Override it per call:
 
 ```js
 import { format, parse } from 'temporal-fmt';
@@ -780,7 +780,7 @@ format(date, 'yyyy-MM-dd', { numberingSystem: 'arab' });                       /
 parse('yyyy-MM-dd', '٢٠٢٦-٠٨-٠٤', { parseNumberingSystem: 'arab' }).toString(); // '2026-08-04'
 ```
 
-`numberingSystem` and `parseNumberingSystem` are separate options on purpose — you might want localized digits in output without expecting them back on input.
+`numberingSystem` and `parseNumberingSystem` are separate options on purpose: you might want localized digits in the output without expecting them back on the input.
 
 Pass `'auto'` to use whichever numeral system the locale itself uses:
 
@@ -790,7 +790,7 @@ format(date, 'yyyy-MM-dd', { numberingSystem: 'auto', locale: 'bn-BD' }); // "�
 format(date, 'yyyy-MM-dd', { numberingSystem: 'auto' });                  // "2026-08-04" — en-US is latn
 ```
 
-When the locale's native system isn't supported (e.g. Tangsa digits), `'auto'` falls back to `'latn'`. A malformed locale tag throws. Unset still means `'latn'` everywhere.
+When a locale's native system isn't supported (Tangsa digits, say), `'auto'` falls back to `'latn'`. A malformed locale tag throws. Unset still means `'latn'` everywhere.
 
 Direct conversion utilities:
 
@@ -807,7 +807,7 @@ convertDigitsToAscii('٢٠٢٦', 'arab'); // "2026"
 
 ## Extending with custom tokens
 
-`createFormatter(options?)` builds a formatter with its own token(s). A custom token can override a built-in of the same name if you need different behavior, without forking the library.
+`createFormatter(options?)` builds a formatter with its own token or tokens. A custom token can override a built-in of the same name when you need different behavior, without forking the library.
 
 ## IDE tooling data
 
@@ -822,7 +822,7 @@ These functions feed editor tooling rather than application code:
 
 ## Legacy mod documentation
 
-Mod support was removed in 0.9.82 — the package no longer discovers, loads, sandboxes, or executes mods, and the CLI is gone with it. Historical documentation for prior versions is in [`LEGACY_VERSION_MODS/`](./LEGACY_VERSION_MODS/). It describes behavior that no longer exists; don't use it as current usage guidance. That folder will be dropped from `main` once 0.10.x ships, but stays on the `0.9.x` branch after it's cut.
+Mod support was removed in 0.9.82. The package no longer discovers, loads, sandboxes, or executes mods, and the CLI went with it. Historical documentation for prior versions lives in [`LEGACY_VERSION_MODS/`](./LEGACY_VERSION_MODS/); it describes behavior that no longer exists, so don't use it as current usage guidance. The folder will be dropped from `main` once 0.10.x ships, but it stays on the `0.9.x` branch after the branch is cut.
 
 ## Subpath imports
 
@@ -838,9 +838,9 @@ import { recurrence } from 'temporal-fmt/recurrence';
 import { registerLocale } from 'temporal-fmt/locale';
 ```
 
-Arithmetic, comparison, rounding, business calendars, holidays, serialization, config, type guards, typed errors, the analyzer, and IDE tooling data are only available from the main `temporal-fmt` entry — no dedicated subpaths for those yet.
+Arithmetic, comparison, rounding, business calendars, holidays, serialization, config, type guards, typed errors, the analyzer, and IDE tooling data are available only from the main `temporal-fmt` entry. No dedicated subpaths for those yet.
 
-`sideEffects: false` is set in `package.json`. Measured with esbuild: `import { format } from 'temporal-fmt/format'` → ~27KB vs. ~68KB from the bare entry. If bundle size matters, use the subpath.
+`sideEffects: false` is set in `package.json`. Measured with esbuild, `import { format } from 'temporal-fmt/format'` comes to ~27KB, against ~68KB from the bare entry. If bundle size matters to you, use the subpath.
 
 ## Migrating from Day.js or date-fns
 
@@ -878,10 +878,10 @@ Arithmetic, comparison, rounding, business calendars, holidays, serialization, c
 
 ### Things that will bite you
 
-1. **Strict parsing.** Day.js picks one reading of ambiguous input silently. This library throws. Add separators or use `{ lenient: true }`.
-2. **Cross-field validation.** Weekday, quarter, and offset are cross-checked against the parsed date. A wrong weekday label throws.
+1. **Strict parsing.** Day.js silently picks one reading of ambiguous input. This library throws. Add separators, or use `{ lenient: true }`.
+2. **Cross-field validation.** Weekday, quarter, and offset are checked against the parsed date. A wrong weekday label throws.
 3. **No "now" fallback.** Missing input doesn't fall back to the current time.
-4. **Type-preserving.** `format(plainDate, 'HH:mm')` throws — `PlainDate` has no hour field. Day.js would silently use 0.
+4. **Type-preserving.** `format(plainDate, 'HH:mm')` throws, because `PlainDate` has no hour field. Day.js would silently use 0.
 5. **Temporal-native, not `Date`-native.** Convert at the boundary:
 
 ```js
@@ -908,9 +908,9 @@ add(date, 7, 'days'); // or addDays(date, 7)
 
 ### Things that don't migrate cleanly
 
-- **Day.js's `customParseFormat` plugin** — that plugin parses leniently. Audit callers relying on it.
-- **Day.js's global locale** (`dayjs.locale('fr')`) — this library uses per-call `locale` options.
-- **date-fns's locale objects** — this library takes BCP-47 strings.
+- **Day.js's `customParseFormat` plugin** — that plugin parses leniently. Audit the callers relying on it.
+- **Day.js's global locale** (`dayjs.locale('fr')`) has no equivalent here; this library takes a per-call `locale` option.
+- **date-fns's locale objects** don't carry over either; this library takes BCP-47 strings.
 - **`dayjs-timezone`** — use `Temporal.ZonedDateTime` and the `zzz`/offset tokens instead.
 
 ### Running both during migration
@@ -925,36 +925,36 @@ function formatDate(date, formatStr, opts) {
 }
 ```
 
-Migrate file by file, drop the wrapper when nothing calls the old path anymore.
+Migrate file by file, then drop the wrapper once nothing calls the old path.
 
 ## Related tools
 
-Both are deprecated and archived — single-maintainer bandwidth, no further updates — but the last published versions still work:
+Both are deprecated and archived (single-maintainer bandwidth, no further updates), but the last published versions still work:
 
-- [`eslint-plugin-temporal-fmt`](https://www.npmjs.com/package/eslint-plugin-temporal-fmt) *(deprecated, archived)* — lints format strings for common mistakes (e.g. `hh` without `a`). Backed by the same metadata as `analyzeFormat().warnings`.
-- [`temporal-fmt-codemod`](https://github.com/DirazCoder/temporal-fmt-codemod) *(deprecated, archived)* — jscodeshift codemod that rewrites `dayjs(x).format(...)`/date-fns `format(...)` call sites across a codebase.
+- [`eslint-plugin-temporal-fmt`](https://www.npmjs.com/package/eslint-plugin-temporal-fmt) *(deprecated, archived)* — lints format strings for common mistakes, `hh` without `a` for example. Backed by the same metadata as `analyzeFormat().warnings`.
+- [`temporal-fmt-codemod`](https://github.com/DirazCoder/temporal-fmt-codemod) *(deprecated, archived)* — jscodeshift codemod that rewrites `dayjs(x).format(...)` and date-fns `format(...)` call sites across a codebase.
 
 ## Testing
 
-The suites run 3,000+ test and smoke checks across `test/`, `vitest/`, and a consumer suite. The smoke runner packs and installs the package, checks public subpaths in CJS and ESM, and runs consumer type probes with both `bundler` and `nodenext` resolution. If it's in this README, it has a test. CI also runs the full `vitest/` suite in real browsers and a separate Playwright suite against the built package in Chromium, Firefox (Gecko), and WebKit across Linux, Windows, and macOS.
+The suites run 3,000+ test and smoke checks across `test/`, `vitest/`, and a consumer suite. The smoke runner packs and installs the package, checks the public subpaths in CJS and ESM, and runs consumer type probes with both `bundler` and `nodenext` resolution. If it's in this README, it has a test. CI also runs the full `vitest/` suite in real browsers, plus a separate Playwright suite against the built package in Chromium, Firefox (Gecko), and WebKit across Linux, Windows, and macOS.
 
-Both the classic Node `node:test` suite (`npm run test:coverage`, using c8 against `dist/`) and the full Vitest suite (`npx vitest run --coverage`, using V8 against `src/`) enforce 100% statement, branch, function, and line coverage.
+Both the classic Node `node:test` suite (`npm run test:coverage`, c8 against `dist/`) and the full Vitest suite (`npx vitest run --coverage`, V8 against `src/`) enforce 100% statement, branch, function, and line coverage.
 
-Run the suites independently with `npm test` (`test/`), `npm run test:conformance` (`conformance/`), `npm run test:unit` (`vitest/`), `npm run test:smoke` (`smoke-test/`), `npm run test:browser:unit` (the full Vitest suite in a browser), and `npm run test:browser` (Playwright against the built package). `npm run test:all` runs all of these checks, including conformance as a separate step and browser suites in Chromium, Firefox, and WebKit. Install the Playwright browsers first with `npx playwright install` (Linux also needs `npx playwright install-deps`). To run everything except browser tests, use `npm run test:all -- --no-browser`; CI uses this option because it runs the browser tests in a separate matrix.
+Each suite runs on its own: `npm test` (`test/`), `npm run test:conformance` (`conformance/`), `npm run test:unit` (`vitest/`), `npm run test:smoke` (`smoke-test/`), `npm run test:browser:unit` (the full Vitest suite in a browser), and `npm run test:browser` (Playwright against the built package). `npm run test:all` runs everything, with conformance as a separate step and browser suites in Chromium, Firefox, and WebKit. Install the Playwright browsers first (`npx playwright install`; Linux also needs `npx playwright install-deps`). To skip the browser tests, use `npm run test:all -- --no-browser`. CI uses that option because it runs the browser matrix as a separate job.
 
-CI runs the Node and package tests on Node 20, 22, 24, and 26 across Ubuntu, Windows, and macOS. The full `vitest/` suite runs in each browser/platform combination using Chromium, Firefox (Gecko), or WebKit; a separate Playwright suite tests the built `dist/` package with the latest Playwright release. The non-browser CI job uses `npm run test:all -- --no-browser` to avoid duplicating the browser matrix. GitHub also runs CodeQL for GitHub Actions and JavaScript/TypeScript, along with repository dependency checks.
+CI runs the Node and package tests on Node 20, 22, 24, and 26 across Ubuntu, Windows, and macOS. The full `vitest/` suite runs in each browser/platform combination on Chromium, Firefox (Gecko), or WebKit, and a separate Playwright suite exercises the built `dist/` package with the latest Playwright release. GitHub also runs CodeQL for GitHub Actions and JavaScript/TypeScript, along with repository dependency checks.
 
 ## Conformance fixtures
 
-`fixtures.json` is a portable test-vector set for token-based Temporal formatters, written against a different library's token vocabulary. Each case names an `op` (`format` / `parse` / `roundtrip`), an input, a pattern, and an expected result — any library with a `format`/`parse` pair can use it.
+`fixtures.json` is a portable test-vector set for token-based Temporal formatters, written against a different library's token vocabulary. Each case names an `op` (`format` / `parse` / `roundtrip`), an input, a pattern, and an expected result. Any library with a `format`/`parse` pair can use it.
 
-`conformance/temporal-fmt.test.js` adapts the portable fixture set, and `conformance/reference.test.js` adds curated vectors translated from relevant Temporal/Intl, CLDR, tzdb, recurrence, token, relative-date, and wire-format reference domains. These are not wholesale upstream suites and do not claim complete standards compliance. Run them with `npm run test:conformance`; conformance remains separate from `npm test`. See [conformance/README.md](./conformance/README.md) for sources, coverage, and exclusions.
+`conformance/temporal-fmt.test.js` adapts the portable fixture set. `conformance/reference.test.js` adds curated vectors translated from Temporal/Intl, CLDR, tzdb, recurrence, token, relative-date, and wire-format reference domains. These aren't wholesale upstream suites, and they don't claim complete standards compliance. Run them with `npm run test:conformance`; conformance stays separate from `npm test`. Sources, coverage, and exclusions are in [conformance/README.md](./conformance/README.md).
 
 ### Why this is separate from adversarial and fuzz tests
 
-`test/adversarial.test.js` and `test/fuzz.test.js` check internal consistency under hostile input — clean throw or correct value, never a crash or silent wrong result. The reference point is the library's own logic.
+`test/adversarial.test.js` and `test/fuzz.test.js` check internal consistency under hostile input: a clean throw or a correct value, never a crash or a silently wrong result. The reference point there is the library's own logic.
 
-The conformance suite checks against an external set of tricky-but-well-defined cases — DST transitions, leap years, offset rendering, calendar limits — where "correct" comes from the fixture, not from this library's code.
+The conformance suite checks against an external set of tricky-but-well-defined cases (DST transitions, leap years, offset rendering, calendar limits), where "correct" comes from the fixture, not from this library's code.
 
 ### Pattern translation
 
@@ -962,30 +962,30 @@ Two fixture tokens don't exist in temporal-fmt:
 
 | Fixture token | temporal-fmt equivalent | Why |
 |---|---|---|
-| `ZZ` (always-signed, never `Z`) | `xxx` | Only uppercase `X`/`XX`/`XXX` collapses to `Z`. Lowercase never does — that's `ZZ`'s semantics. `XXX` was tried first and is wrong — it fails cases that expect `+00:00`, not `Z`. |
+| `ZZ` (always-signed, never `Z`) | `xxx` | Only uppercase `X`/`XX`/`XXX` collapses to `Z`. Lowercase never does, which is exactly `ZZ`'s semantics. `XXX` was tried first and is wrong — it fails cases that expect `+00:00`, not `Z`. |
 | `VV` (IANA zone ID) | `zzz` | temporal-fmt's only zone-identity token. |
 
 Everything else in the fixture set (`yyyy`, `y`, `MM`, `dd`, `HH`, `mm`, `ss`, `S`–`SSSSSSSSS`, `h`, `a`, `X`/`XX`/`XXX`) already matches temporal-fmt's vocabulary.
 
 ### `opinionated` cases
 
-Cases flagged `"opinionated": true` encode a design choice of the fixture's source library, not a fact about dates. The adapter still runs them — if temporal-fmt's behavior differs, it logs a divergence note instead of failing.
+Cases flagged `"opinionated": true` encode a design choice made by the fixture's source library, not a fact about dates. The adapter still runs them; where temporal-fmt's behavior differs, it logs a divergence note instead of failing.
 
-Two cases currently diverge, both `yy`-pivot: `extreme-year-two-digit-pivot-low` and `extreme-year-two-digit-pivot-high`. temporal-fmt refuses `yy` in any format string that isn't a complete date, so `parse("yy-MM", ...)` throws an incomplete-date error before the century-pivot question comes up. Both cases are documented design choices with their own tests.
+Two cases currently diverge, both `yy`-pivot: `extreme-year-two-digit-pivot-low` and `extreme-year-two-digit-pivot-high`. temporal-fmt refuses `yy` in any format string that isn't a complete date, so `parse("yy-MM", ...)` throws an incomplete-date error before the century-pivot question ever comes up. Both are documented design choices with their own tests.
 
-One previously-flagged case no longer diverges: **`shape-mixing-H-and-a-rejected`**. `resolveHour()` used to cross-check `H` against `a` rather than banning the combination outright, so `13:05 PM` was accepted. That was reversed — `H` and `a` are now refused together, matching the fixture. The fixture's `"opinion"` text still describes the old behavior; treat it as historical.
+One previously flagged case no longer diverges: **`shape-mixing-H-and-a-rejected`**. `resolveHour()` used to cross-check `H` against `a` instead of banning the combination outright, which meant `13:05 PM` was accepted. That was reversed; `H` and `a` are now refused together, matching the fixture. The fixture's `"opinion"` text still describes the old behavior, so treat it as historical.
 
 ### Fixed divergences
 
 Everything below was once in `KNOWN_FAILURES`. That list is now empty.
 
-**Offset seconds were dropped, not rejected.** `formatOffset()` assumed every offset was exactly 6 characters and never checked for a seconds component. A pre-1883 `America/New_York` date has offset `-04:56:02` — the old code silently produced `-0402`. Fixed: `X`/`XX`/`XXX`/`x`/`xx` throw when the offset has a seconds component; `xxx` passes it through.
+**Offset seconds were dropped, not rejected.** `formatOffset()` assumed every offset was exactly 6 characters and never checked for a seconds component. A pre-1883 `America/New_York` date has offset `-04:56:02`; the old code silently produced `-0402`. Now `X`/`XX`/`XXX`/`x`/`xx` throw when the offset has a seconds component, and `xxx` passes it through.
 
-**Offset-only `ZonedDateTime` construction was refused.** `parse()` previously built a `ZonedDateTime` from an offset token alone, no `zzz` required. Changed: an offset identifies a UTC distance, not a time zone. A pattern with an offset token and no `zzz` now throws.
+**Offset-only `ZonedDateTime` construction was refused.** `parse()` used to build a `ZonedDateTime` from an offset token alone, no `zzz` required. That changed: an offset identifies a UTC distance, not a time zone, so a pattern with an offset token and no `zzz` now throws.
 
-**`y` token added.** temporal-fmt previously had only `yyyy` and `yy`. `y` formats and parses at any width, sign preserved for years before ISO year 0. `buildCapturingPattern()` refuses to place `y` directly next to another digit-reading token or digit-leading literal, rather than trying to cost-estimate an unbounded-width fragment.
+**`y` token added.** temporal-fmt previously had only `yyyy` and `yy`. `y` formats and parses at any width, sign preserved for years before ISO year 0. `buildCapturingPattern()` refuses to place `y` directly next to another digit-reading token or a digit-leading literal, rather than trying to cost-estimate an unbounded-width fragment.
 
-**`zzz` was rejecting valid IANA aliases.** `offset-X-parse-accepts-four-digit` was misdiagnosed as a regex gap. The actual failure: `isValidTimeZone()` only checked `Intl.supportedValuesOf('timeZone')`, which lists canonical IDs but not all IANA link/alias names — `Asia/Kolkata` (a common alias for `Asia/Calcutta`) was rejected even though `Temporal.ZonedDateTime.from()` accepts it. Fix: `isValidTimeZone()` falls back to a real `ZonedDateTime.from()` call when the `Intl` fast path misses.
+**`zzz` was rejecting valid IANA aliases.** `offset-X-parse-accepts-four-digit` got misdiagnosed as a regex gap. The actual failure: `isValidTimeZone()` only checked `Intl.supportedValuesOf('timeZone')`, which lists canonical IDs but not every IANA link and alias name. `Asia/Kolkata` (a common alias for `Asia/Calcutta`) was rejected even though `Temporal.ZonedDateTime.from()` accepts it. The fix: `isValidTimeZone()` falls back to a real `ZonedDateTime.from()` call when the `Intl` fast path misses.
 
 ### Adapter notes
 
@@ -995,7 +995,7 @@ Everything below was once in `KNOWN_FAILURES`. That list is now empty.
 
 ## Benchmarks
 
-`benchmarks/` contains a tinybench suite covering the main hot paths: format, parse, arithmetic, relative distance, serialization, comparison, and rounding.
+`benchmarks/` holds a tinybench suite covering the main hot paths: format, parse, arithmetic, relative distance, serialization, comparison, and rounding.
 
 ```sh
 npm run bench              # all suites
@@ -1004,7 +1004,7 @@ npm run bench:parse        # parse suite only
 node benchmarks/run.mjs --suite=arithmetic,rounding
 ```
 
-Each suite runs with a warmup pass before measuring, so the numbers reflect cached-pattern throughput rather than cold-start cost. The format and parse suites include both cold calls and pre-compiled handles (`compileFormat`/`compileParser`) side by side, so you can see the actual cache benefit for your use case.
+Each suite runs a warmup pass before measuring, so the numbers reflect cached-pattern throughput rather than cold-start cost. The format and parse suites include both cold calls and pre-compiled handles (`compileFormat`/`compileParser`) side by side, so you can see what the cache actually buys for your use case.
 
 ## Contributing
 
@@ -1016,12 +1016,12 @@ npm run build
 npm run test:all
 ```
 
-`npm test` runs only the classic `node:test` suite; it does not run `vitest/` or the packed-package smoke suite. Run `npm run test:all` for the build, both coverage gates, type/package/smoke checks, and browser suites; use `npm run test:all -- --no-browser` to skip browsers.
+`npm test` runs only the classic `node:test` suite; it doesn't touch `vitest/` or the packed-package smoke suite. `npm run test:all` gives you the build, both coverage gates, the type/package/smoke checks, and the browser suites. Use `npm run test:all -- --no-browser` to skip browsers.
 
-Build notes if you're touching the toolchain:
+Build notes, if you're touching the toolchain:
 
-- Requires TypeScript 7.0.2+. `.d.ts` generation runs as a separate `tsc` pass rather than through `tsup` — `tsup`'s dts step uses `rollup-plugin-dts`, which calls into TypeScript's compiler API and isn't stable on 7.x. `tsup.config.ts` sets `dts: false`; `npm run build` runs `tsup && tsc --declaration --emitDeclarationOnly`. Side effect: `dist/` has one `.d.ts` per source file rather than a single rolled-up `index.d.ts`.
-- Tests use `temporal-polyfill/full`, not the slim build — Hebrew-calendar tests need the full calendar data. `parse.test.js` configures `Temporal` via `setTemporal()` rather than mutating `globalThis.Temporal`.
+- TypeScript 7.0.2+ is required. `.d.ts` generation runs as a separate `tsc` pass rather than through `tsup`, because `tsup`'s dts step uses `rollup-plugin-dts`, which calls into TypeScript's compiler API and isn't stable on 7.x. `tsup.config.ts` sets `dts: false`; `npm run build` runs `tsup && tsc --declaration --emitDeclarationOnly`. Side effect: `dist/` ends up with one `.d.ts` per source file instead of a single rolled-up `index.d.ts`.
+- Tests use `temporal-polyfill/full`, not the slim build, because the Hebrew-calendar tests need the full calendar data. `parse.test.js` configures `Temporal` through `setTemporal()` rather than by mutating `globalThis.Temporal`.
 
 ## License
 
