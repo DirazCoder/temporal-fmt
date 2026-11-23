@@ -1,5 +1,3 @@
-// The HTML shell: head, sidebar (logo, search, nav) and the main column.
-// The nav links are filled in by script.js from the sections themselves.
 import { esc, logo } from '../components/ui.js';
 
 const favicon = `data:image/svg+xml,${encodeURIComponent(
@@ -22,6 +20,7 @@ export const baseLayout = ({ title, description, main, version, readme }) =>
 <a class="github-repo" href="https://github.com/DirazCoder/temporal-fmt" target="_blank" rel="noopener noreferrer" aria-label="View temporal-fmt on GitHub">
   <img src="GitHub_Invertocat_Black.svg" alt="">
 </a>
+<button class="whats-new" id="whats-new" type="button" aria-label="What's new in this site" data-tip="Whats new in this site if you want to know lol">?</button>
 <button class="theme" id="theme" type="button"></button>
 <div class="shell">
 <aside>
@@ -46,6 +45,16 @@ ${main}
     Powered by my own Markdown Parser <a href="https://www.npmjs.com/package/nitpicky-md" target="_blank" rel="noopener noreferrer">Nitpicky-md</a>
   </footer>
 </dialog>
+<dialog class="readme-dialog" id="whats-new-dialog" aria-labelledby="whats-new-title">
+  <header class="readme-dialog__header">
+    <h2 id="whats-new-title">what's new</h2>
+    <button class="readme-close" id="whats-new-close" type="button">close</button>
+  </header>
+  <div class="readme-content">
+    <p>code blocks have a new copy button that stays with the code while you scroll and shows a check when it works. the live box is a proper little terminal now too, so you can try the library's other features instead of just formatting dates. i also fixed a few things you will never need to know in your life</p>
+  </div>
+</dialog>
+<script src="terminal.js" defer></script>
 <script src="script.js" defer></script>
 </body>
 </html>

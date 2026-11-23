@@ -13,13 +13,14 @@
 <a class="github-repo" href="https://github.com/DirazCoder/temporal-fmt" target="_blank" rel="noopener noreferrer" aria-label="View temporal-fmt on GitHub">
   <img src="GitHub_Invertocat_Black.svg" alt="">
 </a>
+<button class="whats-new" id="whats-new" type="button" aria-label="What's new in this site" data-tip="Whats new in this site if you want to know lol">?</button>
 <button class="theme" id="theme" type="button"></button>
 <div class="shell">
 <aside>
   <a class="logo" href="#top" aria-label="temporal-fmt home">
     <svg width="22" height="14" viewBox="0 0 22 14" aria-hidden="true"><circle cx="7" cy="7" r="6" fill="var(--cold)"/><circle cx="15" cy="7" r="6" fill="var(--warm)" fill-opacity=".85"/></svg>
     <span>temporal-fmt</span>
-  </a> <small>v0.9.89</small>
+  </a> <small>v0.9.92</small>
   <div class="search"><input id="q" type="search" placeholder="Search the docs" aria-label="Search the docs" autocomplete="off"><kbd>/</kbd></div>
   <p class="readme-prompt">Want to read the full Repo doc?</p>
   <button class="readme-open" id="readme-open" type="button">Read Repo README</button>
@@ -53,22 +54,33 @@ parse('yyyy-MM-dd HH:mm', '2026-08-04 15:45');   // Temporal.PlainDateTime</code
 
 <section id="playground" data-group="Start" data-title="Try it live">
 <h2>Try it live</h2>
-<p>This runs the real library, pulled from jsDelivr when the page opened. Type a format string and it formats the current time. Whatever errors show up are the library’s own.</p>
+<p>This runs the real library, pulled from jsDelivr when the page opened. Enter expressions using any exported library function. Type <code>help</code> for examples and available values.</p>
 <div class="play">
-  <div class="play-row">
-    <label>Format string <input id="play-fmt" value="EEEE, MMMM d, yyyy 'at' h:mm a" spellcheck="false" autocomplete="off" disabled></label>
-    <label>Locale <select id="play-loc" disabled>
-      <option>en-US</option><option>fr-FR</option><option>de-DE</option><option>es-ES</option><option>ja-JP</option><option>ar-EG</option><option>ru-RU</option>
-    </select></label>
+  <div class="play-terminal-bar" aria-hidden="true">
+    <span class="play-terminal-dots"><i></i><i></i><i></i></span>
+    <span>temporal-fmt</span>
   </div>
-  <p class="play-out" id="play-out">Loading temporal-fmt…</p>
-  <p class="play-trip" id="play-trip"></p>
-  <div class="chips" aria-label="Insert a token">
-    <button type="button" disabled>yyyy</button><button type="button" disabled>MMMM</button><button type="button" disabled>MM</button><button type="button" disabled>dd</button><button type="button" disabled>do</button><button type="button" disabled>EEEE</button><button type="button" disabled>HH:mm:ss</button><button type="button" disabled>h:mm a</button><button type="button" disabled>SSS</button><button type="button" disabled>zzz</button><button type="button" disabled>xxx</button><button type="button" disabled>Q</button><button type="button" disabled>ww</button>
+  <div class="play-output" id="play-output" role="log" aria-live="polite" aria-relevant="additions">Loading temporal-fmt…</div>
+  <form class="play-command" id="play-form">
+    <label class="play-prompt" for="play-command-input" aria-label="Terminal command">$</label>
+    <input id="play-command-input" placeholder="format(now, 'yyyy-MM-dd', { locale })" spellcheck="false" autocomplete="off" aria-label="Library expression" disabled>
+    <button class="play-run" id="play-run" type="submit" disabled>run</button>
+  </form>
+  <label class="play-locale">Locale <select id="play-loc" disabled>
+    <option>en-US</option><option>fr-FR</option><option>de-DE</option><option>es-ES</option><option>ja-JP</option><option>ar-EG</option><option>ru-RU</option>
+  </select></label>
+  <div class="chips" aria-label="Example library expressions">
+    <button type="button" data-expression="format(now, 'yyyy-MM-dd', { locale })" disabled>format</button>
+    <button type="button" data-expression="parse('yyyy-MM-dd', '2026-08-04')" disabled>parse</button>
+    <button type="button" data-expression="formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm', { locale })" disabled>duration</button>
+    <button type="button" data-expression="formatDistance(yesterday, today, { locale })" disabled>relative</button>
+    <button type="button" data-expression="add(now, 3, 'days')" disabled>arithmetic</button>
+    <button type="button" data-expression="formatRange(interval(Temporal.PlainDate.from('2026-08-04'), Temporal.PlainDate.from('2026-08-06')), 'MMM d', { locale })" disabled>interval</button>
+    <button type="button" data-expression="analyzeFormat('yyyy-MM-dd')" disabled>analyze</button>
   </div>
   <p class="play-trip" id="play-status"></p>
 </div>
-<p>The second line is <code>parse()</code> reading the output back with the same format string. Try <code>hh:mm</code> or <code>do</code> to see it refuse.</p>
+<p>The runner evaluates library expressions only. It has no access to the page, browser globals, or arbitrary JavaScript statements.</p>
 </section>
 
 <section id="providing" data-group="Start" data-title="Providing Temporal">
@@ -1712,6 +1724,16 @@ npm run test:all
     Powered by my own Markdown Parser <a href="https://www.npmjs.com/package/nitpicky-md" target="_blank" rel="noopener noreferrer">Nitpicky-md</a>
   </footer>
 </dialog>
+<dialog class="readme-dialog" id="whats-new-dialog" aria-labelledby="whats-new-title">
+  <header class="readme-dialog__header">
+    <h2 id="whats-new-title">what's new</h2>
+    <button class="readme-close" id="whats-new-close" type="button">close</button>
+  </header>
+  <div class="readme-content">
+    <p>code blocks have a new copy button that stays with the code while you scroll and shows a check when it works. the live box is a proper little terminal now too, so you can try the library's other features instead of just formatting dates. we also fixed a few things along the way.</p>
+  </div>
+</dialog>
+<script src="terminal.js" defer></script>
 <script src="script.js" defer></script>
 </body>
 </html>

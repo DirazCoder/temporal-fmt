@@ -1,4 +1,3 @@
-// The home page: the layout filled with the docs sections.
 import { baseLayout } from '../layout/layout.js';
 import { docs, noResults } from '../sections/sections.js';
 

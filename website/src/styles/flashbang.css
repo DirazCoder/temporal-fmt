@@ -1,7 +1,3 @@
-/* Dark and light mode, all of it. Colours for both modes plus the toggle button.
-   script.js flips data-theme on <html>; the head script sets it before first paint.
-   Dark is the default. If JS is off there's no data-theme, so the media query below
-   lets the visitor's system setting decide. */
 :root {
   --bg: #fbfbfa;
   --surface: #f3f3f1;

@@ -1,14 +1,9 @@
-/* Fonts, box model and the page reset. Colours live in flashbang.css. */
 :root{--mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;--sans:ui-sans-serif,-apple-system,"Segoe UI",Inter,system-ui,sans-serif;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 *,*::before,*::after{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:calc(1.5rem + env(safe-area-inset-top,0px))}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.65 var(--sans);-webkit-font-smoothing:antialiased}
 a{color:var(--cold)}
 
-/* Dark and light mode, all of it. Colours for both modes plus the toggle button.
-   script.js flips data-theme on <html>; the head script sets it before first paint.
-   Dark is the default. If JS is off there's no data-theme, so the media query below
-   lets the visitor's system setting decide. */
 :root {
   --bg: #fbfbfa;
   --surface: #f3f3f1;
@@ -58,8 +53,11 @@ code{background:var(--surface);border:1px solid var(--line);border-radius:5px;pa
 .badges li{font-size:.8rem;border:1px solid var(--line);border-radius:99px;padding:.15rem .7rem;color:var(--muted)}
 pre{position:relative;margin:.9rem 0;padding:1rem;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow-x:auto;line-height:1.55}
 pre code{background:none;border:0;padding:0;font-size:inherit}
-.copy{position:absolute;top:.5rem;right:.5rem;font:.72rem var(--sans);background:var(--bg);color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:.15rem .5rem;cursor:pointer}
+.copy{position:fixed;z-index:5;display:grid;place-items:center;width:2rem;height:2rem;padding:0;background:var(--surface);background:color-mix(in srgb,var(--bg) 72%,transparent);color:var(--muted);border:1px solid var(--line);border-radius:6px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .15s,visibility .15s;cursor:pointer}
+pre:hover .copy,pre:focus-within .copy{opacity:1;visibility:visible;pointer-events:auto}
 .copy:hover{color:var(--fg)}
+.copy img{width:1rem;height:1rem}
+:root[data-theme="dark"] .copy img{filter:invert(1)}
 .install{display:flex;align-items:center;gap:.6rem;padding:.7rem 1rem;background:var(--surface);border:1px solid var(--line);border-radius:10px;font-family:var(--mono);width:fit-content;max-width:100%}
 .install span{color:var(--warm)}
 .install code{background:none;border:0;padding:0}
@@ -76,19 +74,33 @@ th{font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--mu
 .tag{font-size:.7rem;font-weight:600;color:var(--warm);border:1px solid var(--warm);border-radius:99px;padding:0 .45rem;margin-left:.4rem}
 .rel td:last-child{color:var(--muted);text-align:right;white-space:nowrap}
 .empty{display:none;color:var(--muted);padding:3rem 0;text-align:center}
-.play{display:grid;gap:.9rem;margin:1rem 0;padding:1.1rem;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
-.play-row{display:grid;grid-template-columns:minmax(0,1fr) 9rem;gap:.8rem}
-.play label{display:grid;gap:.3rem;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
-.play input,.play select{width:100%;font:.95rem var(--mono);text-transform:none;letter-spacing:0;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:.5rem .7rem}
-.play input:focus,.play select:focus{outline:2px solid var(--cold);outline-offset:1px}
-.play-out{margin:0;min-height:1.8em;font-size:1.25rem;font-weight:600;word-break:break-word}
-.play-trip{margin:0;font:.82rem var(--mono);color:var(--muted);word-break:break-word}
-.play-out.bad,.play-trip.bad{color:var(--warm)}
-.chips{display:flex;flex-wrap:wrap;gap:.35rem}
+.play{display:grid;margin:1rem 0;border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden}
+.play-terminal-bar{display:flex;align-items:center;gap:.65rem;padding:.65rem .9rem;color:var(--muted);background:var(--bg);border-bottom:1px solid var(--line);font:.75rem var(--mono)}
+.play-terminal-dots{display:flex;gap:.35rem}
+.play-terminal-dots i{width:.55rem;height:.55rem;border-radius:50%;background:var(--line)}
+.play-command{display:flex;align-items:center;gap:.65rem;margin:.9rem 1rem .5rem;padding:.65rem .8rem;background:var(--bg);border:1px solid var(--line);border-radius:8px;font:.9rem var(--mono)}
+.play-command:focus-within{outline:2px solid var(--cold);outline-offset:1px}
+.play-prompt{color:var(--cold);font-weight:700}
+.play-command input{flex:1;min-width:0;padding:0;border:0;outline:0;color:var(--fg);background:transparent;font:inherit}
+.play-run{padding:.3rem .6rem;color:var(--cold);background:var(--surface);border:1px solid var(--line);border-radius:5px;font:inherit;font-size:.8rem;cursor:pointer}
+.play-run:hover:not(:disabled){border-color:var(--cold)}
+.play-run:disabled{opacity:.5;cursor:not-allowed}
+.play-locale{display:flex;align-items:center;gap:.5rem;margin:.5rem 1rem;color:var(--muted);font:.75rem var(--sans);text-transform:uppercase;letter-spacing:.06em}
+.play-locale select{font:.82rem var(--mono);color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:.3rem .45rem}
+.play-locale select:focus-visible{outline:2px solid var(--cold);outline-offset:1px}
+.play-output{max-height:17rem;overflow:auto;padding:.8rem 1rem;font:.8rem/1.6 var(--mono);white-space:pre-wrap;word-break:break-word;border-bottom:1px solid var(--line)}
+.play-entry-command{margin:.15rem 0;color:var(--cold)}
+.play-entry-command::before{content:"$ ";color:var(--cold)}
+.play-entry-result{margin:0 0 .65rem;color:var(--fg);white-space:pre-wrap}
+.play-entry-error{color:var(--warm)}
+.play-entry-message{color:var(--muted)}
+.play-trip{margin:0;padding:.2rem 1rem 0;font:.82rem var(--mono);color:var(--muted);word-break:break-word}
+.chips{display:flex;flex-wrap:wrap;gap:.35rem;padding:.8rem 1rem}
 .chips button{font:.8rem var(--mono);color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:.15rem .5rem;cursor:pointer}
 .chips button:hover:not(:disabled){border-color:var(--cold);color:var(--cold)}
 .chips button:disabled,.play input:disabled,.play select:disabled{opacity:.5;cursor:not-allowed}
-@media (max-width:520px){.play-row{grid-template-columns:1fr}}
+.play #play-status{padding-bottom:.8rem}
+@media (max-width:520px){.play-command{gap:.4rem}.play-command input{font-size:.82rem}}
 
 .hero h1{font-size:clamp(1.9rem,4.5vw,2.8rem);line-height:1.15;margin:0 0 .8rem;letter-spacing:-.02em}
 .hero em{font-style:normal;background:linear-gradient(90deg,var(--cold),var(--warm));-webkit-background-clip:text;background-clip:text;color:transparent}
@@ -107,6 +119,10 @@ aside{position:sticky;top:0;height:100vh;overflow-y:auto;padding:1.25rem 1rem 2r
 .github-repo img{width:1.2rem;height:1.2rem}
 :root[data-theme="dark"] .github-repo img{filter:invert(1)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .github-repo img{filter:invert(1)}}
+.whats-new{position:fixed;top:calc(.9rem + env(safe-area-inset-top,0px));right:calc(1rem + 2.4rem + .5rem + 2.4rem + .5rem);z-index:20;display:grid;place-items:center;width:2.4rem;height:2.4rem;padding:0;color:var(--fg);font:600 1.1rem var(--sans);border:1px solid var(--line);border-radius:10px;background:var(--surface);cursor:pointer}
+.whats-new:hover,.whats-new:focus-visible{border-color:var(--cold)}
+.whats-new::after{content:attr(data-tip);position:absolute;top:calc(100% + .5rem);right:0;width:max-content;max-width:min(18rem,70vw);padding:.5rem .7rem;font:.8rem/1.4 var(--sans);text-align:left;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:8px;opacity:0;pointer-events:none;transition:opacity .15s}
+.whats-new:hover::after,.whats-new:focus-visible::after{opacity:1}
 .logo{display:flex;align-items:center;gap:.5rem;font-weight:650;color:var(--fg);text-decoration:none;margin-bottom:1rem}
 .search{position:relative;margin-bottom:1rem}
 .search input{width:100%;font:inherit;font-size:.9rem;padding:.55rem 2.2rem .55rem .7rem;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:8px}

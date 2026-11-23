@@ -1,9 +1,5 @@
-// Small UI pieces: logo, button, badge, code block, copy button.
-// None of these depend on each other.
-
 export const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-// Tiny highlighter, just enough for the snippets on this site.
 const TOKEN = /(\/\/.*)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|\b(import|from|const|let)\b/g;
 export function highlight(src) {
   let out = '', last = 0, m;

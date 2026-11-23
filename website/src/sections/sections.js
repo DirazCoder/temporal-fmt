@@ -1,5 +1,3 @@
-// The docs sections. Each one lives in src/content/ as its own HTML file, so
-// changing a paragraph never means digging through JS.
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

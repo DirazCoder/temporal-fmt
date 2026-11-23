@@ -1,19 +1,30 @@
 <section id="playground" data-group="Start" data-title="Try it live">
 <h2>Try it live</h2>
-<p>This runs the real library, pulled from jsDelivr when the page opened. Type a format string and it formats the current time. Whatever errors show up are the library’s own.</p>
+<p>This runs the real library, pulled from jsDelivr when the page opened. Enter expressions using any exported library function. Type <code>help</code> for examples and available values.</p>
 <div class="play">
-  <div class="play-row">
-    <label>Format string <input id="play-fmt" value="EEEE, MMMM d, yyyy 'at' h:mm a" spellcheck="false" autocomplete="off" disabled></label>
-    <label>Locale <select id="play-loc" disabled>
-      <option>en-US</option><option>fr-FR</option><option>de-DE</option><option>es-ES</option><option>ja-JP</option><option>ar-EG</option><option>ru-RU</option>
-    </select></label>
+  <div class="play-terminal-bar" aria-hidden="true">
+    <span class="play-terminal-dots"><i></i><i></i><i></i></span>
+    <span>temporal-fmt</span>
   </div>
-  <p class="play-out" id="play-out">Loading temporal-fmt…</p>
-  <p class="play-trip" id="play-trip"></p>
-  <div class="chips" aria-label="Insert a token">
-    <button type="button" disabled>yyyy</button><button type="button" disabled>MMMM</button><button type="button" disabled>MM</button><button type="button" disabled>dd</button><button type="button" disabled>do</button><button type="button" disabled>EEEE</button><button type="button" disabled>HH:mm:ss</button><button type="button" disabled>h:mm a</button><button type="button" disabled>SSS</button><button type="button" disabled>zzz</button><button type="button" disabled>xxx</button><button type="button" disabled>Q</button><button type="button" disabled>ww</button>
+  <div class="play-output" id="play-output" role="log" aria-live="polite" aria-relevant="additions">Loading temporal-fmt…</div>
+  <form class="play-command" id="play-form">
+    <label class="play-prompt" for="play-command-input" aria-label="Terminal command">$</label>
+    <input id="play-command-input" placeholder="format(now, 'yyyy-MM-dd', { locale })" spellcheck="false" autocomplete="off" aria-label="Library expression" disabled>
+    <button class="play-run" id="play-run" type="submit" disabled>run</button>
+  </form>
+  <label class="play-locale">Locale <select id="play-loc" disabled>
+    <option>en-US</option><option>fr-FR</option><option>de-DE</option><option>es-ES</option><option>ja-JP</option><option>ar-EG</option><option>ru-RU</option>
+  </select></label>
+  <div class="chips" aria-label="Example library expressions">
+    <button type="button" data-expression="format(now, 'yyyy-MM-dd', { locale })" disabled>format</button>
+    <button type="button" data-expression="parse('yyyy-MM-dd', '2026-08-04')" disabled>parse</button>
+    <button type="button" data-expression="formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm', { locale })" disabled>duration</button>
+    <button type="button" data-expression="formatDistance(yesterday, today, { locale })" disabled>relative</button>
+    <button type="button" data-expression="add(now, 3, 'days')" disabled>arithmetic</button>
+    <button type="button" data-expression="formatRange(interval(Temporal.PlainDate.from('2026-08-04'), Temporal.PlainDate.from('2026-08-06')), 'MMM d', { locale })" disabled>interval</button>
+    <button type="button" data-expression="analyzeFormat('yyyy-MM-dd')" disabled>analyze</button>
   </div>
   <p class="play-trip" id="play-status"></p>
 </div>
-<p>The second line is <code>parse()</code> reading the output back with the same format string. Try <code>hh:mm</code> or <code>do</code> to see it refuse.</p>
+<p>The runner evaluates library expressions only. It has no access to the page, browser globals, or arbitrary JavaScript statements.</p>
 </section>
