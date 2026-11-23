@@ -4,7 +4,7 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
-## Unreleased
+## 0.9.93 - 2026-11-23 (`e9c8574`)
 
 ### Fixed
 
