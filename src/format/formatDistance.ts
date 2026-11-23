@@ -342,7 +342,7 @@ export interface FormatDistanceOptions extends FormatOptions {
  * formatDistance(threeDaysAgo, today)              // "3 days ago"
  * formatDistance(twoHoursFromNow, today)          // "in 2 hours"
  * formatDistance(today, today)                      // "now"
- * formatDistance(futureDate, today, {locale:'fr-FR'}) // "dans 2 jours"
+ * formatDistance(futureDate, today, {numeric:'always', locale:'fr-FR'}) // "dans 2 jours"
  */
 export function formatDistance(
   date1: unknown,
@@ -405,7 +405,7 @@ export function formatDistance(
  *
  * @example
  * formatDistanceToNow(threeHoursAgo)  // "3 hours ago"
- * formatDistanceToNow(tomorrow)       // "in 1 day" (auto: "tomorrow")
+ * formatDistanceToNow(tomorrow)       // "tomorrow" — "in 1 day" with { numeric: 'always' }
  */
 export function formatDistanceToNow(
   date: unknown,

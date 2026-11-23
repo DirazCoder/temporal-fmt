@@ -84,6 +84,8 @@ import { format } from 'temporal-fmt/format';
 import { parse } from 'temporal-fmt/parse';
 ```
 
+The slim global build covers `format`/`parse` for Gregorian dates. The non-Gregorian calendar examples below (`withCalendar('hebrew')` and friends) need the full build's calendar data — `import 'temporal-polyfill/full/global'` instead. On Node 26+ none of this matters; native `Temporal` carries full ICU calendars.
+
 ### Bring your own
 
 Call `setTemporal()` once, before your first `format()`/`parse()` call:
@@ -157,7 +159,7 @@ Other entry points:
 
 - **`yy` (2-digit year)** follows POSIX strptime: `00–68` → `2000–2068`, `69–99` → `1900–1999`.
 - **`hh`/`h` without `a` throws.** Mixing `HH`/`H` with `hh`/`h` also throws; `parse()` won't pick one for you.
-- **`HH`/`H` with `a` is allowed and cross-checked.** `parse('HH:mm a', '13:05 PM')` succeeds; `parse('HH:mm a', '01:05 PM')` throws, because the AM/PM label contradicts the hour.
+- **`HH`/`H` with `a` throws too.** Both describe the hour, so `parse()` refuses the combination outright rather than cross-checking it — `parse('HH:mm a', ...)` is a `FormatSyntaxError`. `hh`/`h` paired with `a` is the supported 12-hour form, and the `a` value is folded into the hour (`3:05 PM` → 15:05).
 - **`a` is case-insensitive** (`pm`, `Pm`, `PM` all work). Month and weekday names stay case-sensitive.
 - **`S`–`SSSSSSSSS`** go to nanosecond precision. Format truncates to the requested width; parse right-pads short input (`SSSSSSSSS` reading `.5` gives you 500ms worth of nanoseconds).
 - **`MMMM`/`MMM` assume a 12-month calendar.** Numeric tokens are unaffected.
@@ -177,7 +179,7 @@ The lenient heuristic: if one token in the ambiguous run is `d`, prefer the spli
 
 Uppercase collapses `+00:00` to `Z`; lowercase never emits `Z`. Single-letter forms drop the minutes when they're zero (`+05`, `+0530`).
 
-On parse, an offset token needs a full date and time. Without `zzz`, the result's `timeZoneId` is the offset string itself. With both `zzz` and an offset token, `zzz` wins for `timeZoneId` and the offset gets cross-checked; a mismatch throws.
+On parse, an offset token needs a full date and time. An offset identifies a UTC distance, not a time zone, so a pattern with an offset token and no `zzz` throws. With both `zzz` and an offset token, `zzz` wins for `timeZoneId` and the offset gets cross-checked; a mismatch throws.
 
 Sub-minute offsets (pre-railway local-mean-time zones): only `xxx` passes them through. The others throw rather than silently truncating. Range is `-12:00` to `+14:00`.
 
@@ -206,18 +208,23 @@ Numeric output is always Western digits by default, whatever the locale. `{ loca
 
 `Intl` doesn't cover every case well. A 13-month Hebrew leap year is the standing example.
 
-**`registerLocaleVocab(locale, vocab)`** covers months, weekdays, and day periods only:
+**`registerLocaleVocab(locale, vocab)`** covers months, weekdays, and day periods only. Months accept 12 or 13 entries — 13 for leap-month calendars (Hebrew in a leap year, Coptic, Ethiopian). The arrays are indexed by the value's ordinal month number, so order a Hebrew vocab Tishrei-first (month 1), not by the traditional Nisan-first sequence:
 
 ```js
-import { registerLocaleVocab } from 'temporal-fmt';
+import { registerLocaleVocab, format } from 'temporal-fmt';
 
 registerLocaleVocab('en-u-ca-hebrew-leap', {
-  monthLong: ['Nisan', 'Iyar', 'Sivan', 'Tammuz', 'Av', 'Elul', 'Tishrei', 'Marcheshvan', 'Kislev', 'Tevet', 'Shevat', 'Adar I', 'Adar II'],
-  monthShort: ['Nis', 'Iyy', 'Siv', 'Tam', 'Av', 'Elu', 'Tish', 'Chesh', 'Kis', 'Tev', 'Shv', 'Ad1', 'Ad2'],
+  monthLong: ['Tishrei', 'Marcheshvan', 'Kislev', 'Tevet', 'Shevat', 'Adar I', 'Adar II', 'Nisan', 'Iyar', 'Sivan', 'Tammuz', 'Av', 'Elul'],
+  monthShort: ['Tish', 'Chesh', 'Kis', 'Tev', 'Shv', 'Ad1', 'Ad2', 'Nis', 'Iyy', 'Siv', 'Tam', 'Av', 'Elu'],
   weekdayLong: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
   weekdayShort: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
   dayPeriod: ['AM', 'PM'],
 });
+
+// 5784 is a leap year (13 months) and Av is its 12th month, so the
+// 13-entry vocab lines up with the ordinal month number:
+const avDate = Temporal.PlainDate.from({ year: 5784, month: 12, day: 21, calendar: 'hebrew' });
+format(avDate, 'MMMM d, yyyy', { locale: 'en-u-ca-hebrew-leap' }); // "Av 21, 5784"
 ```
 
 **`registerLocale(locale, vocab)`** takes everything above plus quarters, eras, ordinals, duration units, and relative-time language:
@@ -272,7 +279,7 @@ Validation is strict. Wrong array lengths, empty strings, duplicate entries, ide
 | `S`…`SSSSSSSSS` | Fractional second, 1–9 digits (tenths through nanoseconds) | `SSS` → `000` |
 | `a` | Day period, locale-aware, case-insensitive on parse | `PM` |
 | `zzz` | IANA time zone ID, or fixed offset. Needs full date+time on parse | `America/New_York` |
-| `zzzz` | Localized long time zone name. Format-only | `Eastern Standard Time` |
+| `zzzz` | Localized long time zone name (generic form). Format-only | `Eastern Time` |
 | `z` | Localized short time zone name. Format-only | `EST` |
 | `X` | UTC offset, short, `Z` for UTC | `+05` / `+0530` / `Z` |
 | `XX` | UTC offset, no colon, `Z` for UTC | `+0500` / `Z` |
@@ -334,7 +341,7 @@ import { formatDuration } from 'temporal-fmt';
 
 formatDuration({ years: 2, months: 3 }, 'yyy ooo')    // "2 years 3 months"
 formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm')  // "2 hours 30 minutes"
-formatDuration({ hours: 2, minutes: 30 }, 'h:mm')     // "2:30"
+formatDuration({ hours: 2, minutes: 30 }, 'h:m')      // "2:30"
 ```
 
 Zero-value units are omitted by default, so any trailing literal separators left over from the format string are the caller's problem. Pass `{ showZeroValues: true }` to render them anyway.
@@ -369,13 +376,13 @@ import { formatDistance } from 'temporal-fmt';
 const today = Temporal.PlainDate.from('2026-08-04');
 const yesterday = Temporal.PlainDate.from('2026-08-03');
 
-formatDistance(today, yesterday)                          // "yesterday"
-formatDistance(today, yesterday, { numeric: 'always' })   // "1 day ago"
-formatDistance(today, today)                              // "now"
-formatDistance(today, today.add({ days: 2 }), { locale: 'fr-FR' }) // "dans 2 jours"
+formatDistance(yesterday, today)                        // "yesterday"
+formatDistance(yesterday, today, { numeric: 'always' }) // "1 day ago"
+formatDistance(today, today)                            // "now"
+formatDistance(today.add({ days: 2 }), today, { numeric: 'always', locale: 'fr-FR' }) // "dans 2 jours"
 ```
 
-Direction: `diff = date1 - date2`. Positive reads as "in X", negative as "X ago".
+Direction: `diff = date1 - date2`. Positive reads as "in X", negative as "X ago". So `formatDistance(yesterday, today)` describes yesterday as if standing at today — "yesterday" — while the argument order shown the other way round would read "tomorrow". French with the default `numeric: 'auto'` uses natural words like `après-demain` two days out; `numeric: 'always'` forces the `dans 2 jours` form.
 
 Default unit-selection cutoffs:
 
@@ -398,7 +405,7 @@ Accepts `PlainDate`, `PlainDateTime`, or `ZonedDateTime`. A `PlainDate` diffed a
 import { formatDistanceToNow } from 'temporal-fmt';
 
 formatDistanceToNow(threeHoursAgo)  // "3 hours ago"
-formatDistanceToNow(tomorrow)       // "in 1 day"
+formatDistanceToNow(tomorrow)       // "tomorrow" — "in 1 day" with { numeric: 'always' }
 ```
 
 The reference is captured fresh on every call, never cached.
@@ -470,7 +477,7 @@ Input gets tokenized on whitespace, and any word that isn't an exact vocabulary 
 
 Numbers are never corrected. `"5 dyas"` corrects to `"5 days"`, then still throws the usual past-or-future ambiguity error.
 
-Fuzzy mode is English-only. The other grammars have enough positional variation that one word-substitution corrector doesn't fit without per-language tuning. Combining `{ fuzzy: true }` with a non-English locale throws a clear error instead of silently skipping the correction pass.
+Fuzzy mode is English-only. The other grammars have enough positional variation that one word-substitution corrector doesn't fit without per-language tuning. A non-English phrase that doesn't match exactly throws a clear error telling you the corrector never ran, instead of silently skipping the correction pass — a non-English phrase that matches exactly still parses normally.
 
 `registerRelativeGrammar(grammar)` registers a new language. `listRegisteredGrammars()` lists what's registered.
 
@@ -542,15 +549,19 @@ getQuarter({ month: 8 }, { startMonth: 10 });  // 4 — fiscal year starting Oct
 **Gregorian-only limitation:** `daysInMonth`, `daysInYear`, `isLeapYear`, `monthsInYear`, `isLeapMonth`, `dayOfYear`, `weekOfYear`, and `weekYear` all apply Gregorian rules, so they give wrong answers on non-Gregorian calendars. Use the `Temporal` object's own calendar-aware properties instead:
 
 ```js
-const pd = Temporal.PlainDate.from('5784-05-10[u-ca=hebrew]');
+// Field-bag construction interprets the fields IN the Hebrew calendar:
+// year 5784, month 10 (Sivan — ordinal numbering, Tishrei = 1), day 10.
+const pd = Temporal.PlainDate.from({ year: 5784, month: 10, day: 10, calendar: 'hebrew' });
 pd.daysInMonth;  // 30 (Sivan)
 pd.monthsInYear; // 13 (leap year)
 ```
 
+Note that `'5784-05-10[u-ca=hebrew]'` is a different thing entirely: the string is parsed as an ISO (Gregorian) date — year 5784 — and only then displayed in the Hebrew calendar, which lands in the year 9544. Field bags are the way to construct non-Gregorian dates directly.
+
 Locale-aware formatting tokens (`MMMM`, `MMM`, `EEEE`, `EEE`, `a`) go through `Intl.DateTimeFormat` and do respect `calendarId`:
 
 ```js
-format(Temporal.PlainDate.from('5784-05-10[u-ca=hebrew]'), 'MMMM d, yyyy'); // "Sivan 10, 5784"
+format(Temporal.PlainDate.from({ year: 5784, month: 10, day: 10, calendar: 'hebrew' }), 'MMMM d, yyyy'); // "Sivan 10, 5784"
 ```
 
 ## Intervals
@@ -578,13 +589,13 @@ formatRange(iv, 'MMM d');
 ```js
 import { recurrence, take, between } from 'temporal-fmt';
 
-const rule = { freq: 'weekly', interval: 1, count: 10 };
+const rule = { frequency: 'weekly', interval: 1, count: 10 };
 const iter = recurrence(startDate, rule);
 take(iter, 5);
 between(startDate, rule, rangeStart, rangeEnd);
 ```
 
-- `recurrence(start, rule)` — returns an iterator with `next()`/`previous()`. `rule.freq`: `'secondly' | 'minutely' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly'`. Also supports `interval`, `count`, `until`, weekday/month-day/positional constraints, and exclusions/inclusions (RFC 5545 RRULE model).
+- `recurrence(start, rule)` — returns an iterator with `next()`/`previous()`. `rule.frequency`: `'secondly' | 'minutely' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly'`. Also supports `interval`, `count`, `until`, weekday/month-day/positional constraints, and exclusions/inclusions (RFC 5545 RRULE model).
 - `take(iter, n)` — collects the next `n` occurrences.
 - `skip(iter, n)` — advances past `n` occurrences.
 - `between(start, rule, rangeStart, rangeEnd)` — all occurrences within a range.
@@ -936,7 +947,7 @@ Both are deprecated and archived (single-maintainer bandwidth, no further update
 
 ## Testing
 
-The suites run 3,000+ test and smoke checks across `test/`, `vitest/`, and a consumer suite. The smoke runner packs and installs the package, checks the public subpaths in CJS and ESM, and runs consumer type probes with both `bundler` and `nodenext` resolution. If it's in this README, it has a test. CI also runs the full `vitest/` suite in real browsers, plus a separate Playwright suite against the built package in Chromium, Firefox (Gecko), and WebKit across Linux, Windows, and macOS.
+The suites run 3,000+ test and smoke checks across `test/`, `vitest/`, and a consumer suite. The smoke runner packs and installs the package, checks the public subpaths in CJS and ESM, and runs consumer type probes with both `bundler` and `nodenext` resolution. If it's in this README, it has a test — `test/readme/readme-examples.test.js` executes every example in this file against the built package, importing through the same subpaths the examples show, and asserts the claimed outputs. CI also runs the full `vitest/` suite in real browsers, plus a separate Playwright suite against the built package in Chromium, Firefox (Gecko), and WebKit across Linux, Windows, and macOS.
 
 Both the classic Node `node:test` suite (`npm run test:coverage`, c8 against `dist/`) and the full Vitest suite (`npx vitest run --coverage`, V8 against `src/`) enforce 100% statement, branch, function, and line coverage.
 

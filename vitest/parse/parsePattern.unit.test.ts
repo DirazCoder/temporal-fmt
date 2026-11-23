@@ -162,3 +162,32 @@ describe('buildCapturingPattern', () => {
     });
   });
 });
+
+// Fraction-second tokens (S..SSSSSSSSS) parse with variable-width
+// fragments \d{1,N} — short fractions right-pad. Variable width next to
+// another digit consumer must be charged against the ambiguity budget
+// (the ReDoS guard), which is the branch these tests pin down.
+describe('buildCapturingPattern: fraction tokens next to digit consumers', () => {
+  it('charges the ambiguity budget for a fraction token adjacent to a digit-consuming token', () => {
+    // 'ss' is digit-leading and directly precedes 'SSS', so emitting SSS
+    // takes the charge branch. The pattern still builds and matches.
+    const result = buildCapturingPattern(tokenize('ssSSS'), 'en-US');
+    expect(result.groups).toEqual([
+      { name: 'g0', token: 'ss' },
+      { name: 'g1', token: 'SSS' },
+    ]);
+    const match = result.regex.exec('05123');
+    expect(match?.groups).toBeTruthy();
+    expect(match?.groups?.g0).toBe('05');
+    expect(match?.groups?.g1).toBe('123');
+    // a short fraction right-pads: '051' -> ss=05, SSS=1 (100ms)
+    const short = result.regex.exec('051');
+    expect(short?.groups?.g1).toBe('1');
+  });
+
+  it('still rejects adversarial repeated fraction+digit glue over the ambiguity budget', () => {
+    // Enough glued variable-width pairs to blow past MAX_AMBIGUITY_BITS
+    // must throw at build time, exactly like glued unpadded runs do.
+    expect(() => buildCapturingPattern(tokenize('ssSSSSSSSS'.repeat(6)), 'en-US')).toThrow(FormatSyntaxError);
+  });
+});

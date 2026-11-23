@@ -9,7 +9,7 @@ parse('EEEE, yyyy-MM-dd', 'Monday, 2026-08-04');  // throws: it's a Tuesday</cod
 <ul>
 <li><code>yy</code> follows POSIX strptime: 00–68 is 2000–2068, 69–99 is 1900–1999.</li>
 <li><code>hh</code>/<code>h</code> without <code>a</code> throws, and so does mixing <code>HH</code> with <code>hh</code>.</li>
-<li><code>HH</code> with <code>a</code> is allowed and cross-checked: <code>'13:05 PM'</code> passes, <code>'01:05 PM'</code> throws.</li>
+<li><code>HH</code>/<code>H</code> with <code>a</code> throws too — both describe the hour, so the combination is refused rather than cross-checked. <code>hh</code>/<code>h</code> with <code>a</code> is the supported 12-hour form.</li>
 <li><code>a</code> is case-insensitive. Month and weekday names are case-sensitive.</li>
 <li><code>S</code> to <code>SSSSSSSSS</code> go up to nanoseconds. Parse right-pads short input.</li>
 <li><code>MMMM</code>/<code>MMM</code> assume a 12-month calendar.</li>

@@ -18,6 +18,17 @@ import type { Piece } from '../tokens/tokenize.js';
 import { tokenFragment, UNPADDED_NUMERIC_TOKENS, DIGIT_LEADING_TOKENS, UNBOUNDED_WIDTH_TOKENS } from '../tokens/pattern.js';
 import { FormatSyntaxError } from '../core/errors.js';
 
+// Fractional-second tokens ("S" through "SSSSSSSSS") parse with a
+// variable-width fragment \d{1,N} — short fractions are right-padded
+// (the documented "SSSSSSSSS reading .5" behavior). Variable width is
+// harmless next to a non-digit piece (the usual ".SSS" case: the '.'
+// literal anchors the boundary), but next to another digit consumer it
+// multiplies backtrack paths the same way glued unpadded tokens do, so
+// buildCapturingPattern charges the ambiguity budget for it.
+function isFractionToken(token: string): boolean {
+  return /^S{1,9}$/.test(token);
+}
+
 function escapeRegExp(literal: string): string {
   return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -176,6 +187,20 @@ export function buildCapturingPattern(pieces: Piece[], locale: string): Capturin
     groups.push({ name, token: piece.value });
     const nextPiece = pieces[idx + 1];
     const nextToken = nextPiece?.kind === 'token' ? nextPiece.value : undefined;
+
+    // Variable-width S fragments (\d{1,N}, see isFractionToken) next to
+    // a digit-consuming neighbor multiply backtrack paths — charge the
+    // budget on either side. Single "S" (\d) is fixed-width and costs
+    // nothing. Charging both boundaries can double-count a boundary
+    // shared by two variable fragments; that's conservative in the right
+    // direction (these are adversarial shapes — real format strings put
+    // a '.' literal next to their fraction tokens and score 0).
+    if (isFractionToken(piece.value) && piece.value.length >= 2) {
+      const prevPiece = pieces[idx - 1];
+      if (isDigitConsumingStart(nextPiece) || isDigitConsumingStart(prevPiece)) {
+        ambiguityBits += widthChoicesBits(piece.value.length);
+      }
+    }
 
     // "y" doesn't have a bounded fallback the way yyyy does (check
     // tokenFragment in pattern.ts) — it's unpadded by definition, so

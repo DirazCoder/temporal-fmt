@@ -123,6 +123,50 @@ describe('registerLocaleVocab — vocab shape validation', () => {
     );
   });
 
+  it('accepts 13-month vocabularies for leap-month calendars', () => {
+    // 12 or 13 month entries are both valid — 13 covers leap-month
+    // calendars (Hebrew leap years, Coptic, Ethiopian)
+    const leap = vocabWith({
+      monthLong: [...validVocab.monthLong, 'VLeap'],
+      monthShort: [...validVocab.monthShort, 'VLp'],
+    });
+    expect(() => registerLocaleVocab('vd-leap-13', leap)).not.toThrow();
+  });
+
+  it('throws when months have 11 entries (neither 12 nor 13)', () => {
+    expect(() =>
+      registerLocaleVocab(
+        'vd-months-11',
+        vocabWith({
+          monthLong: validVocab.monthLong.slice(0, 11),
+          monthShort: validVocab.monthShort.slice(0, 11),
+        }),
+      ),
+    ).toThrow(/"monthLong" must have exactly 12 entries \(or 13 for a leap-month calendar like Hebrew in a leap year\) — got 11/);
+  });
+
+  it('throws when monthLong and monthShort lengths disagree', () => {
+    expect(() =>
+      registerLocaleVocab(
+        'vd-month-mismatch',
+        vocabWith({ monthShort: [...validVocab.monthShort, 'VX'] }),
+      ),
+    ).toThrow(/"monthLong" \(12 entries\) and "monthShort" \(13 entries\) must be the same length/);
+  });
+
+  it('throws when a fixed-length field is missing or not an array', () => {
+    // weekday/dayPeriod have their own missing-field and non-array branches
+    expect(() => registerLocaleVocab('vd-missing-weekday', vocabWith({ weekdayLong: undefined }))).toThrow(
+      /missing required field "weekdayLong"/,
+    );
+    expect(() => registerLocaleVocab('vd-missing-dayperiod', vocabWith({ dayPeriod: undefined }))).toThrow(
+      /missing required field "dayPeriod"/,
+    );
+    expect(() => registerLocaleVocab('vd-notarray-weekday', vocabWith({ weekdayShort: 7 }))).toThrow(
+      /"weekdayShort" must be an array, got number/,
+    );
+  });
+
   it('throws on an empty-string entry', () => {
     // line 73-74: typeof ok but length 0
     const v = vocabWith({});

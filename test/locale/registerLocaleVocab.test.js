@@ -71,12 +71,42 @@ test('registerLocaleVocab: throws on missing required field', () => {
     () => registerLocaleVocab('en-x-missing1', { monthLong: validVocab().monthLong }),
     /missing required field "monthShort"/
   );
+  // the fixed-length fields (weekday/dayPeriod) have their own missing-field
+  // and non-array branches in the validator — cover each
+  assert.throws(
+    () => registerLocaleVocab('en-x-missing-weekday', {
+      ...validVocab(),
+      weekdayLong: undefined,
+    }),
+    /missing required field "weekdayLong"/
+  );
+  assert.throws(
+    () => registerLocaleVocab('en-x-missing-dayperiod', {
+      ...validVocab(),
+      dayPeriod: undefined,
+    }),
+    /missing required field "dayPeriod"/
+  );
+  assert.throws(
+    () => registerLocaleVocab('en-x-nonarray-month', {
+      ...validVocab(),
+      monthLong: 'January,February',
+    }),
+    /"monthLong" must be an array, got string/
+  );
+  assert.throws(
+    () => registerLocaleVocab('en-x-nonarray-weekday', {
+      ...validVocab(),
+      weekdayShort: 7,
+    }),
+    /"weekdayShort" must be an array, got number/
+  );
 });
 
 test('registerLocaleVocab: throws on wrong array length', () => {
   assert.throws(
     () => registerLocaleVocab('en-x-short', { ...validVocab(), monthShort: ['Jan', 'Feb'] }),
-    /"monthShort" must have exactly 12 entries \(got 2\)/
+    /"monthShort" must have exactly 12 entries \(or 13 for a leap-month calendar like Hebrew in a leap year\) — got 2/
   );
   assert.throws(
     () => registerLocaleVocab('en-x-short-week', { ...validVocab(), weekdayShort: ['Mon'] }),
@@ -86,6 +116,45 @@ test('registerLocaleVocab: throws on wrong array length', () => {
     () => registerLocaleVocab('en-x-bad-dayperiod', { ...validVocab(), dayPeriod: ['AM'] }),
     /"dayPeriod" must have exactly 2 entries \(got 1\)/
   );
+  // 11 months is neither 12 nor 13
+  assert.throws(
+    () => registerLocaleVocab('en-x-eleven', {
+      ...validVocab(),
+      monthLong: validVocab().monthLong.slice(0, 11),
+      monthShort: validVocab().monthShort.slice(0, 11),
+    }),
+    /"monthLong" must have exactly 12 entries \(or 13 for a leap-month calendar like Hebrew in a leap year\) — got 11/
+  );
+  // long and short must agree in length
+  assert.throws(
+    () => registerLocaleVocab('en-x-mismatch', {
+      ...validVocab(),
+      monthShort: [...validVocab().monthShort, 'Extra'],
+    }),
+    /must be the same length/
+  );
+});
+
+test('registerLocaleVocab: 13-month (leap-calendar) vocab registers and renders by ordinal month', () => {
+  // The README's Hebrew leap-year use case: 5784 is a leap year (13
+  // months), and a custom vocab is indexed by the value's ordinal month
+  // number (Tishrei = 1). Av is the 12th ordinal month of 5784.
+  const HEWB = 'en-u-ca-hebrew-leap-test';
+  registerLocaleVocab(HEWB, {
+    monthLong: ['Tishrei','Marcheshvan','Kislev','Tevet','Shevat','Adar I','Adar II','Nisan','Iyar','Sivan','Tammuz','Av','Elul'],
+    monthShort: ['Tish','Chesh','Kis','Tev','Shv','Ad1','Ad2','Nis','Iyy','Siv','Tam','Av','Elu'],
+    weekdayLong: ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],
+    weekdayShort: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
+    dayPeriod: ['AM','PM'],
+  });
+  const avDate = Temporal.PlainDate.from({ year: 5784, month: 12, day: 21, calendar: 'hebrew' });
+  assert.equal(format(avDate, 'MMMM d, yyyy', { locale: HEWB }), 'Av 21, 5784');
+  // Adar I is the 6th ordinal month of a leap year
+  const adar1 = Temporal.PlainDate.from({ year: 5784, month: 6, day: 1, calendar: 'hebrew' });
+  assert.equal(format(adar1, 'MMMM', { locale: HEWB }), 'Adar I');
+  // and the 13th month renders too
+  const elul = Temporal.PlainDate.from({ year: 5784, month: 13, day: 29, calendar: 'hebrew' });
+  assert.equal(format(elul, 'MMMM', { locale: HEWB }), 'Elul');
 });
 
 test('registerLocaleVocab: throws on empty string in array', () => {

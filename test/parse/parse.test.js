@@ -537,11 +537,20 @@ test('one- and two-digit fractional-second tokens preserve their decimal place',
 
 test('parsing a short fraction under a wide token treats missing digits as trailing zeros, not omitted precision', () => {
   // "5" under SSSSSSSSS is half a second (500000000ns) — the digits given
-  // are the leading digits of the fraction, not the whole value.
-  const result = parse('HH:mm:ss.SSSSSSSSS', '09:30:00.500000000');
-  assert.equal(result.nanosecond, 0);
-  assert.equal(result.microsecond, 0);
+  // are the leading digits of the fraction, not the whole value. This is
+  // the README-documented behavior: "parse right-pads short input
+  // (SSSSSSSSS reading .5 gives you 500ms worth of nanoseconds)".
+  const result = parse('HH:mm:ss.SSSSSSSSS', '09:30:00.5');
   assert.equal(result.millisecond, 500);
+  assert.equal(result.microsecond, 0);
+  assert.equal(result.nanosecond, 0);
+  // Full-width input still works and means the same thing.
+  const full = parse('HH:mm:ss.SSSSSSSSS', '09:30:00.500000000');
+  assert.equal(full.millisecond, 500);
+  assert.equal(full.nanosecond, 0);
+  // Short input under intermediate widths right-pads to that width:
+  // "12" under SSS is 120ms.
+  assert.equal(parse('HH:mm:ss.SSS', '09:30:00.12').millisecond, 120);
 });
 
 test('round-trip: locale month name survives format -> parse in fr-FR', async () => {

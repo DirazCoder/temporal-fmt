@@ -16,6 +16,7 @@ test('every documented subpath resolves and exposes its public API', () => {
   assert.equal(typeof parseEntry.parse, 'function');
   assert.equal(typeof legacyEntry.matchesFormat, 'function');
   assert.equal(typeof durationEntry.parseDuration, 'function');
+  assert.equal(typeof durationEntry.formatDuration, 'function', 'README documents formatDuration from temporal-fmt/duration');
   assert.equal(typeof relativeEntry.formatRelative, 'function');
   assert.equal(typeof intervalEntry.interval, 'function');
   assert.equal(typeof calendarEntry.daysInMonth, 'function');

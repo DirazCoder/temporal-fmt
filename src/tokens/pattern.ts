@@ -162,14 +162,22 @@ const NUMERIC_FRAGMENTS: Record<string, string> = {
   m: '(?:[1-5]\\d|[0-9])',
   ss: '(?:[0-5]\\d)',
   s: '(?:[1-5]\\d|[0-9])',
-  SSSSSSSSS: '\\d{9}',
-  SSSSSSSS: '\\d{8}',
-  SSSSSSS: '\\d{7}',
-  SSSSSS: '\\d{6}',
-  SSSSS: '\\d{5}',
-  SSSS: '\\d{4}',
-  SSS: '\\d{3}',
-  SS: '\\d{2}',
+  // Fractional-second tokens: 1..N digits on parse, right-padded with
+  // zeros to 9 digits by applyGroup() in parse.ts. "SSSSSSSSS reading
+  // .5 gives you 500ms worth of nanoseconds" is the documented behavior
+  // — the captured digits are the LEADING digits of the fraction, so a
+  // short fraction under a wide token is valid input, not a mismatch.
+  // Variable width (1..N instead of exactly N) adds at most N width
+  // choices; buildCapturingPattern charges the ambiguity budget when
+  // such a fragment sits next to another digit consumer.
+  SSSSSSSSS: '\\d{1,9}',
+  SSSSSSSS: '\\d{1,8}',
+  SSSSSSS: '\\d{1,7}',
+  SSSSSS: '\\d{1,6}',
+  SSSSS: '\\d{1,5}',
+  SSSS: '\\d{1,4}',
+  SSS: '\\d{1,3}',
+  SS: '\\d{1,2}',
   S: '\\d',
   // Q is always a single digit 1-4 (no padding variant, so no width ambiguity
   // with adjacent digit tokens the way M/d/H/m/s have).

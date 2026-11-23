@@ -21,7 +21,7 @@
 import { InvalidLocaleError } from '../core/errors.js';
 
 export interface LocaleVocab {
-  monthLong: string[]; // index 0 = January
+  monthLong: string[]; // index 0 = month 1 — January for Gregorian, Tishrei for Hebrew (12 or 13 entries)
   monthShort: string[];
   weekdayLong: string[]; // index 0 = Monday, per Temporal's dayOfWeek numbering
   weekdayShort: string[];
@@ -44,15 +44,54 @@ function assertValidVocab(vocab: Partial<LocaleVocab>, locale: string): void {
   // descriptively here, rather than failing later inside format()/parse()
   // with a confusing "no month part" or wrong-month error the caller
   // can't trace back to the bad registration.
-  const required: Array<{ key: keyof LocaleVocab; length: number; label: string }> = [
-    { key: 'monthLong', length: 12, label: 'long month names' },
-    { key: 'monthShort', length: 12, label: 'short month names' },
+  //
+  // Months are the one field whose length legitimately varies: every
+  // calendar Temporal supports has 12 months, except the ones with a
+  // leap month (Hebrew in a leap year, Chinese, Coptic/Ethiopian
+  // always) which have 13. A custom vocab is indexed by the value's
+  // ordinal month number (index 0 = month 1), so a 13-month calendar
+  // needs 13 entries — rejecting those (the old behavior) made the
+  // feature useless for exactly the Hebrew-leap-year case it was built
+  // for. 12 or 13 are accepted; anything else still throws. monthLong
+  // and monthShort must agree, or format() and parse() would disagree
+  // about which name belongs to which month.
+  const MONTH_ENTRY_COUNTS = [12, 13];
+  const fixedLength: Array<{ key: keyof LocaleVocab; length: number; label: string }> = [
     { key: 'weekdayLong', length: 7, label: 'long weekday names' },
     { key: 'weekdayShort', length: 7, label: 'short weekday names' },
     { key: 'dayPeriod', length: 2, label: 'day period markers (AM/PM-equivalent)' },
   ];
 
-  for (const { key, length, label } of required) {
+  const monthLengthError = (key: 'monthLong' | 'monthShort'): Error => new Error(
+    `temporal-fmt: registerLocaleVocab for locale "${locale}": "${key}" must have exactly 12 entries ` +
+    `(or 13 for a leap-month calendar like Hebrew in a leap year) — got ${(vocab[key] as unknown[] | undefined)?.length}.`
+  );
+
+  for (const key of ['monthLong', 'monthShort'] as const) {
+    const value = vocab[key];
+    if (value === undefined) {
+      throw new Error(
+        `temporal-fmt: registerLocaleVocab for locale "${locale}" is missing required field "${key}".`
+      );
+    }
+    if (!Array.isArray(value)) {
+      throw new Error(
+        `temporal-fmt: registerLocaleVocab for locale "${locale}": "${key}" must be an array, got ${typeof value}.`
+      );
+    }
+    if (!MONTH_ENTRY_COUNTS.includes(value.length)) {
+      throw monthLengthError(key);
+    }
+  }
+  if (vocab.monthLong!.length !== vocab.monthShort!.length) {
+    throw new Error(
+      `temporal-fmt: registerLocaleVocab for locale "${locale}": "monthLong" (${vocab.monthLong!.length} entries) ` +
+      `and "monthShort" (${vocab.monthShort!.length} entries) must be the same length, or format() and parse() ` +
+      `would disagree about which name belongs to which month.`
+    );
+  }
+
+  for (const { key, length, label } of fixedLength) {
     const value = vocab[key];
     if (value === undefined) {
       throw new Error(
@@ -69,7 +108,10 @@ function assertValidVocab(vocab: Partial<LocaleVocab>, locale: string): void {
         `temporal-fmt: registerLocaleVocab for locale "${locale}": "${key}" must have exactly ${length} entries (got ${value.length}) — ${label}.`
       );
     }
-    value.forEach((entry, i) => {
+  }
+
+  for (const key of ['monthLong', 'monthShort', 'weekdayLong', 'weekdayShort', 'dayPeriod'] as const) {
+    vocab[key]!.forEach((entry, i) => {
       if (typeof entry !== 'string' || entry.length === 0) {
         throw new Error(
           `temporal-fmt: registerLocaleVocab for locale "${locale}": "${key}[${i}]" must be a non-empty string, got ${String(entry)}.`
@@ -133,9 +175,12 @@ export function subscribeToVocabChanges(listener: () => void): void {
  * picks up the new vocab.
  *
  * @example
+ * // Indexed by the value's ordinal month number (index 0 = month 1 =
+ * // Tishrei in the Hebrew calendar), so order by ordinal, not by the
+ * // traditional Nisan-first sequence:
  * registerLocaleVocab('en-u-ca-hebrew-leap', {
- *   monthLong: ['Nisan','Iyar','Sivan','Tammuz','Av','Elul','Tishrei','Marcheshvan','Kislev','Tevet','Shevat','Adar I','Adar II'],
- *   monthShort: ['Nis','Iyy','Siv','Tam','Av','Elu','Tish','Chesh','Kis','Tev','Shv','Ad1','Ad2'],
+ *   monthLong: ['Tishrei','Marcheshvan','Kislev','Tevet','Shevat','Adar I','Adar II','Nisan','Iyar','Sivan','Tammuz','Av','Elul'],
+ *   monthShort: ['Tish','Chesh','Kis','Tev','Shv','Ad1','Ad2','Nis','Iyy','Siv','Tam','Av','Elu'],
  *   weekdayLong: ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],
  *   weekdayShort: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
  *   dayPeriod: ['AM','PM'],

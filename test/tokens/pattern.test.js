@@ -54,9 +54,15 @@ test('s (unpadded second) accepts 0 and 59, rejects 60', () => {
   assert.throws(() => parse('mm:s', '00:60'), /no valid pattern matches/);
 });
 
-test('SSS rejects fewer than 3 digits — the fragment is fixed-width, not variable', () => {
-  assert.throws(() => parse('HH:mm:ss.SSS', '15:45:30.7'), /no valid pattern matches/);
-  assert.throws(() => parse('HH:mm:ss.SSS', '15:45:30.77'), /no valid pattern matches/);
+test('SSS right-pads short fractions (documented) and rejects more than 3 digits', () => {
+  // README: "parse right-pads short input (SSSSSSSSS reading .5 gives you
+  // 500ms worth of nanoseconds)". The captured digits are the LEADING
+  // digits of the fraction, so ".7" under SSS is 700ms and ".77" is 770ms.
+  assert.equal(parse('HH:mm:ss.SSS', '15:45:30.7').millisecond, 700);
+  assert.equal(parse('HH:mm:ss.SSS', '15:45:30.77').millisecond, 770);
+  // More digits than the token's width is still a mismatch — the token
+  // never eats a 4th digit.
+  assert.throws(() => parse('HH:mm:ss.SSS', '15:45:30.7777'), /no valid pattern matches/);
 });
 
 test('a format string of exactly MAX_FORMAT_LENGTH (1000 chars) is accepted, not rejected — only strictly-over throws', () => {

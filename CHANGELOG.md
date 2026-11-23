@@ -4,6 +4,65 @@ All notable changes to this project are documented here, newest first.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 For which lines are currently supported, see [VERSIONS.md](VERSIONS.md).
 
+## Unreleased
+
+### Fixed
+
+- **`temporal-fmt/duration` didn't export `formatDuration`.** The duration
+  subpath entry stub only re-exported `./ops/duration.js`, while
+  `formatDuration` lives in `./format/formatDuration.js` — so the
+  README-documented `import { formatDuration } from 'temporal-fmt/duration'`
+  threw `formatDuration is not a function` even though the main entry
+  exported it fine. The stub now re-exports both halves, and a new
+  package-level test imports every documented subpath through the package
+  name so a missing re-export fails CI instead of only failing consumers.
+- **`registerLocaleVocab` rejected 13-month vocabularies**, defeating the
+  feature's own documented purpose ("a 13-month Hebrew leap year is the
+  standing example" — the README example itself threw `must have exactly 12
+  entries`). Month arrays now accept 12 or 13 entries (13 for leap-month
+  calendars: Hebrew in a leap year, Coptic, Ethiopian), with `monthLong` and
+  `monthShort` required to agree in length. The README example was also
+  reordered Tishrei-first, since custom vocabs are indexed by the value's
+  ordinal month number (Tishrei = 1), not by the traditional Nisan-first
+  sequence.
+- **Fractional-second tokens rejected short input on parse.** The README
+  documents "parse right-pads short input (`SSSSSSSSS` reading `.5` gives
+  you 500ms worth of nanoseconds)" and `applyGroup()` already right-pads,
+  but the S-family regex fragments were exactly-N-digit (`\d{9}`), so
+  `.5` under `SSSSSSSSS` threw a `PARSE_MISMATCH`. Fragments are now
+  `\d{1,N}` — short fractions parse and right-pad; more than N digits is
+  still a mismatch. Variable width is charged against the pattern builder's
+  ambiguity budget when the token sits next to another digit consumer, so
+  the ReDoS guard still holds.
+
+### Changed (docs)
+
+- README: the `formatDistance` examples had `date1`/`date2` swapped, so the
+  claimed outputs read backwards (`formatDistance(today, yesterday)` is
+  "tomorrow", not "yesterday"). Arguments corrected; the French example now
+  passes `numeric: 'always'` because `auto` renders "après-demain".
+- README: "`HH`/`H` with `a` is allowed and cross-checked" was stale — the
+  combination throws outright (matching the conformance note about
+  `shape-mixing-H-and-a-rejected`). Rewritten.
+- README: offset tokens without `zzz` now throw (was stale: "the result's
+  `timeZoneId` is the offset string itself", contradicting the library's
+  own "Fixed divergences" section).
+- README: the Hebrew examples constructed dates via
+  `'5784-05-10[u-ca=hebrew]'`, which is an ISO (Gregorian) year-5784 date
+  rendered in the Hebrew calendar (year 9544!) — not a Hebrew-calendar
+  date. Both examples now use field-bag construction
+  (`{ year: 5784, month: 10, day: 10, calendar: 'hebrew' }` → "Sivan 10, 5784").
+- README: `zzzz` renders the generic long zone name ("Eastern Time"), not
+  "Eastern Standard Time"; the recurrence rule property is `frequency`, not
+  `freq` (the documented example threw `rule.frequency must be one of...`);
+  `formatDistanceToNow(tomorrow)` is "tomorrow" under the default
+  `numeric: 'auto'`; `formatDuration(..., 'h:mm')` is "2:30m" (`mm` is the
+  short-form token — the numeric-minutes pair is `h:m`); the fuzzy+locale
+  error fires only when a non-English phrase doesn't match exactly; and the
+  polyfill section now notes that non-Gregorian calendar examples need
+  `temporal-polyfill/full/global`. Website content pages that mirrored the
+  stale examples were updated to match.
+
 ## 0.9.92 - 2026-11-22 (`28a7160`)
 
 ### Changed
