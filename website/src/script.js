@@ -343,11 +343,93 @@
     var runButton = document.getElementById('play-run');
     var output = document.getElementById('play-output');
     var status = document.getElementById('play-status');
+    var localeStatus = document.getElementById('play-locale-status');
     var chips = document.querySelectorAll('.chips button');
     var history = [];
     var historyIndex = 0;
+    var localeOptionsSupported = false;
 
     function why(err) { return err.name + ': ' + String(err.message).replace(/^temporal-fmt: /, ''); }
+
+    function supportsLocaleOptions(currentApi) {
+      if (typeof currentApi.lib.format !== 'function' ||
+          !Intl.DateTimeFormat.supportedLocalesOf(['fr-FR']).length) return false;
+      try {
+        var sample = currentApi.T.PlainDate.from('2026-01-15');
+        var english = currentApi.lib.format(sample, 'MMMM', { locale: 'en-US' });
+        var french = currentApi.lib.format(sample, 'MMMM', { locale: 'fr-FR' });
+        var expectedFrench = new Intl.DateTimeFormat('fr-FR', { month: 'long', timeZone: 'UTC' })
+          .format(new Date(Date.UTC(2026, 0, 15)));
+        return english !== french && french === expectedFrench;
+      } catch (err) {
+        return false;
+      }
+    }
+
+    function reportLocaleStatus(message, state) {
+      localeStatus.textContent = message;
+      localeStatus.dataset.state = state;
+      loc.setAttribute('aria-invalid', state === 'unsupported' ? 'true' : 'false');
+    }
+
+    function updateLocaleStatus() {
+      var enteredLocale = loc.value.trim();
+      if (!enteredLocale) {
+        reportLocaleStatus('Enter a BCP 47 locale tag.', 'unsupported');
+        return;
+      }
+
+      var locale;
+      try {
+        locale = Intl.getCanonicalLocales(enteredLocale.replace(/_/g, '-'))[0];
+      } catch (err) {
+        reportLocaleStatus('"' + enteredLocale + '" is not a valid BCP 47 locale tag.', 'unsupported');
+        return;
+      }
+      if (!Intl.DateTimeFormat.supportedLocalesOf([locale]).length) {
+        reportLocaleStatus('This browser does not provide Intl locale data for ' + locale + '.', 'unsupported');
+        return;
+      }
+      if (!localeOptionsSupported) {
+        reportLocaleStatus('This temporal-fmt version does not appear to support locale options in format().', 'unsupported');
+        return;
+      }
+
+      try {
+        var sample = api.T.PlainDate.from('2026-01-15');
+        var formatted = api.lib.format(sample, 'MMMM', { locale: locale });
+        var expected = new Intl.DateTimeFormat(locale, { month: 'long', timeZone: 'UTC' })
+          .format(new Date(Date.UTC(2026, 0, 15)));
+        if (formatted !== expected) {
+          reportLocaleStatus('This version did not format ' + locale + ' as expected by Intl.', 'unsupported');
+          return;
+        }
+        reportLocaleStatus('Version ' + (libVersion ? 'v' + libVersion : 'latest') + ' supports ' + locale + '.', 'supported');
+      } catch (err) {
+        reportLocaleStatus('Could not validate ' + locale + ': ' + err.message, 'unsupported');
+      }
+    }
+
+    function populateLocaleSuggestions() {
+      var candidates = ['en-US'].concat(navigator.languages || [navigator.language]);
+      var seen = Object.create(null);
+      var suggestions = document.getElementById('play-locale-suggestions');
+      suggestions.textContent = '';
+      candidates.forEach(function (candidate) {
+        if (typeof candidate !== 'string') return;
+        var locale;
+        try {
+          locale = Intl.getCanonicalLocales(candidate.replace(/_/g, '-'))[0];
+        } catch (err) {
+          return;
+        }
+        if (!locale || seen[locale] || !Intl.DateTimeFormat.supportedLocalesOf([locale]).length) return;
+        seen[locale] = true;
+        var option = document.createElement('option');
+        option.value = locale;
+        suggestions.appendChild(option);
+      });
+    }
 
     function print(text, className) {
       var line = document.createElement('div');
@@ -451,8 +533,13 @@
       e.preventDefault();
       run();
     });
+    loc.addEventListener('input', updateLocaleStatus);
+    loc.addEventListener('change', updateLocaleStatus);
     output.textContent = '';
     print('connected to temporal-fmt. type help or try an example below.', 'play-entry-message');
+    populateLocaleSuggestions();
+    localeOptionsSupported = supportsLocaleOptions(api);
+    updateLocaleStatus();
     function updateStatus() {
       status.textContent = 'Running temporal-fmt' + (libVersion ? ' v' + libVersion : '') + ' from jsDelivr' + (window.Temporal ? ', native Temporal.' : ', with a Temporal polyfill.');
       status.textContent += ' The runner exposes library expressions only, not the page or browser globals.';
@@ -460,7 +547,9 @@
     updateStatus();
     return function (nextApi) {
       api = nextApi;
+      localeOptionsSupported = supportsLocaleOptions(api);
       refreshExamples();
+      updateLocaleStatus();
       output.textContent = '';
       print('connected to temporal-fmt v' + libVersion + '. type help or try an example below.', 'play-entry-message');
       updateStatus();

@@ -12,9 +12,11 @@
     <input id="play-command-input" placeholder="format(now, 'yyyy-MM-dd', { locale })" spellcheck="false" autocomplete="off" aria-label="Library expression" disabled>
     <button class="play-run" id="play-run" type="submit" disabled>run</button>
   </form>
-  <label class="play-locale">Locale <select id="play-loc" disabled>
-    <option>en-US</option><option>fr-FR</option><option>de-DE</option><option>es-ES</option><option>ja-JP</option><option>ar-EG</option><option>ru-RU</option>
-  </select></label>
+  <label class="play-locale" for="play-loc">Locale
+    <input id="play-loc" type="text" list="play-locale-suggestions" value="en-US" placeholder="e.g. fr-FR" autocomplete="off" spellcheck="false" aria-describedby="play-locale-status" disabled>
+  </label>
+  <datalist id="play-locale-suggestions"></datalist>
+  <p class="play-locale-status" id="play-locale-status" aria-live="polite">Locale support is checked against the selected version.</p>
   <div class="play-version">
     <span class="play-version-label" id="play-version-label">Library version</span>
     <button class="play-version-trigger" id="play-version-trigger" type="button" aria-controls="play-version-menu" aria-expanded="false" aria-labelledby="play-version-label play-version-value" disabled>
