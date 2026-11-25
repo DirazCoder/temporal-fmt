@@ -169,34 +169,171 @@
   var libStarted = false;
   var libDone, libFailed;
   var libReady = new Promise(function (ok, no) { libDone = ok; libFailed = no; });
+  var updatePlayground = null;
+  var versionPicker = {
+    trigger: document.getElementById('play-version-trigger'),
+    value: document.getElementById('play-version-value'),
+    menu: document.getElementById('play-version-menu')
+  };
+  var selectedVersion = '';
+  var availableVersions = false;
 
-  function startLib(version) {
-    if (libStarted) return;
-    libStarted = true;
-
+  function loadLib(version) {
     if (version && !/^\d+\.\d+\.\d+(-[\w.-]+)?$/.test(String(version))) {
       console.warn('[temporal-fmt site] ignoring non-semver version from registry:', version);
       version = '';
     }
-    libVersion = typeof version === 'string' ? version.slice(0, 64) : '';
     var needPolyfill = !window.Temporal;
-    Promise.all([
-      import(CDN + 'temporal-fmt' + (libVersion ? '@' + libVersion : '') + '/+esm'),
+    return Promise.all([
+      import(CDN + 'temporal-fmt' + (version ? '@' + version : '') + '/+esm'),
       needPolyfill ? import(CDN + POLYFILL + '/+esm') : null
     ]).then(function (mods) {
       var T = needPolyfill ? mods[1].Temporal : window.Temporal;
-      mods[0].setTemporal(T);
-      libDone({ lib: mods[0], T: T });
-    }, libFailed);
+      if (typeof mods[0].setTemporal === 'function') mods[0].setTemporal(T);
+      return { lib: mods[0], T: T };
+    });
   }
 
-  function useLibForDates(api) {
+  function startLib(version) {
+    if (libStarted) return;
+    libStarted = true;
+    libVersion = typeof version === 'string' ? version.slice(0, 64) : '';
+    loadLib(libVersion).then(libDone, libFailed);
+  }
+
+  function compareVersions(a, b) {
+    var left = a.split('-');
+    var right = b.split('-');
+    var leftCore = left[0].split('.');
+    var rightCore = right[0].split('.');
+    for (var i = 0; i < 3; i++) {
+      var coreDiff = Number(rightCore[i]) - Number(leftCore[i]);
+      if (coreDiff) return coreDiff;
+    }
+    if (left.length === 1 || right.length === 1) return left.length === right.length ? 0 : (left.length === 1 ? -1 : 1);
+    var leftPre = left[1].split('.');
+    var rightPre = right[1].split('.');
+    for (var j = 0; j < Math.max(leftPre.length, rightPre.length); j++) {
+      if (leftPre[j] === undefined || rightPre[j] === undefined) {
+        return leftPre[j] === undefined ? (rightPre[j] === undefined ? 0 : -1) : 1;
+      }
+      var leftNum = /^\d+$/.test(leftPre[j]);
+      var rightNum = /^\d+$/.test(rightPre[j]);
+      if (leftPre[j] === rightPre[j]) continue;
+      if (leftNum && rightNum) return Number(rightPre[j]) - Number(leftPre[j]);
+      if (leftNum !== rightNum) return leftNum ? -1 : 1;
+      return rightPre[j] < leftPre[j] ? -1 : 1;
+    }
+    return 0;
+  }
+
+  function closeVersionMenu() {
+    versionPicker.menu.hidden = true;
+    versionPicker.trigger.setAttribute('aria-expanded', 'false');
+  }
+
+  function renderVersionPicker(versions, latest) {
+    var groups = {};
+    selectedVersion = latest;
+    versions.filter(function (v) { return /^\d+\.\d+\.\d+(-[\w.-]+)?$/.test(v); })
+      .sort(compareVersions)
+      .forEach(function (version) {
+        var core = version.split('-')[0].split('.');
+        var groupName = core[0] + '.' + core[1] + '.x';
+        (groups[groupName] || (groups[groupName] = [])).push(version);
+      });
+
+    versionPicker.menu.textContent = '';
+    Object.keys(groups).sort(function (a, b) {
+      var aParts = a.slice(0, -2).split('.').map(Number);
+      var bParts = b.slice(0, -2).split('.').map(Number);
+      return bParts[0] - aParts[0] || bParts[1] - aParts[1];
+    }).forEach(function (groupName) {
+      var group = document.createElement('details');
+      group.className = 'play-version-group';
+      group.open = groupName === latest.split('.').slice(0, 2).join('.') + '.x';
+      var summary = document.createElement('summary');
+      summary.textContent = groupName;
+      var count = document.createElement('span');
+      count.className = 'play-version-count';
+      count.textContent = groups[groupName].length + ' versions';
+      summary.appendChild(count);
+      var options = document.createElement('div');
+      options.className = 'play-version-options';
+      groups[groupName].forEach(function (version) {
+        var option = document.createElement('button');
+        option.type = 'button';
+        option.className = 'play-version-option';
+        option.textContent = 'v' + version;
+        option.setAttribute('aria-pressed', version === selectedVersion ? 'true' : 'false');
+        option.addEventListener('click', function () {
+          versionPicker.menu.querySelectorAll('.play-version-group').forEach(function (item) {
+            item.open = item === group;
+          });
+          closeVersionMenu();
+          versionPicker.trigger.focus();
+          if (version === selectedVersion) return;
+          var previousVersion = selectedVersion;
+          versionPicker.trigger.disabled = true;
+          var status = document.getElementById('play-status');
+          status.textContent = 'Loading temporal-fmt v' + version + ' from jsDelivr…';
+          loadLib(version).then(function (api) {
+            selectedVersion = version;
+            libVersion = version;
+            versionPicker.value.textContent = 'v' + version;
+            versionPicker.menu.querySelectorAll('.play-version-option').forEach(function (button) {
+              button.setAttribute('aria-pressed', button.textContent === 'v' + version ? 'true' : 'false');
+            });
+            useLibForDates(api, false);
+            if (updatePlayground) updatePlayground(api);
+            else updatePlayground = setupPlayground(api);
+          }).catch(function (err) {
+            var output = document.getElementById('play-output');
+            var line = document.createElement('div');
+            line.className = 'play-entry-message';
+            line.textContent = 'Couldn’t load temporal-fmt v' + version + ' from jsDelivr. ' + err.message;
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
+            status.textContent = 'Still running temporal-fmt' + (previousVersion ? ' v' + previousVersion : '') + '.';
+          }).then(function () {
+            versionPicker.trigger.disabled = !availableVersions;
+          });
+        });
+        options.appendChild(option);
+      });
+      group.appendChild(summary);
+      group.appendChild(options);
+      versionPicker.menu.appendChild(group);
+    });
+
+    versionPicker.value.textContent = latest ? 'v' + latest : 'Latest';
+    availableVersions = Object.keys(groups).length > 0;
+    versionPicker.trigger.disabled = true;
+  }
+
+  versionPicker.trigger.addEventListener('click', function () {
+    var open = versionPicker.menu.hidden;
+    versionPicker.menu.hidden = !open;
+    versionPicker.trigger.setAttribute('aria-expanded', String(open));
+  });
+  document.addEventListener('click', function (event) {
+    if (!event.target.closest('.play-version')) closeVersionMenu();
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && !versionPicker.menu.hidden) {
+      closeVersionMenu();
+      versionPicker.trigger.focus();
+    }
+  });
+
+  function useLibForDates(api, addStat) {
+    if (typeof api.lib.formatDistanceToNow !== 'function' || typeof api.lib.format !== 'function') return;
     document.querySelectorAll('[data-iso]').forEach(function (el) {
       var when = api.T.Instant.from(el.dataset.iso).toZonedDateTimeISO(api.T.Now.timeZoneId());
       el.textContent = api.lib.formatDistanceToNow(when, { numeric: 'always' });
       el.title = api.lib.format(when, "MMM d, yyyy 'at' h:mm a z");
     });
-    if (live.classList.contains('on')) stat('Dates by', 'temporal-fmt itself');
+    if (addStat && live.classList.contains('on')) stat('Dates by', 'temporal-fmt itself');
   }
 
   function setupPlayground(api) {
@@ -224,11 +361,24 @@
       if (value === undefined) return 'undefined';
       if (typeof value === 'string') return value;
       if (typeof value === 'function') return '[Function ' + (value.name || 'anonymous') + ']';
-      if (api.lib.isTemporal(value)) return value.toString();
+      if (typeof api.lib.isTemporal === 'function' && api.lib.isTemporal(value)) return value.toString();
       var result = JSON.stringify(value, function (key, item) {
         return typeof item === 'bigint' ? String(item) + 'n' : item;
       }, 2);
       return result === undefined ? String(value) : result;
+    }
+
+    function refreshExamples() {
+      chips.forEach(function (chip) {
+        var source = chip.dataset.expression.replace(/'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/g, '');
+        var calls = source.match(/(?:^|[^.\w$])([A-Za-z_$][\w$]*)\s*\(/g) || [];
+        var unavailable = calls.some(function (call) {
+          var name = call.match(/[A-Za-z_$][\w$]*\s*\($/)[0].replace(/\s*\($/, '');
+          return typeof api.lib[name] !== 'function';
+        });
+        chip.hidden = unavailable;
+        chip.disabled = unavailable;
+      });
     }
 
     function run(expression) {
@@ -243,17 +393,19 @@
         return;
       }
       if (expression === 'help') {
+        var examples = [];
+        chips.forEach(function (chip) {
+          if (!chip.hidden) examples.push(chip.dataset.expression);
+        });
         print([
           'Use any exported temporal-fmt function or the Temporal API.',
           'Available values: now, today, yesterday, tomorrow, locale, Temporal, lib.',
+          'Exported functions: ' + Object.keys(api.lib).filter(function (name) {
+            return typeof api.lib[name] === 'function';
+          }).join(', '),
           '',
-          "format(now, 'EEEE, MMMM d, yyyy', { locale })",
-          "parse('yyyy-MM-dd', '2026-08-04')",
-          "formatDuration({ hours: 2, minutes: 30 }, 'hhh mmm', { locale })",
-          'formatDistance(yesterday, today, { locale })',
-          "add(now, 3, 'days')",
-          "formatRange(interval(Temporal.PlainDate.from('2026-08-04'), Temporal.PlainDate.from('2026-08-06')), 'MMM d')",
-          "analyzeFormat('yyyy-MM-dd')",
+          'Examples:',
+          examples.join('\n'),
           '',
           'Expressions only: no statements, browser globals, or page access.'
         ].join('\n'), 'play-entry-result');
@@ -277,13 +429,13 @@
 
     input.disabled = loc.disabled = runButton.disabled = false;
     chips.forEach(function (chip) {
-      chip.disabled = false;
       chip.addEventListener('click', function () {
         input.value = chip.dataset.expression;
         input.focus();
         input.setSelectionRange(input.value.length, input.value.length);
       });
     });
+    refreshExamples();
     input.addEventListener('keydown', function (e) {
       if (e.key === 'ArrowUp' && history.length) {
         e.preventDefault();
@@ -301,13 +453,27 @@
     });
     output.textContent = '';
     print('connected to temporal-fmt. type help or try an example below.', 'play-entry-message');
-    status.textContent = 'Running temporal-fmt' + (libVersion ? ' v' + libVersion : '') + ' from jsDelivr' + (window.Temporal ? ', native Temporal.' : ', with a Temporal polyfill.');
-    status.textContent += ' The runner exposes library expressions only, not the page or browser globals.';
+    function updateStatus() {
+      status.textContent = 'Running temporal-fmt' + (libVersion ? ' v' + libVersion : '') + ' from jsDelivr' + (window.Temporal ? ', native Temporal.' : ', with a Temporal polyfill.');
+      status.textContent += ' The runner exposes library expressions only, not the page or browser globals.';
+    }
+    updateStatus();
+    return function (nextApi) {
+      api = nextApi;
+      refreshExamples();
+      output.textContent = '';
+      print('connected to temporal-fmt v' + libVersion + '. type help or try an example below.', 'play-entry-message');
+      updateStatus();
+    };
   }
 
-  libReady.then(useLibForDates, function () {});
-  libReady.then(setupPlayground, function () {
+  libReady.then(function (api) {
+    useLibForDates(api, true);
+    updatePlayground = setupPlayground(api);
+    versionPicker.trigger.disabled = !availableVersions;
+  }, function () {
     document.getElementById('play-output').textContent = 'Couldn’t load temporal-fmt from jsDelivr. Everything else on the page still works.';
+    versionPicker.trigger.disabled = !availableVersions;
   });
 
   function ago(iso) {
@@ -359,6 +525,7 @@
     if (typeof latest !== 'string' || !/^\d+\.\d+\.\d+(-[\w.-]+)?$/.test(latest)) {
       latest = '';
     }
+    renderVersionPicker(Object.keys((doc && doc.versions) || {}), latest);
     startLib(latest);
     var info = (doc && doc.versions && doc.versions[latest]) || {};
     var tagOf = {};

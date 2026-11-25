@@ -15,6 +15,13 @@
   <label class="play-locale">Locale <select id="play-loc" disabled>
     <option>en-US</option><option>fr-FR</option><option>de-DE</option><option>es-ES</option><option>ja-JP</option><option>ar-EG</option><option>ru-RU</option>
   </select></label>
+  <div class="play-version">
+    <span class="play-version-label" id="play-version-label">Library version</span>
+    <button class="play-version-trigger" id="play-version-trigger" type="button" aria-controls="play-version-menu" aria-expanded="false" aria-labelledby="play-version-label play-version-value" disabled>
+      <span id="play-version-value">Loading versions…</span><span class="play-version-chevron" aria-hidden="true"></span>
+    </button>
+    <div class="play-version-menu" id="play-version-menu" hidden></div>
+  </div>
   <div class="chips" aria-label="Example library expressions">
     <button type="button" data-expression="format(now, 'yyyy-MM-dd', { locale })" disabled>format</button>
     <button type="button" data-expression="parse('yyyy-MM-dd', '2026-08-04')" disabled>parse</button>
