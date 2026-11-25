@@ -173,10 +173,22 @@
   var versionPicker = {
     trigger: document.getElementById('play-version-trigger'),
     value: document.getElementById('play-version-value'),
-    menu: document.getElementById('play-version-menu')
+    menu: document.getElementById('play-version-menu'),
+    search: document.getElementById('play-version-search'),
+    list: document.getElementById('play-version-list'),
+    empty: document.getElementById('play-version-empty')
   };
   var selectedVersion = '';
   var availableVersions = false;
+  var latestStableVersion = '';
+  var requestedVersion = '';
+  var requestedLocale = '';
+  var registryLatestVersion = '';
+  var versionMetadata = {};
+  var versionTags = {};
+  var latestApi = null;
+  var latestBaselineError = '';
+  var activeApi = null;
 
   function loadLib(version) {
     if (version && !/^\d+\.\d+\.\d+(-[\w.-]+)?$/.test(String(version))) {
@@ -199,6 +211,73 @@
     libStarted = true;
     libVersion = typeof version === 'string' ? version.slice(0, 64) : '';
     loadLib(libVersion).then(libDone, libFailed);
+  }
+
+  function supportsLocaleOptions(api) {
+    if (typeof api.lib.format !== 'function' ||
+        !Intl.DateTimeFormat.supportedLocalesOf(['fr-FR']).length) return false;
+    try {
+      var sample = api.T.PlainDate.from('2026-01-15');
+      var english = api.lib.format(sample, 'MMMM', { locale: 'en-US' });
+      var french = api.lib.format(sample, 'MMMM', { locale: 'fr-FR' });
+      var expectedFrench = new Intl.DateTimeFormat('fr-FR', { month: 'long', timeZone: 'UTC' })
+        .format(new Date(Date.UTC(2026, 0, 15)));
+      return english !== french && french === expectedFrench;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  function libraryFunctions(api) {
+    return Object.keys(api.lib).filter(function (name) {
+      return typeof api.lib[name] === 'function';
+    }).sort();
+  }
+
+  function readPreference(key) {
+    try { return localStorage.getItem(key) || ''; } catch (err) { return ''; }
+  }
+
+  function resolvePreferredVersion(versions, fallback) {
+    var listed = new URLSearchParams(window.location.search).get('version');
+    if (listed && versions.indexOf(listed) !== -1) return listed;
+    var saved = readPreference('tfmt-play-version');
+    return saved && versions.indexOf(saved) !== -1 ? saved : fallback;
+  }
+
+  function resolvePreferredLocale() {
+    var listed = new URLSearchParams(window.location.search).get('locale');
+    return listed || readPreference('tfmt-play-locale');
+  }
+  requestedLocale = resolvePreferredLocale();
+
+  function persistPlaygroundState(locale) {
+    try {
+      localStorage.setItem('tfmt-play-version', selectedVersion);
+      if (locale) localStorage.setItem('tfmt-play-locale', locale);
+      else localStorage.removeItem('tfmt-play-locale');
+    } catch (err) {}
+    var url = new URL(window.location.href);
+    if (selectedVersion) url.searchParams.set('version', selectedVersion);
+    else url.searchParams.delete('version');
+    if (locale) url.searchParams.set('locale', locale);
+    else url.searchParams.delete('locale');
+    window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+  }
+
+  function readPlaygroundLocale() {
+    var picker = document.getElementById('play-loc');
+    if (!picker) return '';
+    return picker.value === '__custom__'
+      ? document.getElementById('play-loc-custom').value.trim()
+      : picker.value;
+  }
+
+  function resolveLatestStable(versions, npmLatest) {
+    var stable = versions.filter(function (version) {
+      return /^\d+\.\d+\.\d+$/.test(version);
+    }).sort(compareVersions);
+    return stable[0] || npmLatest || '';
   }
 
   function compareVersions(a, b) {
@@ -232,9 +311,39 @@
     versionPicker.trigger.setAttribute('aria-expanded', 'false');
   }
 
-  function renderVersionPicker(versions, latest) {
-    var groups = {};
-    selectedVersion = latest;
+  function filterVersionOptions() {
+    var query = versionPicker.search.value.trim().toLowerCase();
+    var versionQuery = /^\d+(?:\.\d+){0,2}(?:-[\w.-]+)?$/.test(query);
+    var hasResults = false;
+    versionPicker.list.querySelectorAll('.play-version-group').forEach(function (group) {
+      var matching = 0;
+      var options = group.querySelectorAll('.play-version-option');
+      options.forEach(function (option) {
+        var matches = !query || (versionQuery
+          ? option.dataset.version.indexOf(query) === 0
+          : option.dataset.search.indexOf(query) !== -1);
+        option.hidden = !matches;
+        if (matches) matching++;
+      });
+      group.hidden = matching === 0;
+      if (query && matching) group.open = true;
+      var count = group.querySelector('.play-version-count');
+      count.textContent = query ? matching + '/' + options.length : options.length + ' versions';
+      if (matching) hasResults = true;
+    });
+    versionPicker.empty.hidden = hasResults;
+  }
+
+  function syncVersionSelection() {
+    versionPicker.value.textContent = selectedVersion ? 'v' + selectedVersion : 'Latest';
+    versionPicker.list.querySelectorAll('.play-version-option').forEach(function (option) {
+      option.setAttribute('aria-pressed', option.dataset.version === selectedVersion ? 'true' : 'false');
+    });
+  }
+
+  function renderVersionPicker(versions, latestStable) {
+    var groups = Object.create(null);
+    if (!selectedVersion) selectedVersion = latestStable;
     versions.filter(function (v) { return /^\d+\.\d+\.\d+(-[\w.-]+)?$/.test(v); })
       .sort(compareVersions)
       .forEach(function (version) {
@@ -243,7 +352,7 @@
         (groups[groupName] || (groups[groupName] = [])).push(version);
       });
 
-    versionPicker.menu.textContent = '';
+    versionPicker.list.textContent = '';
     Object.keys(groups).sort(function (a, b) {
       var aParts = a.slice(0, -2).split('.').map(Number);
       var bParts = b.slice(0, -2).split('.').map(Number);
@@ -251,7 +360,7 @@
     }).forEach(function (groupName) {
       var group = document.createElement('details');
       group.className = 'play-version-group';
-      group.open = groupName === latest.split('.').slice(0, 2).join('.') + '.x';
+      group.open = groupName === selectedVersion.split('.').slice(0, 2).join('.') + '.x';
       var summary = document.createElement('summary');
       summary.textContent = groupName;
       var count = document.createElement('span');
@@ -264,7 +373,36 @@
         var option = document.createElement('button');
         option.type = 'button';
         option.className = 'play-version-option';
-        option.textContent = 'v' + version;
+        option.dataset.version = version;
+        var versionNumber = document.createElement('span');
+        versionNumber.textContent = 'v' + version;
+        option.appendChild(versionNumber);
+        var badges = document.createElement('span');
+        badges.className = 'play-version-badges';
+        var searchTerms = [version];
+        var tags = versionTags[version] || [];
+        var entry = versionMetadata[version] || {};
+        var deprecation = typeof entry.deprecated === 'string' ? entry.deprecated : '';
+        function badge(label, className) {
+          var item = document.createElement('span');
+          item.className = 'play-version-badge' + (className ? ' ' + className : '');
+          item.textContent = label;
+          badges.appendChild(item);
+          searchTerms.push(label);
+        }
+        if (version === latestStable) badge('recommended', 'is-recommended');
+        if (version === registryLatestVersion) badge('npm latest', 'is-latest');
+        if (version.indexOf('-') !== -1) badge('pre-release', '');
+        tags.forEach(function (tag) {
+          if (tag !== 'latest') badge(tag, '');
+        });
+        if (deprecation || entry.deprecated === true) {
+          badge('deprecated', 'is-deprecated');
+          searchTerms.push(deprecation);
+          option.title = deprecation || 'This release is deprecated.';
+        }
+        if (badges.childNodes.length) option.appendChild(badges);
+        option.dataset.search = searchTerms.join(' ').toLowerCase();
         option.setAttribute('aria-pressed', version === selectedVersion ? 'true' : 'false');
         option.addEventListener('click', function () {
           versionPicker.menu.querySelectorAll('.play-version-group').forEach(function (item) {
@@ -272,49 +410,30 @@
           });
           closeVersionMenu();
           versionPicker.trigger.focus();
-          if (version === selectedVersion) return;
-          var previousVersion = selectedVersion;
-          versionPicker.trigger.disabled = true;
-          var status = document.getElementById('play-status');
-          status.textContent = 'Loading temporal-fmt v' + version + ' from jsDelivr…';
-          loadLib(version).then(function (api) {
-            selectedVersion = version;
-            libVersion = version;
-            versionPicker.value.textContent = 'v' + version;
-            versionPicker.menu.querySelectorAll('.play-version-option').forEach(function (button) {
-              button.setAttribute('aria-pressed', button.textContent === 'v' + version ? 'true' : 'false');
-            });
-            useLibForDates(api, false);
-            if (updatePlayground) updatePlayground(api);
-            else updatePlayground = setupPlayground(api);
-          }).catch(function (err) {
-            var output = document.getElementById('play-output');
-            var line = document.createElement('div');
-            line.className = 'play-entry-message';
-            line.textContent = 'Couldn’t load temporal-fmt v' + version + ' from jsDelivr. ' + err.message;
-            output.appendChild(line);
-            output.scrollTop = output.scrollHeight;
-            status.textContent = 'Still running temporal-fmt' + (previousVersion ? ' v' + previousVersion : '') + '.';
-          }).then(function () {
-            versionPicker.trigger.disabled = !availableVersions;
-          });
+          selectVersion(version);
         });
         options.appendChild(option);
       });
       group.appendChild(summary);
       group.appendChild(options);
-      versionPicker.menu.appendChild(group);
+      versionPicker.list.appendChild(group);
     });
 
-    versionPicker.value.textContent = latest ? 'v' + latest : 'Latest';
+    syncVersionSelection();
     availableVersions = Object.keys(groups).length > 0;
     versionPicker.trigger.disabled = true;
+    filterVersionOptions();
   }
 
+  versionPicker.search.addEventListener('input', filterVersionOptions);
   versionPicker.trigger.addEventListener('click', function () {
     var open = versionPicker.menu.hidden;
     versionPicker.menu.hidden = !open;
     versionPicker.trigger.setAttribute('aria-expanded', String(open));
+    if (open) {
+      versionPicker.list.scrollTop = 0;
+      versionPicker.search.focus();
+    }
   });
   document.addEventListener('click', function (event) {
     if (!event.target.closest('.play-version')) closeVersionMenu();
@@ -336,34 +455,136 @@
     if (addStat && live.classList.contains('on')) stat('Dates by', 'temporal-fmt itself');
   }
 
+  function updateVersionSummary(api) {
+    var summary = document.getElementById('play-version-meta');
+    var deprecation = document.getElementById('play-version-deprecation');
+    var deprecationMessage = document.getElementById('play-version-deprecation-message');
+    var compare = document.getElementById('play-version-compare');
+    var difference = document.getElementById('play-version-diff');
+    var entry = versionMetadata[selectedVersion] || {};
+    var deprecated = typeof entry.deprecated === 'string' ? entry.deprecated : '';
+    var localeSupport = supportsLocaleOptions(api);
+    var functions = libraryFunctions(api);
+    var isDeprecated = Boolean(deprecated || entry.deprecated === true);
+    summary.dataset.state = isDeprecated ? 'deprecated' : '';
+    summary.textContent = 'v' + selectedVersion + ' · ' + functions.length + ' functions · ' +
+      (localeSupport ? 'locale formatting' : 'no locale options');
+    deprecation.hidden = !isDeprecated;
+    deprecationMessage.textContent = deprecated || 'This release is deprecated.';
+    if (latestBaselineError) summary.textContent += ' · Latest stable API comparison unavailable: ' + latestBaselineError;
+
+    compare.hidden = !latestApi || selectedVersion === latestStableVersion;
+    if (compare.hidden) return;
+    var latestFunctions = libraryFunctions(latestApi);
+    var latestLocaleSupport = supportsLocaleOptions(latestApi);
+    var added = functions.filter(function (name) { return latestFunctions.indexOf(name) === -1; });
+    var removed = latestFunctions.filter(function (name) { return functions.indexOf(name) === -1; });
+    var lines = [];
+    function describeExports(version, names) {
+      var visible = names.slice(0, 8).join(', ');
+      if (names.length > 8) visible += ' and ' + (names.length - 8) + ' more';
+      return 'Only in v' + version + ' (' + names.length + '): ' + visible;
+    }
+    if (added.length) lines.push(describeExports(selectedVersion, added));
+    if (removed.length) lines.push(describeExports(latestStableVersion, removed));
+    if (localeSupport !== latestLocaleSupport) {
+      lines.push('Locale-aware formatting: ' + (localeSupport ? 'supported' : 'not supported') +
+        ' in v' + selectedVersion + '; ' + (latestLocaleSupport ? 'supported' : 'not supported') +
+        ' in v' + latestStableVersion + '.');
+    }
+    difference.textContent = lines.length ? lines.join('\n') : 'No export or locale-formatting differences detected.';
+  }
+
+  function selectVersion(version) {
+    if (version === selectedVersion && activeApi) return Promise.resolve(activeApi);
+    var previousVersion = selectedVersion;
+    var status = document.getElementById('play-status');
+    versionPicker.trigger.disabled = true;
+    status.textContent = 'Loading temporal-fmt v' + version + ' from jsDelivr…';
+    return loadLib(version).then(function (api) {
+      selectedVersion = version;
+      libVersion = version;
+      activeApi = api;
+      if (version === latestStableVersion) {
+        latestApi = api;
+        latestBaselineError = '';
+      }
+      syncVersionSelection();
+      useLibForDates(api, false);
+      if (updatePlayground) updatePlayground(api);
+      else updatePlayground = setupPlayground(api);
+      updateVersionSummary(api);
+      persistPlaygroundState(readPlaygroundLocale());
+      return api;
+    }, function (err) {
+      var output = document.getElementById('play-output');
+      var line = document.createElement('div');
+      line.className = 'play-entry-message';
+      line.textContent = 'Couldn’t load temporal-fmt v' + version + ' from jsDelivr. ' + err.message;
+      output.appendChild(line);
+      output.scrollTop = output.scrollHeight;
+      status.textContent = 'Still running temporal-fmt' + (previousVersion ? ' v' + previousVersion : '') + '.';
+      return null;
+    }).then(function (api) {
+      versionPicker.trigger.disabled = !availableVersions;
+      return api;
+    });
+  }
+
   function setupPlayground(api) {
     var input = document.getElementById('play-command-input');
     var loc = document.getElementById('play-loc');
+    var customLocale = document.getElementById('play-loc-custom');
+    var customLocaleWrap = document.getElementById('play-loc-custom-wrap');
     var form = document.getElementById('play-form');
     var runButton = document.getElementById('play-run');
     var output = document.getElementById('play-output');
     var status = document.getElementById('play-status');
     var localeStatus = document.getElementById('play-locale-status');
     var chips = document.querySelectorAll('.chips button');
+    var functionSearch = document.getElementById('play-function-search');
+    var functionCount = document.getElementById('play-function-count');
+    var functionList = document.getElementById('play-function-list');
+    var functionEmpty = document.getElementById('play-function-empty');
     var history = [];
     var historyIndex = 0;
     var localeOptionsSupported = false;
+    var localeSupportCache = Object.create(null);
 
     function why(err) { return err.name + ': ' + String(err.message).replace(/^temporal-fmt: /, ''); }
 
-    function supportsLocaleOptions(currentApi) {
-      if (typeof currentApi.lib.format !== 'function' ||
-          !Intl.DateTimeFormat.supportedLocalesOf(['fr-FR']).length) return false;
-      try {
-        var sample = currentApi.T.PlainDate.from('2026-01-15');
-        var english = currentApi.lib.format(sample, 'MMMM', { locale: 'en-US' });
-        var french = currentApi.lib.format(sample, 'MMMM', { locale: 'fr-FR' });
-        var expectedFrench = new Intl.DateTimeFormat('fr-FR', { month: 'long', timeZone: 'UTC' })
-          .format(new Date(Date.UTC(2026, 0, 15)));
-        return english !== french && french === expectedFrench;
-      } catch (err) {
+    function localeValue() {
+      return loc.value === '__custom__' ? customLocale.value.trim() : loc.value;
+    }
+
+    function supportsLocale(locale) {
+      if (Object.prototype.hasOwnProperty.call(localeSupportCache, locale)) {
+        return localeSupportCache[locale];
+      }
+      if (typeof api.lib.format !== 'function') {
+        localeSupportCache[locale] = false;
         return false;
       }
+      if (!Intl.DateTimeFormat.supportedLocalesOf([locale]).length) {
+        localeSupportCache[locale] = false;
+        return false;
+      }
+      if (!localeOptionsSupported) {
+        localeSupportCache[locale] = locale === 'en-US';
+        return localeSupportCache[locale];
+      }
+      try {
+        var date = api.T.PlainDate.from('2026-01-15');
+        var actualMonth = api.lib.format(date, 'MMMM', { locale: locale });
+        var actualWeekday = api.lib.format(date, 'EEEE', { locale: locale });
+        var utcDate = new Date(Date.UTC(2026, 0, 15));
+        var expectedMonth = new Intl.DateTimeFormat(locale, { month: 'long', timeZone: 'UTC' }).format(utcDate);
+        var expectedWeekday = new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(utcDate);
+        localeSupportCache[locale] = actualMonth === expectedMonth && actualWeekday === expectedWeekday;
+      } catch (err) {
+        localeSupportCache[locale] = false;
+      }
+      return localeSupportCache[locale];
     }
 
     function reportLocaleStatus(message, state) {
@@ -373,7 +594,7 @@
     }
 
     function updateLocaleStatus() {
-      var enteredLocale = loc.value.trim();
+      var enteredLocale = localeValue();
       if (!enteredLocale) {
         reportLocaleStatus('Enter a BCP 47 locale tag.', 'unsupported');
         return;
@@ -390,31 +611,29 @@
         reportLocaleStatus('This browser does not provide Intl locale data for ' + locale + '.', 'unsupported');
         return;
       }
-      if (!localeOptionsSupported) {
-        reportLocaleStatus('This temporal-fmt version does not appear to support locale options in format().', 'unsupported');
+      if (!supportsLocale(locale)) {
+        var version = libVersion ? 'v' + libVersion : 'latest';
+        reportLocaleStatus('Version ' + version + ' does not support ' + locale + ' formatting.', 'unsupported');
         return;
       }
-
-      try {
-        var sample = api.T.PlainDate.from('2026-01-15');
-        var formatted = api.lib.format(sample, 'MMMM', { locale: locale });
-        var expected = new Intl.DateTimeFormat(locale, { month: 'long', timeZone: 'UTC' })
-          .format(new Date(Date.UTC(2026, 0, 15)));
-        if (formatted !== expected) {
-          reportLocaleStatus('This version did not format ' + locale + ' as expected by Intl.', 'unsupported');
-          return;
-        }
-        reportLocaleStatus('Version ' + (libVersion ? 'v' + libVersion : 'latest') + ' supports ' + locale + '.', 'supported');
-      } catch (err) {
-        reportLocaleStatus('Could not validate ' + locale + ': ' + err.message, 'unsupported');
-      }
+      reportLocaleStatus('Version ' + (libVersion ? 'v' + libVersion : 'latest') + ' supports ' + locale + '.', 'supported');
     }
 
-    function populateLocaleSuggestions() {
-      var candidates = ['en-US'].concat(navigator.languages || [navigator.language]);
+    function populateLocaleOptions() {
+      var commonLocales = [
+        'ar-EG', 'ar-SA', 'bg-BG', 'bn-BD', 'ca-ES', 'cs-CZ', 'da-DK', 'de-AT', 'de-CH', 'de-DE',
+        'el-GR', 'en-AU', 'en-CA', 'en-GB', 'en-IE', 'en-IN', 'en-NZ', 'en-US', 'en-ZA',
+        'es-AR', 'es-CL', 'es-CO', 'es-ES', 'es-MX', 'es-US', 'et-EE', 'fa-IR', 'fi-FI',
+        'fil-PH', 'fr-BE', 'fr-CA', 'fr-CH', 'fr-FR', 'fr-LU', 'gu-IN', 'he-IL', 'hi-IN',
+        'hr-HR', 'hu-HU', 'id-ID', 'is-IS', 'it-CH', 'it-IT', 'ja-JP', 'ko-KR', 'lt-LT',
+        'lv-LV', 'ms-MY', 'nb-NO', 'nl-BE', 'nl-NL', 'pl-PL', 'pt-BR', 'pt-PT', 'ro-RO',
+        'ru-RU', 'sk-SK', 'sl-SI', 'sr-RS', 'sv-SE', 'sw-KE', 'ta-IN', 'te-IN', 'th-TH',
+        'tr-TR', 'uk-UA', 'ur-PK', 'vi-VN', 'zh-CN', 'zh-HK', 'zh-SG', 'zh-TW'
+      ];
+      var candidates = commonLocales.concat(navigator.languages || [navigator.language]);
       var seen = Object.create(null);
-      var suggestions = document.getElementById('play-locale-suggestions');
-      suggestions.textContent = '';
+      var previousLocale = localeValue() || requestedLocale;
+      loc.textContent = '';
       candidates.forEach(function (candidate) {
         if (typeof candidate !== 'string') return;
         var locale;
@@ -423,12 +642,45 @@
         } catch (err) {
           return;
         }
-        if (!locale || seen[locale] || !Intl.DateTimeFormat.supportedLocalesOf([locale]).length) return;
+        if (!locale || seen[locale] || !supportsLocale(locale)) return;
         seen[locale] = true;
         var option = document.createElement('option');
         option.value = locale;
-        suggestions.appendChild(option);
+        option.textContent = locale;
+        loc.appendChild(option);
       });
+      var customOption = document.createElement('option');
+      customOption.value = '__custom__';
+      customOption.textContent = 'Other…';
+      loc.appendChild(customOption);
+      var canonicalPrevious = '';
+      try {
+        canonicalPrevious = previousLocale
+          ? Intl.getCanonicalLocales(previousLocale.replace(/_/g, '-'))[0]
+          : '';
+      } catch (err) {}
+      if (seen[canonicalPrevious]) {
+        loc.value = canonicalPrevious;
+        customLocaleWrap.hidden = true;
+      } else if (previousLocale) {
+        loc.value = '__custom__';
+        customLocale.value = previousLocale;
+        customLocaleWrap.hidden = false;
+      } else if (seen[navigator.language]) {
+        loc.value = navigator.language;
+        customLocaleWrap.hidden = true;
+      } else {
+        loc.value = 'en-US';
+        customLocaleWrap.hidden = true;
+      }
+      requestedLocale = '';
+    }
+
+    function selectLocale() {
+      customLocaleWrap.hidden = loc.value !== '__custom__';
+      if (loc.value === '__custom__') customLocale.focus();
+      updateLocaleStatus();
+      persistPlaygroundState(localeValue());
     }
 
     function print(text, className) {
@@ -461,6 +713,110 @@
         chip.hidden = unavailable;
         chip.disabled = unavailable;
       });
+    }
+
+    function functionCategory(name) {
+      if (/Duration/.test(name)) return 'Durations';
+      if (/^(formatDistance|formatRelative|parseRelative|registerRelativeGrammar|isToday|isTomorrow|isYesterday)/.test(name)) return 'Relative time';
+      if (/^(interval|intersects|overlaps|union|intersection|mergeIntervals|splitInterval|recurrence|formatRRule|parseRRule)/.test(name)) return 'Intervals & recurrence';
+      if (/Business|Holiday/.test(name)) return 'Business calendars';
+      if (/^(getOffset|getTimeZone|getTransitions|getNextTransition|getPreviousTransition|possibleInstantsFor|resolveZoned|isDST)/.test(name)) return 'Time zones';
+      if (/^(getLocale|hasLocale|registerLocale|applyNumbering|convertDigits|getMonth|getWeekday)/.test(name)) return 'Locales & numbering';
+      if (/^(formatHTTPDate|formatISO|formatRFC|formatSQL|parseHTTPDate|parseISO|parseRFC|parseSQL|toUnix|fromUnix)/.test(name)) return 'Serialization';
+      if (/^(add|subtract|difference|compare|min|max|clamp|round|floor|ceil|truncate|startOf|endOf|isAfter|isBefore|isBetween|isSame|isWeekday|isWeekend|isLeap|dayOfYear|daysIn|monthsIn|weekOfYear|weekYear)/.test(name)) return 'Date arithmetic';
+      if (/^(format|parse|tryParse|safeParse|compileFormat|compileParser|analyzeFormat|explainFormat|validateFormat|matchesFormat|isValidFormat|tokenInfo|tokenizeFormat|listTokens|fieldForToken|previewFormat|translate|legacy)/.test(name)) return 'Formatting & parsing';
+      if (/^(is|assert)[A-Z]/.test(name) || /Error$/.test(name)) return 'Type guards & errors';
+      if (/^(create|merge|set|listRegistered|register)/.test(name) ||
+          /^(getAutocompleteData|getDocUrl|getHoverDocs|getInlineDiagnostics|possibleInstantsFor)/.test(name)) return 'Configuration & tooling';
+      return 'Other';
+    }
+
+    function filterFunctionOptions() {
+      var query = functionSearch.value.trim().toLowerCase();
+      var visible = 0;
+      functionList.querySelectorAll('.play-function-group').forEach(function (group) {
+        var matches = 0;
+        var options = group.querySelectorAll('.play-function-option');
+        options.forEach(function (option) {
+          var matched = !query || option.dataset.search.indexOf(query) !== -1;
+          option.hidden = !matched;
+          if (matched) matches++;
+        });
+        group.hidden = matches === 0;
+        group.querySelector('.play-function-group-count').textContent =
+          query ? matches + '/' + options.length : String(options.length);
+        group.open = Boolean(query && matches);
+        visible += matches;
+      });
+      functionEmpty.hidden = visible > 0;
+    }
+
+    function insertFunctionCall(name) {
+      var start = typeof input.selectionStart === 'number' ? input.selectionStart : input.value.length;
+      var end = typeof input.selectionEnd === 'number' ? input.selectionEnd : start;
+      var call = name + '()';
+      input.value = input.value.slice(0, start) + call + input.value.slice(end);
+      var cursor = start + name.length + 1;
+      input.focus();
+      input.setSelectionRange(cursor, cursor);
+    }
+
+    function refreshFunctionBrowser() {
+      var forbiddenNames = Object.create(null);
+      ['__defineGetter__', '__defineSetter__', '__lookupGetter__', '__lookupSetter__',
+        '__proto__', 'arguments', 'callee', 'caller', 'constructor', 'prototype']
+        .forEach(function (name) { forbiddenNames[name] = true; });
+      var names = libraryFunctions(api).filter(function (name) {
+        return /^[A-Za-z_$][\w$]*$/.test(name) && !forbiddenNames[name];
+      });
+      var groups = Object.create(null);
+      names.forEach(function (name) {
+        var category = functionCategory(name);
+        (groups[category] || (groups[category] = [])).push(name);
+      });
+      var categoryOrder = [
+        'Formatting & parsing', 'Durations', 'Relative time', 'Date arithmetic',
+        'Intervals & recurrence', 'Business calendars', 'Time zones',
+        'Locales & numbering', 'Serialization', 'Type guards & errors',
+        'Configuration & tooling', 'Other'
+      ];
+      functionList.textContent = '';
+      categoryOrder.forEach(function (category) {
+        if (!groups[category]) return;
+        var section = document.createElement('details');
+        section.className = 'play-function-group';
+        var heading = document.createElement('summary');
+        heading.textContent = category;
+        var count = document.createElement('span');
+        count.className = 'play-function-group-count';
+        count.textContent = String(groups[category].length);
+        heading.appendChild(count);
+        var options = document.createElement('div');
+        options.className = 'play-function-options';
+        groups[category].forEach(function (name) {
+          var option = document.createElement('button');
+          option.type = 'button';
+          option.className = 'play-function-option';
+          option.dataset.search = (name + ' ' + category).toLowerCase();
+          option.setAttribute('aria-label', 'Insert ' + name + ' call');
+          var code = document.createElement('code');
+          code.textContent = name + '()';
+          var action = document.createElement('span');
+          action.textContent = 'insert';
+          option.appendChild(code);
+          option.appendChild(action);
+          option.addEventListener('click', function () {
+            insertFunctionCall(name);
+          });
+          options.appendChild(option);
+        });
+        section.appendChild(heading);
+        section.appendChild(options);
+        functionList.appendChild(section);
+      });
+      functionCount.textContent = names.length + ' functions';
+      functionSearch.disabled = false;
+      filterFunctionOptions();
     }
 
     function run(expression) {
@@ -501,7 +857,7 @@
           today: today,
           yesterday: today.subtract({ days: 1 }),
           tomorrow: today.add({ days: 1 }),
-          locale: loc.value
+          locale: localeValue()
         });
         print(stringifyResult(result), 'play-entry-result');
       } catch (err) {
@@ -509,7 +865,7 @@
       }
     }
 
-    input.disabled = loc.disabled = runButton.disabled = false;
+    input.disabled = loc.disabled = runButton.disabled = customLocale.disabled = functionSearch.disabled = false;
     chips.forEach(function (chip) {
       chip.addEventListener('click', function () {
         input.value = chip.dataset.expression;
@@ -518,6 +874,8 @@
       });
     });
     refreshExamples();
+    refreshFunctionBrowser();
+    functionSearch.addEventListener('input', filterFunctionOptions);
     input.addEventListener('keydown', function (e) {
       if (e.key === 'ArrowUp' && history.length) {
         e.preventDefault();
@@ -533,12 +891,15 @@
       e.preventDefault();
       run();
     });
-    loc.addEventListener('input', updateLocaleStatus);
-    loc.addEventListener('change', updateLocaleStatus);
+    loc.addEventListener('change', selectLocale);
+    customLocale.addEventListener('input', function () {
+      updateLocaleStatus();
+      persistPlaygroundState(localeValue());
+    });
     output.textContent = '';
     print('connected to temporal-fmt. type help or try an example below.', 'play-entry-message');
-    populateLocaleSuggestions();
     localeOptionsSupported = supportsLocaleOptions(api);
+    populateLocaleOptions();
     updateLocaleStatus();
     function updateStatus() {
       status.textContent = 'Running temporal-fmt' + (libVersion ? ' v' + libVersion : '') + ' from jsDelivr' + (window.Temporal ? ', native Temporal.' : ', with a Temporal polyfill.');
@@ -547,8 +908,11 @@
     updateStatus();
     return function (nextApi) {
       api = nextApi;
+      localeSupportCache = Object.create(null);
       localeOptionsSupported = supportsLocaleOptions(api);
+      populateLocaleOptions();
       refreshExamples();
+      refreshFunctionBrowser();
       updateLocaleStatus();
       output.textContent = '';
       print('connected to temporal-fmt v' + libVersion + '. type help or try an example below.', 'play-entry-message');
@@ -557,11 +921,27 @@
   }
 
   libReady.then(function (api) {
+    activeApi = api;
+    if (!selectedVersion) selectedVersion = libVersion;
+    if (selectedVersion === latestStableVersion) latestApi = api;
     useLibForDates(api, true);
     updatePlayground = setupPlayground(api);
+    updateVersionSummary(api);
+    if (selectedVersion) persistPlaygroundState(readPlaygroundLocale());
     versionPicker.trigger.disabled = !availableVersions;
-  }, function () {
-    document.getElementById('play-output').textContent = 'Couldn’t load temporal-fmt from jsDelivr. Everything else on the page still works.';
+    if (!latestApi && latestStableVersion) {
+      loadLib(latestStableVersion).then(function (baseline) {
+        latestApi = baseline;
+        latestBaselineError = '';
+        if (activeApi) updateVersionSummary(activeApi);
+      }, function (err) {
+        latestBaselineError = err.message;
+        if (activeApi) updateVersionSummary(activeApi);
+      });
+    }
+  }, function (err) {
+    document.getElementById('play-output').textContent =
+      'Couldn’t load temporal-fmt from jsDelivr: ' + err.message + '. Everything else on the page still works.';
     versionPicker.trigger.disabled = !availableVersions;
   });
 
@@ -614,8 +994,23 @@
     if (typeof latest !== 'string' || !/^\d+\.\d+\.\d+(-[\w.-]+)?$/.test(latest)) {
       latest = '';
     }
-    renderVersionPicker(Object.keys((doc && doc.versions) || {}), latest);
-    startLib(latest);
+    var versions = Object.keys((doc && doc.versions) || {}).filter(function (version) {
+      return /^\d+\.\d+\.\d+(-[\w.-]+)?$/.test(version);
+    });
+    registryLatestVersion = latest && versions.indexOf(latest) !== -1 ? latest : '';
+    latestStableVersion = resolveLatestStable(versions, registryLatestVersion);
+    versionMetadata = (doc && doc.versions) || {};
+    var tags = (doc && doc['dist-tags']) || {};
+    Object.keys(tags).forEach(function (tag) {
+      var taggedVersion = tags[tag];
+      if (!versionTags[taggedVersion]) versionTags[taggedVersion] = [];
+      versionTags[taggedVersion].push(tag);
+    });
+    requestedVersion = resolvePreferredVersion(versions, latestStableVersion);
+    requestedLocale = resolvePreferredLocale();
+    selectedVersion = requestedVersion;
+    renderVersionPicker(versions, latestStableVersion);
+    startLib(selectedVersion);
     var info = (doc && doc.versions && doc.versions[latest]) || {};
     var tagOf = {};
     if (doc && doc['dist-tags']) {
@@ -623,7 +1018,8 @@
     }
 
     live.classList.add('on');
-    stat('Latest', latest ? 'v' + latest : 'n/a');
+    stat('npm latest', latest ? 'v' + latest : 'n/a');
+    stat('Recommended', latestStableVersion ? 'v' + latestStableVersion : 'n/a');
     stat('Published', (doc && doc.time && doc.time[latest]) ? ago(doc.time[latest]) : 'n/a').dataset.iso = (doc && doc.time && doc.time[latest]) || '';
     stat('Unpacked', info.dist && info.dist.unpackedSize ? size(info.dist.unpackedSize) : 'n/a');
     stat('Versions', doc && doc.versions ? String(Object.keys(doc.versions).length) : 'n/a');

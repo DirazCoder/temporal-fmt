@@ -67,17 +67,34 @@ parse('yyyy-MM-dd HH:mm', '2026-08-04 15:45');   // Temporal.PlainDateTime</code
     <button class="play-run" id="play-run" type="submit" disabled>run</button>
   </form>
   <label class="play-locale" for="play-loc">Locale
-    <input id="play-loc" type="text" list="play-locale-suggestions" value="en-US" placeholder="e.g. fr-FR" autocomplete="off" spellcheck="false" aria-describedby="play-locale-status" disabled>
+    <select id="play-loc" aria-describedby="play-locale-status" disabled></select>
   </label>
-  <datalist id="play-locale-suggestions"></datalist>
+  <label class="play-locale-custom" id="play-loc-custom-wrap" for="play-loc-custom" hidden>Custom locale
+    <input id="play-loc-custom" type="text" value="" placeholder="e.g. fr-CA" autocomplete="off" spellcheck="false" disabled>
+  </label>
   <p class="play-locale-status" id="play-locale-status" aria-live="polite">Locale support is checked against the selected version.</p>
   <div class="play-version">
     <span class="play-version-label" id="play-version-label">Library version</span>
     <button class="play-version-trigger" id="play-version-trigger" type="button" aria-controls="play-version-menu" aria-expanded="false" aria-labelledby="play-version-label play-version-value" disabled>
       <span id="play-version-value">Loading versions…</span><span class="play-version-chevron" aria-hidden="true"></span>
     </button>
-    <div class="play-version-menu" id="play-version-menu" hidden></div>
+    <div class="play-version-menu" id="play-version-menu" hidden>
+      <label class="play-version-search" for="play-version-search">Find a version
+        <input id="play-version-search" type="search" placeholder="Version, tag, deprecated…" autocomplete="off">
+      </label>
+      <div class="play-version-list" id="play-version-list"></div>
+      <p class="play-version-empty" id="play-version-empty" hidden>No versions match that search.</p>
+    </div>
   </div>
+  <p class="play-version-meta" id="play-version-meta" aria-live="polite"></p>
+  <details class="play-version-deprecation" id="play-version-deprecation" hidden>
+    <summary>Deprecated release · details</summary>
+    <p id="play-version-deprecation-message"></p>
+  </details>
+  <details class="play-version-compare" id="play-version-compare" hidden>
+    <summary>Compare API with latest stable</summary>
+    <p id="play-version-diff"></p>
+  </details>
   <div class="chips" aria-label="Example library expressions">
     <button type="button" data-expression="format(now, 'yyyy-MM-dd', { locale })" disabled>format</button>
     <button type="button" data-expression="parse('yyyy-MM-dd', '2026-08-04')" disabled>parse</button>
@@ -86,6 +103,19 @@ parse('yyyy-MM-dd HH:mm', '2026-08-04 15:45');   // Temporal.PlainDateTime</code
     <button type="button" data-expression="add(now, 3, 'days')" disabled>arithmetic</button>
     <button type="button" data-expression="formatRange(interval(Temporal.PlainDate.from('2026-08-04'), Temporal.PlainDate.from('2026-08-06')), 'MMM d', { locale })" disabled>interval</button>
     <button type="button" data-expression="analyzeFormat('yyyy-MM-dd')" disabled>analyze</button>
+  </div>
+  <div class="play-function-browser">
+    <details id="play-function-browser">
+      <summary>Browse functions <span id="play-function-count" aria-live="polite">Loading…</span></summary>
+      <div class="play-function-panel">
+        <label class="play-function-search" for="play-function-search">Search exported functions
+          <input id="play-function-search" type="search" placeholder="Search by function name…" autocomplete="off" disabled>
+        </label>
+        <p class="play-function-help">Choose a function to insert a call. Add its arguments before running.</p>
+        <div class="play-function-list" id="play-function-list" aria-label="Available exported functions"></div>
+        <p class="play-function-empty" id="play-function-empty" hidden>No matching functions in this version.</p>
+      </div>
+    </details>
   </div>
   <p class="play-trip" id="play-status"></p>
 </div>
